@@ -191,6 +191,38 @@ input {
   box-shadow: 0 0 14px rgba(203, 213, 225, 0.24);
 }
 
+.space-badge.is-polaris {
+  background: rgba(8, 24, 48, 0.82);
+  border: 1px solid rgba(125, 211, 252, 0.55);
+  color: #e0f2fe;
+  font-size: 10.5px;
+  margin-left: -62px;
+  margin-top: -34px;
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.28);
+}
+
+.space-badge.is-compass {
+  background: rgba(7, 13, 26, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  color: #cbd5e1;
+  font-size: 10px;
+  padding: 2px 7px;
+  margin-left: -20px;
+  margin-top: -12px;
+}
+
+.space-badge.is-compass.is-cardinal {
+  background: rgba(8, 22, 42, 0.88);
+  border: 1px solid rgba(56, 189, 248, 0.62);
+  color: #e0f2fe;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  margin-left: -26px;
+  margin-top: -14px;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.26);
+}
+
 .space-badge.is-season {
   background: rgba(22, 16, 8, 0.72);
   border: 1px solid rgba(245, 158, 11, 0.38);
@@ -533,6 +565,31 @@ input {
   gap: 5px;
 }
 
+.view-preset-grid.four-col {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.tokyo-view-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-color: rgba(52, 211, 153, 0.32);
+  color: #a7f3d0;
+  background: rgba(8, 30, 28, 0.56);
+}
+
+.tokyo-view-btn:hover {
+  border-color: rgba(52, 211, 153, 0.68);
+  color: #ecfdf5;
+}
+
+.tokyo-view-btn.is-active {
+  border-color: var(--accent-emerald);
+  background: rgba(16, 185, 129, 0.24);
+  color: #ecfdf5;
+  box-shadow: 0 0 14px rgba(52, 211, 153, 0.24);
+}
+
 .moon-view-btn {
   display: inline-flex;
   align-items: center;
@@ -807,6 +864,10 @@ input {
 
 .option-btn-group.two-col {
   grid-template-columns: repeat(2, 1fr);
+}
+
+.option-btn-group.four-col {
+  grid-template-columns: repeat(4, 1fr);
 }
 
 .choice-btn {

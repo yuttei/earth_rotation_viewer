@@ -15,7 +15,11 @@ export type CameraPreset =
   | "moonNorthPole"
   | "moonEclipticPlane"
   | "sunOverhead"
-  | "sunEclipticOblique";
+  | "sunEclipticOblique"
+  | "tokyoNorth"
+  | "tokyoEast"
+  | "tokyoSouth"
+  | "tokyoWest";
 
 /** 観測したい主要都市（または北極点）の定義 */
 export interface City {

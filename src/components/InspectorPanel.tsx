@@ -33,7 +33,8 @@ export type GuideExperimentId =
   | "sidereal-vs-solar"
   | "ecliptic-tilt"
   | "sun-orbit-overview"
-  | "moon-orbit-observe";
+  | "moon-orbit-observe"
+  | "tokyo-ground-sky";
 
 interface InspectorPanelProps {
   isOpen: boolean;
@@ -348,6 +349,48 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 </div>
               </div>
 
+              <div className="view-group-block">
+                <span className="view-group-label">東京の地上から見る空</span>
+                <div className="option-btn-group four-col">
+                  <button
+                    type="button"
+                    className={`choice-btn tokyo-view-btn ${
+                      cameraPreset === "tokyoNorth" ? "is-active" : ""
+                    }`}
+                    onClick={() => onSelectCameraPreset("tokyoNorth")}
+                  >
+                    北
+                  </button>
+                  <button
+                    type="button"
+                    className={`choice-btn tokyo-view-btn ${
+                      cameraPreset === "tokyoEast" ? "is-active" : ""
+                    }`}
+                    onClick={() => onSelectCameraPreset("tokyoEast")}
+                  >
+                    東
+                  </button>
+                  <button
+                    type="button"
+                    className={`choice-btn tokyo-view-btn ${
+                      cameraPreset === "tokyoSouth" ? "is-active" : ""
+                    }`}
+                    onClick={() => onSelectCameraPreset("tokyoSouth")}
+                  >
+                    南
+                  </button>
+                  <button
+                    type="button"
+                    className={`choice-btn tokyo-view-btn ${
+                      cameraPreset === "tokyoWest" ? "is-active" : ""
+                    }`}
+                    onClick={() => onSelectCameraPreset("tokyoWest")}
+                  >
+                    西
+                  </button>
+                </div>
+              </div>
+
               <div className="view-slider-wrap">
                 <input
                   type="range"
@@ -438,7 +481,21 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
         {activeTab === "guide" && (
           <>
             <div className="guide-card">
-              <h3 className="guide-title">1. 月の公転・満ち欠けと白道の傾き</h3>
+              <h3 className="guide-title">1. 東京の地上から見る空（日周運動と北極星）</h3>
+              <p className="guide-text">
+                東京（北緯35.7°）の地上へ降りると、北の空では高度35.7°の北極星を中心に星々が反時計回りに回り、東から昇った太陽や月が南を通って西へ沈む様子を連続視点で観察できます。
+              </p>
+              <button
+                type="button"
+                className="guide-action-btn"
+                onClick={() => onRunGuideExperiment("tokyo-ground-sky")}
+              >
+                東京の地上（南の空）へ移動して観察
+              </button>
+            </div>
+
+            <div className="guide-card">
+              <h3 className="guide-title">2. 月の公転・満ち欠けと白道の傾き</h3>
               <p className="guide-text">
                 月は地球の周りを反時計回りに公転し、太陽との位置関係によって新月・上弦・満月・下弦へと満ち欠けします。月の軌道（白道）は黄道面に対し約5.1°傾いています。
               </p>
@@ -452,7 +509,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">2. 太陽の真上から見る「公転と季節」</h3>
+              <h3 className="guide-title">3. 太陽の真上から見る「公転と季節」</h3>
               <p className="guide-text">
                 太陽の真上へ視点を移すと、地球が 23.4° 地軸を傾けたまま太陽の周りを反時計回りに公転し、春分・夏至・秋分・冬至が巡る様子を一望できます。
               </p>
@@ -466,7 +523,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">3. なぜ天の北極からは反時計回り？</h3>
+              <h3 className="guide-title">4. なぜ天の北極からは反時計回り？</h3>
               <p className="guide-text">
                 地球の自転は西から東へ向かっています。天の北極（北極点の真上）から地球を見下ろすと、本初子午線（黄色い線）も日本も反時計回りに回転します。
               </p>
@@ -480,7 +537,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">4. 黄道面（公転面）と地軸23.4°の傾き</h3>
+              <h3 className="guide-title">5. 黄道面（公転面）と地軸23.4°の傾き</h3>
               <p className="guide-text">
                 視点を黄道面（公転面・オレンジの輪）の水平目線へ移すと、太陽光が真横から水平に差し込む中で、地球の地軸が23.4°傾いて自転する姿が見えます。
               </p>
@@ -494,7 +551,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">5. 夏至の「白夜」と冬至の「極夜」</h3>
+              <h3 className="guide-title">6. 夏至の「白夜」と冬至の「極夜」</h3>
               <p className="guide-text">
                 地軸は公転面に対して約23.4°傾いています。夏至には北極側が太陽を向くため北極圏（水色の破線）全体が昼のまま回り（白夜）、冬至には逆に影の中へすっぽり入ります（極夜）。
               </p>
@@ -517,7 +574,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">6. なぜ太陽は東から昇り西に沈む？</h3>
+              <h3 className="guide-title">7. なぜ太陽は東から昇り西に沈む？</h3>
               <p className="guide-text">
                 東京の地表に伸びるシアン色の矢印が「東（地球が回っていく向き）」です。地球が反時計回りに回ることで、東京が東向きに昼の側へ飛び込んでいくため、太陽は東の地平線から昇って見えます。
               </p>
@@ -531,7 +588,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">7. 恒星日（23h56m）と太陽日（24h）</h3>
+              <h3 className="guide-title">8. 恒星日（23h56m）と太陽日（24h）</h3>
               <p className="guide-text">
                 地球が1回転する間にも地球は太陽の周りを約1°公転するため、太陽が再び真上に来るには約4分余計に回る必要があります。春分点（紫線）を固定し、下の「+1恒星日」と「+1太陽日」を押し比べてみましょう。
               </p>

@@ -405,3 +405,164 @@ export function createAtmosphereMaterial(): {
 
   return { material, uniforms };
 }
+
+const TOKYO_SKY_VERTEX_SHADER = /* glsl */ `
+  varying vec3 vSkyDir;
+
+  void main() {
+    // 球メッシュはワールド空間の回転を持たず東京の観測点を中心にするため、position 自体が天球の視線方向になります。
+    vSkyDir = normalize(position);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const TOKYO_SKY_FRAGMENT_SHADER = /* glsl */ `
+  uniform vec3 uUpWorld;
+  uniform vec3 uSunDirWorld;
+  uniform float uOpacity;
+  uniform float uIsDiagram;
+
+  varying vec3 vSkyDir;
+
+  void main() {
+    vec3 dir = normalize(vSkyDir);
+    vec3 up = normalize(uUpWorld);
+    vec3 sunDir = normalize(uSunDirWorld);
+
+    float elev = dot(dir, up);
+    float sunElev = dot(sunDir, up);
+    float sunAlign = max(dot(dir, sunDir), 0.0);
+
+    // 太陽高度に応じて 昼・薄明（朝焼け/夕焼け）・夜 のブレンド係数を滑らかに求めます。
+    float dayFactor = smoothstep(-0.07, 0.22, sunElev);
+    float twilightFactor =
+      smoothstep(-0.24, -0.02, sunElev) * (1.0 - smoothstep(0.03, 0.28, sunElev));
+    float horizonGlow = pow(1.0 - clamp(elev, 0.0, 1.0), 2.7);
+
+    // 昼の青空（天頂は深い青、地平線付近は明るい水色＋太陽周辺の柔らかな輝き）
+    vec3 dayZenith = vec3(0.08, 0.26, 0.62);
+    vec3 dayHorizon = vec3(0.46, 0.75, 0.96);
+    vec3 dayColor = mix(dayZenith, dayHorizon, horizonGlow);
+    dayColor += vec3(1.0, 0.9, 0.72) * pow(sunAlign, 18.0) * 0.42;
+    dayColor += vec3(0.95, 0.96, 1.0) * pow(sunAlign, 4.0) * 0.14;
+
+    // 朝焼け・夕焼け（太陽側の地平線ほど暖かな橙〜茜色に染めます）
+    vec3 twZenith = vec3(0.04, 0.09, 0.26);
+    vec3 twHorizonCool = vec3(0.24, 0.28, 0.48);
+    vec3 twHorizonWarm = vec3(0.96, 0.46, 0.18);
+    vec3 twHorizon = mix(twHorizonCool, twHorizonWarm, pow(sunAlign, 1.8));
+    vec3 twilightColor = mix(twZenith, twHorizon, pow(1.0 - clamp(elev, 0.0, 1.0), 2.1));
+
+    // 夜空（星空がくっきり透過するよう、地平線付近だけわずかに青みを帯びさせます）
+    vec3 nightColor = mix(vec3(0.015, 0.03, 0.08), vec3(0.05, 0.1, 0.2), horizonGlow);
+
+    vec3 skyColor = mix(nightColor, dayColor, dayFactor);
+    skyColor = mix(skyColor, twilightColor, twilightFactor * 0.85);
+
+    // 昼間は青空で背景の星を自然に隠し、夜は透明にして実際の3D星空と北極星を見せます。
+    float maxDayAlpha = mix(0.95, 0.56, uIsDiagram);
+    float nightAlpha = mix(0.06, 0.26, horizonGlow);
+    float alpha = mix(nightAlpha, maxDayAlpha, dayFactor);
+    alpha = clamp(alpha + twilightFactor * (0.28 + 0.45 * horizonGlow), 0.0, 0.97);
+
+    // 地平線より下は地面メッシュに隠れるため、下側へ滑らかに減衰させます。
+    float aboveMask = smoothstep(-0.18, 0.02, elev);
+    gl_FragColor = vec4(skyColor, alpha * aboveMask * uOpacity);
+  }
+`;
+
+/**
+ * 東京の地上視点で見上げる大気スカイドーム（昼の青空・朝夕焼け・夜の星空透過）用 ShaderMaterial を生成します。
+ */
+export function createTokyoSkyMaterial(): {
+  material: THREE.ShaderMaterial;
+  uniforms: {
+    uUpWorld: { value: THREE.Vector3 };
+    uSunDirWorld: { value: THREE.Vector3 };
+    uOpacity: { value: number };
+    uIsDiagram: { value: number };
+  };
+} {
+  const uniforms = {
+    uUpWorld: { value: new THREE.Vector3(0, 1, 0) },
+    uSunDirWorld: { value: new THREE.Vector3(1, 0, 0) },
+    uOpacity: { value: 0 },
+    uIsDiagram: { value: 0 },
+  };
+
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: TOKYO_SKY_VERTEX_SHADER,
+    fragmentShader: TOKYO_SKY_FRAGMENT_SHADER,
+    side: THREE.BackSide,
+    transparent: true,
+    depthWrite: false,
+  });
+
+  return { material, uniforms };
+}
+
+const TOKYO_GROUND_VERTEX_SHADER = /* glsl */ `
+  varying vec2 vLocalXY;
+
+  void main() {
+    // CircleGeometry のローカル平面 (X, Y) を使って観測点からの距離を計算します。
+    vLocalXY = position.xy;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const TOKYO_GROUND_FRAGMENT_SHADER = /* glsl */ `
+  uniform float uSunElevation;
+  uniform float uOpacity;
+
+  varying vec2 vLocalXY;
+
+  void main() {
+    float dist = clamp(length(vLocalXY) / 14.0, 0.0, 1.0);
+    float dayFactor = smoothstep(-0.08, 0.25, uSunElevation);
+    float twilightFactor =
+      smoothstep(-0.22, -0.02, uSunElevation) * (1.0 - smoothstep(0.04, 0.24, uSunElevation));
+
+    vec3 nightNear = vec3(0.02, 0.04, 0.08);
+    vec3 nightFar = vec3(0.05, 0.09, 0.16);
+    vec3 dayNear = vec3(0.08, 0.14, 0.22);
+    vec3 dayFar = vec3(0.18, 0.29, 0.42);
+
+    vec3 nearCol = mix(nightNear, dayNear, dayFactor);
+    vec3 farCol = mix(nightFar, dayFar, dayFactor);
+    farCol += vec3(0.18, 0.09, 0.05) * twilightFactor;
+
+    // 観測点を中心に同心円状の控えめなグリッド気配を出し、方角感覚をわかりやすくします。
+    float ringPattern = smoothstep(0.96, 1.0, abs(sin(dist * 3.14159265 * 6.0))) * 0.045;
+    vec3 color = mix(nearCol, farCol, pow(dist, 1.35)) + vec3(0.12, 0.26, 0.38) * ringPattern;
+
+    gl_FragColor = vec4(color, uOpacity);
+  }
+`;
+
+/**
+ * 東京の地上視点における地平線ディスク（地平線下の太陽・月・星を自然に遮蔽）用 ShaderMaterial を生成します。
+ */
+export function createTokyoGroundMaterial(): {
+  material: THREE.ShaderMaterial;
+  uniforms: {
+    uSunElevation: { value: number };
+    uOpacity: { value: number };
+  };
+} {
+  const uniforms = {
+    uSunElevation: { value: 0 },
+    uOpacity: { value: 0 },
+  };
+
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: TOKYO_GROUND_VERTEX_SHADER,
+    fragmentShader: TOKYO_GROUND_FRAGMENT_SHADER,
+    transparent: true,
+    depthWrite: true,
+  });
+
+  return { material, uniforms };
+}

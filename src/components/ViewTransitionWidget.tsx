@@ -1,5 +1,5 @@
 import React from "react";
-import { Moon, Orbit, RotateCcw, Sun } from "lucide-react";
+import { Compass, Moon, Orbit, RotateCcw, Sun } from "lucide-react";
 import { CameraPreset } from "../types/astronomy";
 
 interface ViewTransitionWidgetProps {
@@ -23,8 +23,15 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
   onSelectPreset,
 }) => {
   const percent = Math.round(transitionRatio * 100);
-  const isSunView =
-    activePreset === "sunOverhead" || activePreset === "sunEclipticOblique";
+  const isTokyoGroundView =
+    activePreset === "tokyoNorth" ||
+    activePreset === "tokyoEast" ||
+    activePreset === "tokyoSouth" ||
+    activePreset === "tokyoWest";
+  const isSliderDimmed =
+    activePreset === "sunOverhead" ||
+    activePreset === "sunEclipticOblique" ||
+    isTokyoGroundView;
 
   let statusLabel = `移行 ${percent}%`;
   if (activePreset === "northPole") {
@@ -39,12 +46,20 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
     statusLabel = "太陽の真上";
   } else if (activePreset === "sunEclipticOblique") {
     statusLabel = "公転面（やや上）";
+  } else if (activePreset === "tokyoNorth") {
+    statusLabel = "東京地上：北の空";
+  } else if (activePreset === "tokyoEast") {
+    statusLabel = "東京地上：東の空";
+  } else if (activePreset === "tokyoSouth") {
+    statusLabel = "東京地上：南の空";
+  } else if (activePreset === "tokyoWest") {
+    statusLabel = "東京地上：西の空";
   }
 
   return (
     <section
       className="view-transition-card"
-      aria-label="地球・月・太陽の連続視点移動"
+      aria-label="地球・月・太陽・東京地上の連続視点移動"
     >
       <div className="view-transition-header">
         <span className="view-transition-title">
@@ -54,7 +69,7 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
         <span className="view-transition-badge">{statusLabel}</span>
       </div>
 
-      <div className={`view-slider-wrap ${isSunView ? "is-dimmed" : ""}`}>
+      <div className={`view-slider-wrap ${isSliderDimmed ? "is-dimmed" : ""}`}>
         <input
           type="range"
           className="view-slider"
@@ -145,6 +160,55 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
           >
             <Sun size={11} style={{ marginRight: 3, verticalAlign: -1 }} />
             公転面 (やや上)
+          </button>
+        </div>
+      </div>
+
+      <div className="view-group-block">
+        <span className="view-group-label">
+          <Compass size={10} style={{ marginRight: 3, verticalAlign: -1 }} />
+          東京の地上から見る空
+        </span>
+        <div className="view-preset-grid four-col">
+          <button
+            type="button"
+            className={`choice-btn tokyo-view-btn ${
+              activePreset === "tokyoNorth" ? "is-active" : ""
+            }`}
+            onClick={() => onSelectPreset("tokyoNorth")}
+            title="東京の地上から北の空（高度35.7°の北極星と反時計回りに回る星々）を観察"
+          >
+            北
+          </button>
+          <button
+            type="button"
+            className={`choice-btn tokyo-view-btn ${
+              activePreset === "tokyoEast" ? "is-active" : ""
+            }`}
+            onClick={() => onSelectPreset("tokyoEast")}
+            title="東京の地上から東の空（太陽・月・星が右上へ昇る様子）を観察"
+          >
+            東
+          </button>
+          <button
+            type="button"
+            className={`choice-btn tokyo-view-btn ${
+              activePreset === "tokyoSouth" ? "is-active" : ""
+            }`}
+            onClick={() => onSelectPreset("tokyoSouth")}
+            title="東京の地上から南の空（左から右へ弧を描く太陽・月・星の南中）を観察"
+          >
+            南
+          </button>
+          <button
+            type="button"
+            className={`choice-btn tokyo-view-btn ${
+              activePreset === "tokyoWest" ? "is-active" : ""
+            }`}
+            onClick={() => onSelectPreset("tokyoWest")}
+            title="東京の地上から西の空（太陽・月・星が右下へ沈む様子）を観察"
+          >
+            西
           </button>
         </div>
       </div>

@@ -34,6 +34,8 @@ const DEFAULT_LAYERS: DisplayLayers = {
   moonAndOrbit: true,
 };
 
+const GROUND_DEFAULT_ELEVATION = degToRad(26);
+
 const PRESET_POSES: Record<
   CameraPreset,
   Omit<CameraPoseTarget, "seq"> & { ratio: number }
@@ -44,6 +46,9 @@ const PRESET_POSES: Record<
     distance: 3.92,
     eclipticBlend: 0,
     sunCenterBlend: 0,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
     durationSec: 2.6,
     ratio: 0,
   },
@@ -53,6 +58,9 @@ const PRESET_POSES: Record<
     distance: 4.02,
     eclipticBlend: 1,
     sunCenterBlend: 0,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
     durationSec: 2.6,
     ratio: 1,
   },
@@ -62,6 +70,9 @@ const PRESET_POSES: Record<
     distance: 14.0,
     eclipticBlend: 0,
     sunCenterBlend: 0,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
     durationSec: 2.8,
     ratio: 0,
   },
@@ -71,6 +82,9 @@ const PRESET_POSES: Record<
     distance: 14.0,
     eclipticBlend: 1,
     sunCenterBlend: 0,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
     durationSec: 2.8,
     ratio: 1,
   },
@@ -80,6 +94,9 @@ const PRESET_POSES: Record<
     distance: 56.0,
     eclipticBlend: 1,
     sunCenterBlend: 1,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
     durationSec: 3.4,
     ratio: 1,
   },
@@ -89,8 +106,59 @@ const PRESET_POSES: Record<
     distance: 43.0,
     eclipticBlend: 1,
     sunCenterBlend: 1,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
     durationSec: 3.2,
     ratio: 1,
+  },
+  tokyoNorth: {
+    yaw: 0,
+    pitch: Math.PI / 2,
+    distance: 3.92,
+    eclipticBlend: 0,
+    sunCenterBlend: 0,
+    groundBlend: 1,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    durationSec: 1.8,
+    ratio: 0,
+  },
+  tokyoEast: {
+    yaw: 0,
+    pitch: Math.PI / 2,
+    distance: 3.92,
+    eclipticBlend: 0,
+    sunCenterBlend: 0,
+    groundBlend: 1,
+    groundAzimuth: Math.PI / 2,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    durationSec: 1.8,
+    ratio: 0,
+  },
+  tokyoSouth: {
+    yaw: 0,
+    pitch: Math.PI / 2,
+    distance: 3.92,
+    eclipticBlend: 0,
+    sunCenterBlend: 0,
+    groundBlend: 1,
+    groundAzimuth: Math.PI,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    durationSec: 1.8,
+    ratio: 0,
+  },
+  tokyoWest: {
+    yaw: 0,
+    pitch: Math.PI / 2,
+    distance: 3.92,
+    eclipticBlend: 0,
+    sunCenterBlend: 0,
+    groundBlend: 1,
+    groundAzimuth: -Math.PI / 2,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    durationSec: 1.8,
+    ratio: 0,
   },
 };
 
@@ -115,6 +183,9 @@ export function App() {
     distance: PRESET_POSES.northPole.distance,
     eclipticBlend: PRESET_POSES.northPole.eclipticBlend,
     sunCenterBlend: PRESET_POSES.northPole.sunCenterBlend,
+    groundBlend: PRESET_POSES.northPole.groundBlend,
+    groundAzimuth: PRESET_POSES.northPole.groundAzimuth,
+    groundElevation: PRESET_POSES.northPole.groundElevation,
     durationSec: PRESET_POSES.northPole.durationSec,
     seq: 0,
   });
@@ -173,24 +244,42 @@ export function App() {
   const handleSelectCameraPreset = useCallback(
     (preset: CameraPreset, adjustSpeedAutomatically = true) => {
       const p = PRESET_POSES[preset];
+      const isTargetGround = p.groundBlend > 0.5;
       setActivePresetButton(preset);
       setViewTransitionRatio(p.ratio);
 
-      // 太陽中心・月軌道・地球近接の各距離帯を跨ぐ場合は、よりゆっくり移動して距離変化を見やすくします。
+      if (isTargetGround) {
+        // 東京の地上視点へ移動したら、右パネルの観測情報も自動で「東京」に合わせます。
+        setSelectedCityId("tokyo");
+      }
+
+      // 宇宙空間 ⇄ 東京地上、および太陽中心・月軌道・地球近接の各距離帯を跨ぐ場合はゆっくり連続移動します。
       setCameraPoseTarget((prev) => {
+        const crossesGround = prev.groundBlend !== p.groundBlend;
         const crossesSunCenter = prev.sunCenterBlend !== p.sunCenterBlend;
         const crossesMoonBand = (prev.distance >= 7.5) !== (p.distance >= 7.5);
-        const durationSec = crossesSunCenter
+        const durationSec = crossesGround
+          ? prev.sunCenterBlend > 0.5 || p.sunCenterBlend > 0.5
+            ? 3.6
+            : 3.1
+          : crossesSunCenter
           ? 3.4
           : crossesMoonBand
           ? 3.0
           : p.durationSec;
+
         return {
           yaw: p.yaw,
           pitch: p.pitch,
           distance: p.distance,
           eclipticBlend: p.eclipticBlend,
           sunCenterBlend: p.sunCenterBlend,
+          groundBlend: p.groundBlend,
+          // 地上から宇宙へ戻るときは直前に見ていた方角を保ったまま滑らかに上昇します。
+          groundAzimuth: isTargetGround ? p.groundAzimuth : prev.groundAzimuth,
+          groundElevation: isTargetGround
+            ? p.groundElevation
+            : prev.groundElevation,
           durationSec,
           seq: prev.seq + 1,
         };
@@ -214,7 +303,9 @@ export function App() {
   );
 
   const isMoonDistanceMode =
-    cameraPoseTarget.sunCenterBlend < 0.5 && cameraPoseTarget.distance >= 7.5;
+    cameraPoseTarget.groundBlend < 0.5 &&
+    cameraPoseTarget.sunCenterBlend < 0.5 &&
+    cameraPoseTarget.distance >= 7.5;
 
   const handleChangeViewTransitionRatio = useCallback(
     (ratio: number) => {
@@ -246,7 +337,11 @@ export function App() {
         distance: isMoonDistanceMode ? 14.0 : 3.92 + clamped * 0.1,
         eclipticBlend: clamped,
         sunCenterBlend: 0,
-        durationSec: prev.sunCenterBlend > 0.5 ? 2.6 : 0.45,
+        groundBlend: 0,
+        groundAzimuth: prev.groundAzimuth,
+        groundElevation: prev.groundElevation,
+        durationSec:
+          prev.sunCenterBlend > 0.5 || prev.groundBlend > 0.5 ? 2.6 : 0.45,
         seq: prev.seq,
       }));
     },
@@ -268,6 +363,19 @@ export function App() {
   const handleRunGuideExperiment = useCallback(
     (id: GuideExperimentId) => {
       switch (id) {
+        case "tokyo-ground-sky":
+          handleSelectCameraPreset("tokyoSouth", false);
+          setSelectedCityId("tokyo");
+          setLayers((prev) => ({
+            ...prev,
+            graticule: true,
+            moonAndOrbit: true,
+            starsAndEquinox: true,
+          }));
+          setSpeedMultiplier(1800);
+          setIsPlaying(true);
+          break;
+
         case "moon-orbit-observe":
           handleSelectCameraPreset("moonNorthPole", false);
           setLayers((prev) => ({

@@ -1191,9 +1191,10 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
 
       // 太陽・地球・春分点・公転軌道の季節ラベルを更新
       if (isOrbitOverview) {
+        tmpWorldPos.copy(camera.up).multiplyScalar(SUN_RADIUS + 0.85);
         updateFloatingBadgeAtPosition(
           sunBadgeRef.current,
-          new THREE.Vector3(0, 0, -(SUN_RADIUS + 0.85)),
+          tmpWorldPos,
           camera,
           hostW,
           hostH,

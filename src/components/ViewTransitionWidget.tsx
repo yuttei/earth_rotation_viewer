@@ -14,7 +14,7 @@ interface ViewTransitionWidgetProps {
 }
 
 /**
- * 天の北極・黄道面（水平）・太陽の真上の3視点間を
+ * 天の北極・黄道面（水平）・太陽中心（真上 / 公転面やや上）の各視点を
  * 滑らかに連続移動できる操作カードです。
  */
 export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
@@ -24,6 +24,8 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
   onSelectPreset,
 }) => {
   const percent = Math.round(transitionRatio * 100);
+  const isSunView =
+    activePreset === "sunOverhead" || activePreset === "sunEclipticOblique";
 
   let statusLabel = `移行 ${percent}%`;
   if (activePreset === "northPole") {
@@ -32,12 +34,14 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
     statusLabel = "黄道面（水平）";
   } else if (activePreset === "sunOverhead") {
     statusLabel = "太陽の真上";
+  } else if (activePreset === "sunEclipticOblique") {
+    statusLabel = "公転面（やや上）";
   }
 
   return (
     <section
       className="view-transition-card"
-      aria-label="天の北極・黄道面・太陽真上の連続視点移動"
+      aria-label="天の北極・黄道面・太陽公転の連続視点移動"
     >
       <div className="view-transition-header">
         <span className="view-transition-title">
@@ -47,7 +51,7 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
         <span className="view-transition-badge">{statusLabel}</span>
       </div>
 
-      <div className={`view-slider-wrap ${activePreset === "sunOverhead" ? "is-dimmed" : ""}`}>
+      <div className={`view-slider-wrap ${isSunView ? "is-dimmed" : ""}`}>
         <input
           type="range"
           className="view-slider"
@@ -87,10 +91,21 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
             activePreset === "sunOverhead" ? "is-active" : ""
           }`}
           onClick={() => onSelectPreset("sunOverhead")}
-          title="太陽の真上へ連続移動し、地球が太陽の周りを公転する全体像を観察"
+          title="太陽の真上へ連続移動し、公転軌道全体を真上から観察"
         >
-          <Sun size={12} style={{ marginRight: 4, verticalAlign: -2 }} />
-          太陽の真上（公転を見る）
+          <Sun size={11} style={{ marginRight: 3, verticalAlign: -1 }} />
+          太陽の真上
+        </button>
+        <button
+          type="button"
+          className={`choice-btn sun-overhead-btn ${
+            activePreset === "sunEclipticOblique" ? "is-active" : ""
+          }`}
+          onClick={() => onSelectPreset("sunEclipticOblique")}
+          title="公転面水平よりやや上から、太陽を回る地球と軌道の奥行きを立体的に観察"
+        >
+          <Sun size={11} style={{ marginRight: 3, verticalAlign: -1 }} />
+          公転面 (やや上)
         </button>
       </div>
     </section>

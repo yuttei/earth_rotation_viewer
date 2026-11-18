@@ -12,7 +12,8 @@ export type ReferenceFrame = "solar" | "sidereal";
 export type CameraPreset =
   | "northPole"
   | "eclipticPlane"
-  | "sunOverhead";
+  | "sunOverhead"
+  | "sunEclipticOblique";
 
 /** 観測したい主要都市（または北極点）の定義 */
 export interface City {

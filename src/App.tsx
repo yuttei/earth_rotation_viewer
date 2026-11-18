@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OBSERVATION_CITIES } from "./data/cities";
 import {
   calculateSolarSystemState,
+  degToRad,
   SEASON_PRESETS,
 } from "./astronomy/calculations";
 import {
@@ -60,6 +61,15 @@ const PRESET_POSES: Record<
     eclipticBlend: 1,
     sunCenterBlend: 1,
     durationSec: 3.4,
+    ratio: 1,
+  },
+  sunEclipticOblique: {
+    yaw: 0.52,
+    pitch: degToRad(14),
+    distance: 44.0,
+    eclipticBlend: 1,
+    sunCenterBlend: 1,
+    durationSec: 3.2,
     ratio: 1,
   },
 };
@@ -156,8 +166,10 @@ export function App() {
       });
 
       if (adjustSpeedAutomatically) {
-        if (preset === "sunOverhead") {
-          setSpeedMultiplier((prev) => (prev < 86400 ? 864000 : prev));
+        const isOrbitView =
+          preset === "sunOverhead" || preset === "sunEclipticOblique";
+        if (isOrbitView) {
+          setSpeedMultiplier((prev) => (prev < 86400 ? 86400 : prev));
           setIsPlaying(true);
         } else {
           setSpeedMultiplier((prev) => (prev >= 86400 ? 1800 : prev));
@@ -214,7 +226,7 @@ export function App() {
             eclipticPlane: true,
             starsAndEquinox: true,
           }));
-          setSpeedMultiplier(864000);
+          setSpeedMultiplier(86400);
           setIsPlaying(true);
           break;
 

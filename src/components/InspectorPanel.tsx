@@ -247,18 +247,27 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 >
                   黄道面 (水平)
                 </button>
+                <button
+                  type="button"
+                  className={`choice-btn sun-overhead-btn ${
+                    cameraPreset === "sunOverhead" ? "is-active" : ""
+                  }`}
+                  onClick={() => onSelectCameraPreset("sunOverhead")}
+                >
+                  <Sun size={11} style={{ marginRight: 3, verticalAlign: -1 }} />
+                  太陽の真上
+                </button>
+                <button
+                  type="button"
+                  className={`choice-btn sun-overhead-btn ${
+                    cameraPreset === "sunEclipticOblique" ? "is-active" : ""
+                  }`}
+                  onClick={() => onSelectCameraPreset("sunEclipticOblique")}
+                >
+                  <Sun size={11} style={{ marginRight: 3, verticalAlign: -1 }} />
+                  公転面 (やや上)
+                </button>
               </div>
-
-              <button
-                type="button"
-                className={`choice-btn sun-overhead-btn ${
-                  cameraPreset === "sunOverhead" ? "is-active" : ""
-                }`}
-                onClick={() => onSelectCameraPreset("sunOverhead")}
-              >
-                <Sun size={12} style={{ marginRight: 4, verticalAlign: -2 }} />
-                太陽の真上（公転を見る）
-              </button>
 
               <div className="view-slider-wrap">
                 <input

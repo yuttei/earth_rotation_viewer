@@ -216,8 +216,8 @@ $$A = \operatorname{wrap}_{360}(\operatorname{radToDeg}(\operatorname{atan2}(A_{
 |---|---|---|
 | `"northPole"` | 天の北極（初期値） | 地球中心を注視し、天の北極軸上空（`eclipticBlend = 0`, `pitch = 90°`, `distance = 3.92`）から地球の反時計回り自転・北極圏の白夜極夜を観察 |
 | `"eclipticPlane"` | 黄道面 (水平) | 地球中心を注視し、黄道面の水平真横（`eclipticBlend = 1`, `pitch = 0°`, `distance = 4.02`）から太陽光線の水平照射と地軸 $23.4^\circ$ の傾きを観察 |
-| `"sunOverhead"` | 太陽の真上 | 太陽中心 $(0, 0, 0)$ を注視し、黄道北極の上空（`eclipticBlend = 1`, `sunCenterBlend = 1`, `pitch = 90°`, `distance = 56.0`）から太陽と地球の公転全体（春分・夏至・秋分・冬至）を一望 |
-| `"sunEclipticOblique"` | 公転面 (やや上) | 太陽中心 $(0, 0, 0)$ を注視し、公転面水平よりやや上（`eclipticBlend = 1`, `sunCenterBlend = 1`, `pitch = 14°`, `yaw = 0.52`, `distance = 44.0`）から公転軌道の奥行きと太陽を回る地球を立体的に観察 |
+| `"sunOverhead"` | 太陽の真上 | 太陽中心 $(0, 0, 0)$ を注視し、黄道北極の上空（`eclipticBlend = 1`, `sunCenterBlend = 1`, `pitch = 90°`, `distance = 56.0`）から、下=春分・右=夏至・上=秋分・左=冬至の配置で公転全体を一望 |
+| `"sunEclipticOblique"` | 公転面 (やや上) | 太陽中心 $(0, 0, 0)$ を注視し、公転面水平よりやや上（`eclipticBlend = 1`, `sunCenterBlend = 1`, `pitch = 20°`, `yaw = 0`, `distance = 43.0`）から、真ん前=春分・右=夏至・真後ろ=秋分・左=冬至の配置で公転軌道を立体的に観察 |
 
 - **ゆっくり滑らかな連続トランジション**：プリセット切り替え時は、現在の姿勢を始点として 3 次イージング（`easeInOutCubic`）と対数距離補間（$\exp(\operatorname{lerp}(\ln d_0, \ln d_1))$）を用い、地球視点間は `2.6 秒`、太陽中心視点を跨ぐ移動は `3.2〜3.4 秒` かけて連続的に視点移動する
 - **天の北極 ⇄ 黄道面（水平）連続スライダー**：`0%`〜`100%` のスライダー操作で `eclipticBlend`（`0 -> 1`）と `pitch`（`90° -> 0°`）を連続補間し、途中の任意の角度へ移動できる

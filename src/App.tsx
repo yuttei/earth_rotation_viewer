@@ -64,9 +64,9 @@ const PRESET_POSES: Record<
     ratio: 1,
   },
   sunEclipticOblique: {
-    yaw: 0.52,
-    pitch: degToRad(14),
-    distance: 44.0,
+    yaw: 0,
+    pitch: degToRad(20),
+    distance: 43.0,
     eclipticBlend: 1,
     sunCenterBlend: 1,
     durationSec: 3.2,

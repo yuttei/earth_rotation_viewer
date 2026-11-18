@@ -1012,8 +1012,12 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       // 3. 連続視点アニメーション（ゆっくり・EaseInOutCubic・対数ズーム補間）
       const anim = cameraAnimRef.current;
       const desiredEarthRightAngle = curFrame === "solar" ? eclipticLonRad : 0;
+      // 太陽中心ビューでは、下/手前=春分(-X)、右=夏至(+Z)、上/奥=秋分(+X)、左=冬至(-Z) となるよう -π/2 を基準にします。
+      const desiredSunRightAngle = -Math.PI / 2;
       const desiredTargetRightAngle =
-        anim.to.sunCenterBlend > 0.5 ? 0 : desiredEarthRightAngle;
+        anim.to.sunCenterBlend > 0.5
+          ? desiredSunRightAngle
+          : desiredEarthRightAngle;
 
       if (anim.active) {
         anim.elapsed += dt;
@@ -1045,7 +1049,9 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       } else {
         // 静止後は現在の地球位置／基準フレームにぴったり合わせます。
         anim.current.rightAngle =
-          anim.current.sunCenterBlend > 0.5 ? 0 : desiredEarthRightAngle;
+          anim.current.sunCenterBlend > 0.5
+            ? desiredSunRightAngle
+            : desiredEarthRightAngle;
       }
 
       const curPose = anim.current;
@@ -1191,7 +1197,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
 
       // 太陽・地球・春分点・公転軌道の季節ラベルを更新
       if (isOrbitOverview) {
-        tmpWorldPos.copy(camera.up).multiplyScalar(SUN_RADIUS + 0.85);
+        tmpWorldPos.copy(camera.up).multiplyScalar(SUN_RADIUS + 0.22);
         updateFloatingBadgeAtPosition(
           sunBadgeRef.current,
           tmpWorldPos,

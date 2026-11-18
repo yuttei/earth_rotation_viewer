@@ -1,0 +1,9 @@
+#!/bin/sh
+
+# コミット対象に認証情報が含まれていないか確認します。
+if ! command -v gitleaks >/dev/null 2>&1; then
+    echo "gitleaksが見つかりません。earth_rotation_viewerでnix developを実行してください。" >&2
+    exit 1
+fi
+
+exec gitleaks git --pre-commit --staged --redact

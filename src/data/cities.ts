@@ -1,0 +1,88 @@
+import { City } from "../types/astronomy";
+
+/**
+ * 地球の自転と昼夜・方角の変化を観察しやすい代表地点の一覧です。
+ * 緯度・経度が異なる都市をバランスよく配置しています。
+ */
+export const OBSERVATION_CITIES: City[] = [
+  {
+    id: "tokyo",
+    nameJa: "東京",
+    nameEn: "Tokyo",
+    regionJa: "日本（東経139.7°）",
+    latDeg: 35.6762,
+    lonDeg: 139.6503,
+    utcOffsetHours: 9,
+    noteJa: "ロンドンより約9時間早く朝と正午を迎えます。反時計回りの回転で東から太陽が昇る様子が見やすい地点です。",
+  },
+  {
+    id: "london",
+    nameJa: "ロンドン",
+    nameEn: "London",
+    regionJa: "イギリス（経度0°付近）",
+    latDeg: 51.5072,
+    lonDeg: -0.1276,
+    utcOffsetHours: 0,
+    noteJa: "経度0°（本初子午線）の基準地。天の北極視点では経度0°のラインが恒星時や世界時の基準になります。",
+  },
+  {
+    id: "new-york",
+    nameJa: "ニューヨーク",
+    nameEn: "New York",
+    regionJa: "アメリカ（西経74.0°）",
+    latDeg: 40.7128,
+    lonDeg: -74.006,
+    utcOffsetHours: -5,
+    noteJa: "本初子午線から西側にあり、東京とは約14時間の時差があります。",
+  },
+  {
+    id: "reykjavik",
+    nameJa: "レイキャビク",
+    nameEn: "Reykjavik",
+    regionJa: "アイスランド（北緯64.1°）",
+    latDeg: 64.1466,
+    lonDeg: -21.9426,
+    utcOffsetHours: 0,
+    noteJa: "北極圏のすぐ南に位置し、夏至のころは昼が非常に長く、冬至のころは昼が極端に短くなります。",
+  },
+  {
+    id: "tromso",
+    nameJa: "トロムソ",
+    nameEn: "Tromsø",
+    regionJa: "ノルウェー（北緯69.6°・北極圏内）",
+    latDeg: 69.6492,
+    lonDeg: 18.9553,
+    utcOffsetHours: 1,
+    noteJa: "北極圏（北緯66.6°以北）にある街です。夏至前後は一日中太陽が沈まない白夜、冬至前後は極夜になります。",
+  },
+  {
+    id: "nairobi",
+    nameJa: "ナイロビ",
+    nameEn: "Nairobi",
+    regionJa: "ケニア（赤道付近）",
+    latDeg: -1.2921,
+    lonDeg: 36.8219,
+    utcOffsetHours: 3,
+    noteJa: "ほぼ赤道直下にあるため、一年を通して昼と夜の長さがほぼ12時間ずつになります。",
+  },
+  {
+    id: "sydney",
+    nameJa: "シドニー",
+    nameEn: "Sydney",
+    regionJa: "オーストラリア（南緯33.9°）",
+    latDeg: -33.8688,
+    lonDeg: 151.2093,
+    utcOffsetHours: 10,
+    noteJa: "南半球に位置するため、天の北極真上から見ると外縁の奥側に回り込み、北半球と昼の長さの変化が逆になります。",
+  },
+  {
+    id: "north-pole",
+    nameJa: "北極点",
+    nameEn: "North Pole",
+    regionJa: "北緯90°（自転軸の中心）",
+    latDeg: 90,
+    lonDeg: 0,
+    utcOffsetHours: 0,
+    noteJa: "地球の自転軸そのものの中心。夏至側は半年間ずっと昼（白夜）、冬至側は半年間ずっと夜（極夜）になります。",
+  },
+];

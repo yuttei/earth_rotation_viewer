@@ -27,15 +27,17 @@ interface TimeControlBarProps {
 
 const SPEED_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 1, label: "1× (実時間)" },
-  { value: 60, label: "1分/s" },
   { value: 1800, label: "30分/s" },
-  { value: 3600, label: "1時間/s" },
-  { value: 14400, label: "4時間/s" },
+  { value: 7200, label: "2時間/s" },
+  { value: 86400, label: "1日/s" },
+  { value: 864000, label: "10日/s" },
+  { value: 2592000, label: "30日/s" },
 ];
 
 /**
  * 画面下部に配置する時間操作バーです。
- * 再生速度、1日スライダー、1恒星日/1太陽日ステップ、季節プリセットを提供します。
+ * 自転観察向けの倍率から公転観察向けの高速倍率（1日/s〜30日/s）、
+ * 1日スライダー、1恒星日/1太陽日ステップ、季節プリセットを提供します。
  */
 export const TimeControlBar: React.FC<TimeControlBarProps> = ({
   isPlaying,
@@ -69,7 +71,7 @@ export const TimeControlBar: React.FC<TimeControlBarProps> = ({
           type="button"
           className="play-btn"
           onClick={onTogglePlay}
-          title={isPlaying ? "自転の進行を一時停止" : "自転の進行を再生"}
+          title={isPlaying ? "自転・公転の進行を一時停止" : "自転・公転の進行を再生"}
         >
           {isPlaying ? <Pause size={14} /> : <Play size={14} />}
           {isPlaying ? "一時停止" : "再生"}

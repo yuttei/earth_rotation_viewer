@@ -173,6 +173,25 @@ input {
   box-shadow: 0 0 14px rgba(192, 132, 252, 0.22);
 }
 
+.space-badge.is-earth {
+  background: rgba(8, 22, 46, 0.84);
+  border: 1px solid rgba(56, 189, 248, 0.62);
+  color: #bae6fd;
+  margin-left: -28px;
+  margin-top: -32px;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.28);
+}
+
+.space-badge.is-season {
+  background: rgba(22, 16, 8, 0.72);
+  border: 1px solid rgba(245, 158, 11, 0.38);
+  color: #fde68a;
+  font-size: 10px;
+  padding: 2px 7px;
+  margin-left: -30px;
+  margin-top: -22px;
+}
+
 /* オーバーレイ全体の重なりを防ぐ Flex コンテナ */
 .ui-hud-layout {
   position: absolute;
@@ -461,6 +480,15 @@ input {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  transition: opacity 0.25s ease;
+}
+
+.view-slider-wrap.is-dimmed {
+  opacity: 0.45;
+}
+
+.view-slider-wrap.is-dimmed:hover {
+  opacity: 0.85;
 }
 
 .view-slider {
@@ -481,6 +509,28 @@ input {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 5px;
+}
+
+.sun-overhead-btn {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-color: rgba(251, 191, 36, 0.34);
+  color: #fde68a;
+  background: rgba(34, 24, 8, 0.52);
+}
+
+.sun-overhead-btn:hover {
+  border-color: rgba(251, 191, 36, 0.65);
+  color: #fef3c7;
+}
+
+.sun-overhead-btn.is-active {
+  border-color: var(--accent-gold);
+  background: rgba(251, 191, 36, 0.22);
+  color: #fef3c7;
+  box-shadow: 0 0 14px rgba(251, 191, 36, 0.22);
 }
 
 .hud-legend {

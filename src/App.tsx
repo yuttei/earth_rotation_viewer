@@ -40,20 +40,8 @@ const PRESET_POSES: Record<
     pitch: Math.PI / 2,
     distance: 3.92,
     eclipticBlend: 0,
-    ratio: 0,
-  },
-  oblique: {
-    yaw: -0.45,
-    pitch: 0.68,
-    distance: 3.98,
-    eclipticBlend: 0,
-    ratio: 0.56,
-  },
-  eclipticNorth: {
-    yaw: 0,
-    pitch: Math.PI / 2,
-    distance: 3.92,
-    eclipticBlend: 1,
+    sunCenterBlend: 0,
+    durationSec: 2.6,
     ratio: 0,
   },
   eclipticPlane: {
@@ -61,12 +49,23 @@ const PRESET_POSES: Record<
     pitch: 0,
     distance: 4.02,
     eclipticBlend: 1,
+    sunCenterBlend: 0,
+    durationSec: 2.6,
+    ratio: 1,
+  },
+  sunOverhead: {
+    yaw: 0,
+    pitch: Math.PI / 2,
+    distance: 56.0,
+    eclipticBlend: 1,
+    sunCenterBlend: 1,
+    durationSec: 3.4,
     ratio: 1,
   },
 };
 
 /**
- * アプリ全体の状態（観測時刻・再生速度・連続視点移動・表示設定・選択都市）を統合するルートコンポーネントです。
+ * アプリ全体の状態（観測時刻・再生速度・連続視点移動・公転表示・選択都市）を統合するルートコンポーネントです。
  */
 export function App() {
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
@@ -85,6 +84,8 @@ export function App() {
     pitch: PRESET_POSES.northPole.pitch,
     distance: PRESET_POSES.northPole.distance,
     eclipticBlend: PRESET_POSES.northPole.eclipticBlend,
+    sunCenterBlend: PRESET_POSES.northPole.sunCenterBlend,
+    durationSec: PRESET_POSES.northPole.durationSec,
     seq: 0,
   });
 
@@ -134,18 +135,37 @@ export function App() {
     applyNewDate(new Date());
   }, [applyNewDate]);
 
-  const handleSelectCameraPreset = useCallback((preset: CameraPreset) => {
-    const p = PRESET_POSES[preset];
-    setActivePresetButton(preset);
-    setViewTransitionRatio(p.ratio);
-    setCameraPoseTarget((prev) => ({
-      yaw: p.yaw,
-      pitch: p.pitch,
-      distance: p.distance,
-      eclipticBlend: p.eclipticBlend,
-      seq: prev.seq + 1,
-    }));
-  }, []);
+  const handleSelectCameraPreset = useCallback(
+    (preset: CameraPreset, adjustSpeedAutomatically = true) => {
+      const p = PRESET_POSES[preset];
+      setActivePresetButton(preset);
+      setViewTransitionRatio(p.ratio);
+
+      // 太陽中心ビューと地球中心ビューを跨ぐ場合は、よりゆっくり移動して距離変化を見やすくします。
+      setCameraPoseTarget((prev) => {
+        const crossesSunCenter = prev.sunCenterBlend !== p.sunCenterBlend;
+        return {
+          yaw: p.yaw,
+          pitch: p.pitch,
+          distance: p.distance,
+          eclipticBlend: p.eclipticBlend,
+          sunCenterBlend: p.sunCenterBlend,
+          durationSec: crossesSunCenter ? 3.4 : p.durationSec,
+          seq: prev.seq + 1,
+        };
+      });
+
+      if (adjustSpeedAutomatically) {
+        if (preset === "sunOverhead") {
+          setSpeedMultiplier((prev) => (prev < 86400 ? 864000 : prev));
+          setIsPlaying(true);
+        } else {
+          setSpeedMultiplier((prev) => (prev >= 86400 ? 1800 : prev));
+        }
+      }
+    },
+    []
+  );
 
   const handleChangeViewTransitionRatio = useCallback((ratio: number) => {
     const clamped = Math.max(0, Math.min(1, ratio));
@@ -159,11 +179,15 @@ export function App() {
       setActivePresetButton(null);
     }
 
+    setSpeedMultiplier((prev) => (prev >= 86400 ? 1800 : prev));
+
     setCameraPoseTarget((prev) => ({
       yaw: 0,
       pitch: (1 - clamped) * (Math.PI / 2),
       distance: 3.92 + clamped * 0.1,
       eclipticBlend: clamped,
+      sunCenterBlend: 0,
+      durationSec: prev.sunCenterBlend > 0.5 ? 2.6 : 0.45,
       seq: prev.seq,
     }));
   }, []);
@@ -183,19 +207,30 @@ export function App() {
   const handleRunGuideExperiment = useCallback(
     (id: GuideExperimentId) => {
       switch (id) {
+        case "sun-orbit-overview":
+          handleSelectCameraPreset("sunOverhead", false);
+          setLayers((prev) => ({
+            ...prev,
+            eclipticPlane: true,
+            starsAndEquinox: true,
+          }));
+          setSpeedMultiplier(864000);
+          setIsPlaying(true);
+          break;
+
         case "counterclockwise":
-          handleResetNorthPoleCamera();
+          handleSelectCameraPreset("northPole", false);
           setLayers((prev) => ({
             ...prev,
             celestialCompass: true,
             graticule: true,
           }));
-          setSpeedMultiplier(3600);
+          setSpeedMultiplier(7200);
           setIsPlaying(true);
           break;
 
         case "ecliptic-tilt":
-          handleSelectCameraPreset("eclipticPlane");
+          handleSelectCameraPreset("eclipticPlane", false);
           applyNewDate(new Date(SEASON_PRESETS[1].date.getTime()));
           setReferenceFrame("solar");
           setLayers((prev) => ({
@@ -209,7 +244,7 @@ export function App() {
           break;
 
         case "summer-midnight-sun":
-          handleResetNorthPoleCamera();
+          handleSelectCameraPreset("northPole", false);
           applyNewDate(new Date(SEASON_PRESETS[1].date.getTime()));
           setReferenceFrame("solar");
           setSelectedCityId("tromso");
@@ -224,7 +259,7 @@ export function App() {
           break;
 
         case "winter-polar-night":
-          handleResetNorthPoleCamera();
+          handleSelectCameraPreset("northPole", false);
           applyNewDate(new Date(SEASON_PRESETS[3].date.getTime()));
           setReferenceFrame("solar");
           setSelectedCityId("tromso");
@@ -239,7 +274,8 @@ export function App() {
           break;
 
         case "sunrise-east":
-          handleResetNorthPoleCamera();
+          // 春分日の UTC 20:15 は、東経139.65°の東京が夜明け直前（太陽時 05:34頃）になる時刻です。
+          handleSelectCameraPreset("northPole", false);
           applyNewDate(new Date("2026-03-20T20:15:00Z"));
           setReferenceFrame("solar");
           setSelectedCityId("tokyo");
@@ -254,7 +290,7 @@ export function App() {
           break;
 
         case "sidereal-vs-solar":
-          handleResetNorthPoleCamera();
+          handleSelectCameraPreset("northPole", false);
           setReferenceFrame("sidereal");
           setLayers((prev) => ({
             ...prev,
@@ -266,7 +302,7 @@ export function App() {
           break;
       }
     },
-    [applyNewDate, handleResetNorthPoleCamera, handleSelectCameraPreset]
+    [applyNewDate, handleSelectCameraPreset]
   );
 
   return (
@@ -315,7 +351,7 @@ export function App() {
               </div>
               <div className="legend-row">
                 <span className="legend-swatch ecliptic" />
-                <span>オレンジリング：公転面（黄道面・赤道と23.4°傾斜）</span>
+                <span>オレンジリング：黄道面（公転面・公転軌道）</span>
               </div>
               <div className="legend-row">
                 <span className="legend-swatch arctic" />

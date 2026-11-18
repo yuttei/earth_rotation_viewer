@@ -167,6 +167,158 @@ export function createEarthMaterial(
   return { material, uniforms };
 }
 
+const SUN_VERTEX_SHADER = /* glsl */ `
+  varying vec3 vLocalNormal;
+  varying vec3 vWorldNormal;
+  varying vec3 vWorldPosition;
+
+  void main() {
+    vLocalNormal = normalize(position);
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vWorldPosition = worldPos.xyz;
+    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * viewMatrix * worldPos;
+  }
+`;
+
+const SUN_FRAGMENT_SHADER = /* glsl */ `
+  uniform float uTime;
+
+  varying vec3 vLocalNormal;
+  varying vec3 vWorldNormal;
+  varying vec3 vWorldPosition;
+
+  // 軽量な 3D 値ノイズで太陽表面の対流セル（粒状斑）を表現します。
+  float hash31(vec3 p) {
+    p = fract(p * 0.1031);
+    p += dot(p, p.yzx + 33.33);
+    return fract((p.x + p.y) * p.z);
+  }
+
+  float noise3D(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+
+    float n000 = hash31(i + vec3(0.0, 0.0, 0.0));
+    float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
+    float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
+    float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
+    float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
+    float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
+    float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
+    float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
+
+    float nx00 = mix(n000, n100, f.x);
+    float nx10 = mix(n010, n110, f.x);
+    float nx01 = mix(n001, n101, f.x);
+    float nx11 = mix(n011, n111, f.x);
+
+    float nxy0 = mix(nx00, nx10, f.y);
+    float nxy1 = mix(nx01, nx11, f.y);
+
+    return mix(nxy0, nxy1, f.z);
+  }
+
+  float fbm(vec3 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 4; i++) {
+      v += a * noise3D(p);
+      p = p * 2.05 + vec3(1.7, 9.2, 4.3);
+      a *= 0.5;
+    }
+    return v;
+  }
+
+  void main() {
+    vec3 normal = normalize(vWorldNormal);
+    vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+
+    // 太陽表面を時間でゆっくり流動させます。
+    float gran = fbm(vLocalNormal * 4.5 + vec3(uTime * 0.12, -uTime * 0.09, uTime * 0.07));
+    float flare = fbm(vLocalNormal * 9.0 - vec3(uTime * 0.18));
+    float pattern = clamp(gran * 0.65 + flare * 0.35, 0.0, 1.0);
+
+    // 中心が白熱の黄色、縁に向かってオレンジ色になる周辺減光（Limb Darkening）
+    float ndotv = max(dot(normal, viewDir), 0.0);
+    float limb = pow(ndotv, 0.45);
+
+    vec3 deepOrange = vec3(0.95, 0.36, 0.06);
+    vec3 brightGold = vec3(1.0, 0.78, 0.24);
+    vec3 whiteHot = vec3(1.0, 0.96, 0.78);
+
+    vec3 surface = mix(deepOrange, brightGold, smoothstep(0.22, 0.72, pattern));
+    surface = mix(surface, whiteHot, smoothstep(0.62, 0.95, pattern) * limb);
+    surface *= mix(0.68, 1.15, limb);
+
+    // 縁の紅炎（彩層リム）
+    float rim = pow(1.0 - ndotv, 2.6);
+    surface += vec3(1.0, 0.52, 0.14) * rim * 0.55;
+
+    gl_FragColor = vec4(surface, 1.0);
+  }
+`;
+
+const SUN_CORONA_VERTEX_SHADER = /* glsl */ `
+  varying vec3 vWorldNormal;
+  varying vec3 vWorldPosition;
+
+  void main() {
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vWorldPosition = worldPos.xyz;
+    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * viewMatrix * worldPos;
+  }
+`;
+
+const SUN_CORONA_FRAGMENT_SHADER = /* glsl */ `
+  varying vec3 vWorldNormal;
+  varying vec3 vWorldPosition;
+
+  void main() {
+    vec3 normal = normalize(vWorldNormal);
+    vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+    // BackSide の内向き法線を使って太陽外周へ広がるソフトなコロナを描きます。
+    float radial = max(0.0, dot(normal, -viewDir));
+    float glow = pow(radial, 3.6) * 0.85;
+    vec3 coronaColor = mix(vec3(1.0, 0.45, 0.1), vec3(1.0, 0.85, 0.45), radial);
+    gl_FragColor = vec4(coronaColor, glow);
+  }
+`;
+
+/**
+ * 太陽本体用のプロシージャルプラズマ ShaderMaterial を生成します。
+ */
+export function createSunMaterial(): {
+  material: THREE.ShaderMaterial;
+  uniforms: { uTime: { value: number } };
+} {
+  const uniforms = {
+    uTime: { value: 0 },
+  };
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: SUN_VERTEX_SHADER,
+    fragmentShader: SUN_FRAGMENT_SHADER,
+  });
+  return { material, uniforms };
+}
+
+/**
+ * 太陽外周を包む黄金コロナハロー用の ShaderMaterial を生成します。
+ */
+export function createSunCoronaMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    vertexShader: SUN_CORONA_VERTEX_SHADER,
+    fragmentShader: SUN_CORONA_FRAGMENT_SHADER,
+    side: THREE.BackSide,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+}
+
 /**
  * 地球の輪郭を包む青い大気ハロー（外気圏の光）用 ShaderMaterial を生成します。
  */

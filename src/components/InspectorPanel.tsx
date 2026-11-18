@@ -29,7 +29,8 @@ export type GuideExperimentId =
   | "winter-polar-night"
   | "sunrise-east"
   | "sidereal-vs-solar"
-  | "ecliptic-tilt";
+  | "ecliptic-tilt"
+  | "sun-orbit-overview";
 
 interface InspectorPanelProps {
   isOpen: boolean;
@@ -52,7 +53,7 @@ interface InspectorPanelProps {
 const LAYER_LABELS: Array<{ key: keyof DisplayLayers; label: string }> = [
   { key: "graticule", label: "経緯線・赤道・北極圏(66.6°N)" },
   { key: "celestialCompass", label: "天球目盛り・自転矢印(反時計回り)" },
-  { key: "eclipticPlane", label: "公転面（黄道面）の軌道リング" },
+  { key: "eclipticPlane", label: "黄道面（公転面）・公転軌道リング" },
   { key: "terminatorGuide", label: "太陽光線・昼夜境界ハイライト" },
   { key: "cities", label: "都市マーカー・現地N/E/S/W矢印" },
   { key: "starsAndEquinox", label: "恒星背景・春分点ライン(♈)" },
@@ -225,7 +226,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             <div className="section-card">
               <h2 className="section-title">
                 <Compass size={13} />
-                カメラ視点・公転面（黄道面）移動
+                カメラ視点の連続移動
               </h2>
               <div className="option-btn-group two-col">
                 <button
@@ -235,25 +236,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                   }`}
                   onClick={() => onSelectCameraPreset("northPole")}
                 >
-                  天の北極 (真上)
-                </button>
-                <button
-                  type="button"
-                  className={`choice-btn ${
-                    cameraPreset === "oblique" ? "is-active" : ""
-                  }`}
-                  onClick={() => onSelectCameraPreset("oblique")}
-                >
-                  斜め俯瞰
-                </button>
-                <button
-                  type="button"
-                  className={`choice-btn ${
-                    cameraPreset === "eclipticNorth" ? "is-active" : ""
-                  }`}
-                  onClick={() => onSelectCameraPreset("eclipticNorth")}
-                >
-                  黄道面 (真上)
+                  天の北極
                 </button>
                 <button
                   type="button"
@@ -266,6 +249,17 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 </button>
               </div>
 
+              <button
+                type="button"
+                className={`choice-btn sun-overhead-btn ${
+                  cameraPreset === "sunOverhead" ? "is-active" : ""
+                }`}
+                onClick={() => onSelectCameraPreset("sunOverhead")}
+              >
+                <Sun size={12} style={{ marginRight: 4, verticalAlign: -2 }} />
+                太陽の真上（公転を見る）
+              </button>
+
               <div className="view-slider-wrap">
                 <input
                   type="range"
@@ -277,7 +271,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                   onChange={(e) =>
                     onChangeViewTransitionRatio(Number(e.target.value) / 100)
                   }
-                  aria-label="パネル内：天の北極から黄道面（公転面）への連続視点移動"
+                  aria-label="パネル内：天の北極から黄道面（水平）への連続視点移動"
                 />
                 <div className="view-slider-labels">
                   <span>天の北極 (0%)</span>
@@ -291,10 +285,10 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 onClick={onResetNorthPoleCamera}
               >
                 <RotateCcw size={12} />
-                天の北極（真上）へリセット
+                天の北極へゆっくり戻る
               </button>
               <p className="note-box" style={{ fontSize: 11 }}>
-                スライダーやボタンで天の北極から黄道面（公転面）へ滑らかに連続移動でき、ドラッグで自由回転もできます。
+                各視点ボタンでゆっくり連続的に移動します。ドラッグで自由回転・ホイールで拡大縮小もできます。
               </p>
             </div>
 
@@ -322,7 +316,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               </div>
               <p className="note-box" style={{ fontSize: 11 }}>
                 {referenceFrame === "solar"
-                  ? "太陽を画面右側に固定して、各地の昼夜変化を見やすくします。公転面視点では太陽が水平右から地球を照らします。"
+                  ? "太陽を画面右側に固定して、各地の昼夜変化を見やすくします。黄道面視点では太陽が水平右から地球を照らします。"
                   : "背景の星座と春分点（紫線）を静止させます。「+1恒星日」を押すと地球が同じ星に対してきっちり1回転する様子を確認できます。"}
               </p>
             </div>
@@ -356,7 +350,21 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
         {activeTab === "guide" && (
           <>
             <div className="guide-card">
-              <h3 className="guide-title">1. なぜ天の北極からは反時計回り？</h3>
+              <h3 className="guide-title">1. 太陽の真上から見る「公転と季節」</h3>
+              <p className="guide-text">
+                太陽の真上へ視点を移すと、地球が 23.4° 地軸を傾けたまま太陽の周りを反時計回りに公転し、春分・夏至・秋分・冬至が巡る様子を一望できます。
+              </p>
+              <button
+                type="button"
+                className="guide-action-btn"
+                onClick={() => onRunGuideExperiment("sun-orbit-overview")}
+              >
+                太陽の真上へ移動して公転を見る
+              </button>
+            </div>
+
+            <div className="guide-card">
+              <h3 className="guide-title">2. なぜ天の北極からは反時計回り？</h3>
               <p className="guide-text">
                 地球の自転は西から東へ向かっています。天の北極（北極点の真上）から地球を見下ろすと、本初子午線（黄色い線）も日本も反時計回りに回転します。
               </p>
@@ -365,26 +373,26 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 className="guide-action-btn"
                 onClick={() => onRunGuideExperiment("counterclockwise")}
               >
-                真上視点＋早回しで観察する
+                天の北極＋早回しで観察する
               </button>
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">2. 公転面（黄道面）と地軸23.4°の傾き</h3>
+              <h3 className="guide-title">3. 黄道面（公転面）と地軸23.4°の傾き</h3>
               <p className="guide-text">
-                視点を公転面（黄道面・オレンジの輪）の水平目線へ移すと、太陽光が真横から水平に差し込む中で、地球の地軸が23.4°傾いて自転する姿が見えます。
+                視点を黄道面（公転面・オレンジの輪）の水平目線へ移すと、太陽光が真横から水平に差し込む中で、地球の地軸が23.4°傾いて自転する姿が見えます。
               </p>
               <button
                 type="button"
                 className="guide-action-btn"
                 onClick={() => onRunGuideExperiment("ecliptic-tilt")}
               >
-                公転面（黄道面）へ移動して観察
+                黄道面 (水平) へ移動して観察
               </button>
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">3. 夏至の「白夜」と冬至の「極夜」</h3>
+              <h3 className="guide-title">4. 夏至の「白夜」と冬至の「極夜」</h3>
               <p className="guide-text">
                 地軸は公転面に対して約23.4°傾いています。夏至には北極側が太陽を向くため北極圏（水色の破線）全体が昼のまま回り（白夜）、冬至には逆に影の中へすっぽり入ります（極夜）。
               </p>
@@ -407,7 +415,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">4. なぜ太陽は東から昇り西に沈む？</h3>
+              <h3 className="guide-title">5. なぜ太陽は東から昇り西に沈む？</h3>
               <p className="guide-text">
                 東京の地表に伸びるシアン色の矢印が「東（地球が回っていく向き）」です。地球が反時計回りに回ることで、東京が東向きに昼の側へ飛び込んでいくため、太陽は東の地平線から昇って見えます。
               </p>
@@ -421,7 +429,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">5. 恒星日（23h56m）と太陽日（24h）</h3>
+              <h3 className="guide-title">6. 恒星日（23h56m）と太陽日（24h）</h3>
               <p className="guide-text">
                 地球が1回転する間にも地球は太陽の周りを約1°公転するため、太陽が再び真上に来るには約4分余計に回る必要があります。春分点（紫線）を固定し、下の「+1恒星日」と「+1太陽日」を押し比べてみましょう。
               </p>

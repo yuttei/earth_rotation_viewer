@@ -1,21 +1,21 @@
 import React from "react";
-import { Orbit, RotateCcw } from "lucide-react";
+import { Orbit, RotateCcw, Sun } from "lucide-react";
 import { CameraPreset } from "../types/astronomy";
 
 interface ViewTransitionWidgetProps {
-  /** 現在の連続視点スライダー値（0 = 天の北極真上、1 = 公転面の水平視点） */
+  /** 現在の連続視点スライダー値（0 = 天の北極真上、1 = 黄道面・水平） */
   transitionRatio: number;
   /** 連続スライダー変更時のハンドラ */
   onChangeTransitionRatio: (ratio: number) => void;
-  /** 現在一致しているプリセット（自由ドラッグ中は null） */
+  /** 現在一致しているプリセット（自由ドラッグ・途中角度では null） */
   activePreset: CameraPreset | null;
   /** プリセットボタンクリック時のハンドラ */
   onSelectPreset: (preset: CameraPreset) => void;
 }
 
 /**
- * 天の北極からの視点と、公転面（黄道面）からの視点を
- * スライダーとボタンで滑らかに連続移動できる操作カードです。
+ * 天の北極・黄道面（水平）・太陽の真上の3視点間を
+ * 滑らかに連続移動できる操作カードです。
  */
 export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
   transitionRatio,
@@ -27,19 +27,17 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
 
   let statusLabel = `移行 ${percent}%`;
   if (activePreset === "northPole") {
-    statusLabel = "天の北極（真上）";
-  } else if (activePreset === "oblique") {
-    statusLabel = "斜め俯瞰";
-  } else if (activePreset === "eclipticNorth") {
-    statusLabel = "黄道面（真上）";
+    statusLabel = "天の北極";
   } else if (activePreset === "eclipticPlane") {
     statusLabel = "黄道面（水平）";
+  } else if (activePreset === "sunOverhead") {
+    statusLabel = "太陽の真上";
   }
 
   return (
     <section
       className="view-transition-card"
-      aria-label="天の北極と黄道面（公転面）の連続視点移動"
+      aria-label="天の北極・黄道面・太陽真上の連続視点移動"
     >
       <div className="view-transition-header">
         <span className="view-transition-title">
@@ -49,7 +47,7 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
         <span className="view-transition-badge">{statusLabel}</span>
       </div>
 
-      <div className="view-slider-wrap">
+      <div className={`view-slider-wrap ${activePreset === "sunOverhead" ? "is-dimmed" : ""}`}>
         <input
           type="range"
           className="view-slider"
@@ -58,7 +56,7 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
           step={1}
           value={percent}
           onChange={(e) => onChangeTransitionRatio(Number(e.target.value) / 100)}
-          aria-label="天の北極から黄道面（公転面）への連続視点移動"
+          aria-label="天の北極から黄道面（水平）への連続視点移動"
         />
         <div className="view-slider-labels">
           <span>天の北極 (0%)</span>
@@ -77,26 +75,22 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
         </button>
         <button
           type="button"
-          className={`choice-btn ${activePreset === "oblique" ? "is-active" : ""}`}
-          onClick={() => onSelectPreset("oblique")}
-        >
-          斜め俯瞰
-        </button>
-        <button
-          type="button"
-          className={`choice-btn ${activePreset === "eclipticNorth" ? "is-active" : ""}`}
-          onClick={() => onSelectPreset("eclipticNorth")}
-          title="公転面（黄道面）に垂直な真上から見下ろし、地軸が23.4°傾いている様子を観察"
-        >
-          黄道面 (真上)
-        </button>
-        <button
-          type="button"
           className={`choice-btn ${activePreset === "eclipticPlane" ? "is-active" : ""}`}
           onClick={() => onSelectPreset("eclipticPlane")}
-          title="公転面（黄道面）の真横に降りて、太陽光の水平照射と地軸の傾きを観察"
+          title="公転面（黄道面）の真横に降りて、太陽光の水平照射と地軸23.4°の傾きを観察"
         >
           黄道面 (水平)
+        </button>
+        <button
+          type="button"
+          className={`choice-btn sun-overhead-btn ${
+            activePreset === "sunOverhead" ? "is-active" : ""
+          }`}
+          onClick={() => onSelectPreset("sunOverhead")}
+          title="太陽の真上へ連続移動し、地球が太陽の周りを公転する全体像を観察"
+        >
+          <Sun size={12} style={{ marginRight: 4, verticalAlign: -2 }} />
+          太陽の真上（公転を見る）
         </button>
       </div>
     </section>

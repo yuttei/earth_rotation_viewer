@@ -5,8 +5,11 @@ import {
   EARTH_AXIAL_TILT_DEG,
   SEASON_PRESETS,
   SIDEREAL_DAY_SECONDS,
+  SIDEREAL_MONTH_DAYS,
   SOLAR_DAY_SECONDS,
+  SYNODIC_MONTH_DAYS,
   calculateGmstRad,
+  calculateMoonState,
   calculateSolarPosition,
   calculateSolarSystemState,
   dateToJulianDay,
@@ -14,6 +17,7 @@ import {
   formatDateTimeParts,
   formatHoursToClock,
   getLocalCompassVectors,
+  getMoonPhaseLabelJa,
   getSeasonLabelJa,
   latLonToVector3Tuple,
   normalizeAngleRad,
@@ -224,5 +228,47 @@ describe("天文計算エンジン (calculations)", () => {
     const { utcText, jstText } = formatDateTimeParts(tokyoNoonDate);
     expect(utcText).toBe("2026-03-20 03:00:00 UTC");
     expect(jstText).toBe("2026-03-20 12:00:00 JST");
+  });
+
+  it("月の黄緯が白道傾斜（約±5.15°）の範囲に収まり、1恒星月で黄経が、1朔望月で月相角がほぼ1周戻る", () => {
+    const baseDate = new Date("2026-06-21T08:24:00Z");
+    const baseSolar = calculateSolarSystemState(baseDate);
+    const baseMoon = calculateMoonState(
+      baseDate,
+      baseSolar.sunEclipticLongitudeDeg
+    );
+
+    // 白道の傾きによる黄緯は ±5.2° 以内に収まる
+    expect(Math.abs(baseMoon.eclipticLatitudeDeg)).toBeLessThanOrEqual(5.2);
+    expect(baseMoon.illumination).toBeGreaterThanOrEqual(0);
+    expect(baseMoon.illumination).toBeLessThanOrEqual(1);
+
+    // 1恒星月後、月の黄経はほぼ元の位置に戻る（楕円軌道による近点移動差を含むため数度以内）
+    const afterSiderealMonth = new Date(
+      baseDate.getTime() + SIDEREAL_MONTH_DAYS * SOLAR_DAY_SECONDS * 1000
+    );
+    const siderealMoon = calculateMoonState(afterSiderealMonth);
+    const lonDiff = Math.abs(
+      normalizeLonDeg(
+        siderealMoon.eclipticLongitudeDeg - baseMoon.eclipticLongitudeDeg
+      )
+    );
+    expect(lonDiff).toBeLessThan(8);
+
+    // 1朔望月後、太陽からの離角（月相角）はほぼ元の値に戻る
+    const afterSynodicMonth = new Date(
+      baseDate.getTime() + SYNODIC_MONTH_DAYS * SOLAR_DAY_SECONDS * 1000
+    );
+    const synodicMoon = calculateMoonState(afterSynodicMonth);
+    const phaseDiff = Math.abs(
+      normalizeLonDeg(synodicMoon.phaseAngleDeg - baseMoon.phaseAngleDeg)
+    );
+    expect(phaseDiff).toBeLessThan(10);
+
+    // 代表的な月相ラベルの境界チェック
+    expect(getMoonPhaseLabelJa(0)).toBe("新月");
+    expect(getMoonPhaseLabelJa(90)).toBe("上弦の月");
+    expect(getMoonPhaseLabelJa(180)).toBe("満月");
+    expect(getMoonPhaseLabelJa(270)).toBe("下弦の月");
   });
 });

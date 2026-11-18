@@ -3,21 +3,25 @@ import * as THREE from "three";
 import {
   City,
   DisplayLayers,
+  MoonState,
   ReferenceFrame,
   SolarSystemState,
   VisualStyle,
 } from "../types/astronomy";
 import {
   EARTH_AXIAL_TILT_DEG,
+  MOON_ORBIT_INCLINATION_DEG,
   degToRad,
   getLocalCompassVectors,
   latLonToVector3Tuple,
   observeCity,
 } from "../astronomy/calculations";
 import { createEarthTextures, EarthTextures } from "./earthTexture";
+import { createMoonTexture } from "./moonTexture";
 import {
   createAtmosphereMaterial,
   createEarthMaterial,
+  createMoonMaterial,
   createSunCoronaMaterial,
   createSunMaterial,
 } from "./shaders";
@@ -43,6 +47,8 @@ export interface CameraPoseTarget {
 interface EarthGlobeCanvasProps {
   /** 現在の太陽・地球の姿勢状態 */
   solarState: SolarSystemState;
+  /** 現在の月の位置（黄道座標）と満ち欠け状態 */
+  moonState: MoonState;
   /** 表示する代表都市の配列 */
   cities: City[];
   /** 現在選択中の都市ID */
@@ -76,6 +82,10 @@ interface CameraSnapshot {
 const ORBIT_RADIUS = 13.5;
 /** 太陽の半径（地球半径 = 1.0 に対する観察用スケール） */
 const SUN_RADIUS = 1.85;
+/** 月の半径（実際の月/地球比 ≈ 0.273 に近い値） */
+const MOON_RADIUS = 0.27;
+/** 地球中心からの月の公転軌道半径（白道半径） */
+const MOON_ORBIT_RADIUS = 3.45;
 
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
@@ -262,7 +272,7 @@ function updateFloatingBadgeAtPosition(
   let y = (-projected.y * 0.5 + 0.5) * hostH;
 
   if (clampToScreen) {
-    const maxX = isInspectorOpen && hostW > 860 ? hostW - 390 : hostW - 72;
+    const maxX = isInspectorOpen && hostW > 860 ? hostW - 416 : hostW - 86;
     x = Math.max(60, Math.min(maxX, x));
     y = Math.max(84, Math.min(hostH - 86, y));
   }
@@ -277,6 +287,7 @@ function updateFloatingBadgeAtPosition(
  */
 export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   solarState,
+  moonState,
   cities,
   selectedCityId,
   onSelectCity,
@@ -292,10 +303,12 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   const seasonBadgeRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
   const sunBadgeRef = useRef<HTMLSpanElement | null>(null);
   const earthBadgeRef = useRef<HTMLSpanElement | null>(null);
+  const moonBadgeRef = useRef<HTMLSpanElement | null>(null);
   const equinoxBadgeRef = useRef<HTMLSpanElement | null>(null);
 
   const latestPropsRef = useRef({
     solarState,
+    moonState,
     cities,
     selectedCityId,
     visualStyle,
@@ -305,6 +318,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   });
   latestPropsRef.current = {
     solarState,
+    moonState,
     cities,
     selectedCityId,
     visualStyle,
@@ -392,6 +406,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     const textures: EarthTextures = createEarthTextures(
       renderer.capabilities.maxTextureSize
     );
+    const moonTexture = createMoonTexture();
     const starTexture = createStarSpriteTexture();
 
     const earthBundle = createEarthMaterial(
@@ -399,6 +414,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       textures.maskMap
     );
     const atmosphereBundle = createAtmosphereMaterial();
+    const moonBundle = createMoonMaterial(moonTexture);
     const sunBundle = createSunMaterial();
     const sunCoronaMaterial = createSunCoronaMaterial();
 
@@ -562,6 +578,63 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     const sunDirectionAnchor = new THREE.Object3D();
     sunDirectionAnchor.position.set(0, 0, 1.9);
     sunBeamRoot.add(sunDirectionAnchor);
+
+    // 4.5 月システム（地球中心の黄道座標上で、黄道面に対して約5.145°傾いた白道上を公転）
+    const moonSystemGroup = new THREE.Group();
+    earthSystemGroup.add(moonSystemGroup);
+
+    // 白道の昇交点方向（黄経 Ω）へ回転させ、その先に軌道傾斜角 +5.145° を与えたリングを配置します。
+    const moonNodeGroup = new THREE.Group();
+    moonSystemGroup.add(moonNodeGroup);
+
+    const moonPlaneGroup = new THREE.Group();
+    moonPlaneGroup.rotation.x = degToRad(MOON_ORBIT_INCLINATION_DEG);
+    moonNodeGroup.add(moonPlaneGroup);
+    moonPlaneGroup.add(
+      createHorizontalRing(MOON_ORBIT_RADIUS, 0xcbd5e1, 0.56, 160)
+    );
+    moonPlaneGroup.add(
+      createHorizontalRing(MOON_ORBIT_RADIUS + 0.05, 0x94a3b8, 0.2, 160)
+    );
+
+    // 昇交点（白道が黄道面を南から北へ横切る点）の小さな目印
+    const ascendingNodeDot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.055, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0xe2e8f0 })
+    );
+    ascendingNodeDot.position.set(MOON_ORBIT_RADIUS, 0, 0);
+    moonNodeGroup.add(ascendingNodeDot);
+
+    // 月観察時に黄道面 (Y = 0) と白道 (約5.1°傾き) の角度差を比べやすくする淡いオレンジの基準リング
+    const moonEclipticRefRing = createHorizontalRing(
+      MOON_ORBIT_RADIUS,
+      0xf59e0b,
+      0.24,
+      160
+    );
+    moonSystemGroup.add(moonEclipticRefRing);
+
+    // 月本体メッシュ（常に地球へ表側を向ける潮汐ロック自転を行います）
+    const moonMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(MOON_RADIUS, 48, 32),
+      moonBundle.material
+    );
+    moonSystemGroup.add(moonMesh);
+
+    // 地球と月を結ぶ細い動径ライン（公転位置と位相角が読み取りやすくなります）
+    const earthMoonLineGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(MOON_ORBIT_RADIUS, 0, 0),
+    ]);
+    const earthMoonLine = new THREE.Line(
+      earthMoonLineGeo,
+      new THREE.LineBasicMaterial({
+        color: 0xcbd5e1,
+        transparent: true,
+        opacity: 0.3,
+      })
+    );
+    moonSystemGroup.add(earthMoonLine);
 
     // 5. 地軸の傾きグループ（黄道面 Y = 0 に対して +X 軸周りに -23.439° 傾けた赤道座標系）
     const tiltAngleRad = degToRad(EARTH_AXIAL_TILT_DEG);
@@ -944,6 +1017,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     const tmpCamDir = new THREE.Vector3();
     const tmpCamUp = new THREE.Vector3();
     const earthQuat = new THREE.Quaternion();
+    let lastMoonBadgeText = "";
 
     const renderFrame = (now: number) => {
       animFrameId = requestAnimationFrame(renderFrame);
@@ -953,6 +1027,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
 
       const {
         solarState: curSolar,
+        moonState: curMoon,
         cities: curCities,
         selectedCityId: curSelectedId,
         visualStyle: curStyle,
@@ -990,18 +1065,36 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         sunDirWorld
       );
 
+      // 月の公転位置（白道上の黄経・黄緯）と潮汐ロック自転を更新します。
+      moonNodeGroup.rotation.y = degToRad(curMoon.ascendingNodeDeg);
+      const moonLonRad = degToRad(curMoon.eclipticLongitudeDeg);
+      const moonLatRad = degToRad(curMoon.eclipticLatitudeDeg);
+      const moonCosLat = Math.cos(moonLatRad);
+      const moonX = MOON_ORBIT_RADIUS * moonCosLat * Math.cos(moonLonRad);
+      const moonY = MOON_ORBIT_RADIUS * Math.sin(moonLatRad);
+      const moonZ = -MOON_ORBIT_RADIUS * moonCosLat * Math.sin(moonLonRad);
+      moonMesh.position.set(moonX, moonY, moonZ);
+      // 月の表側（テクスチャ中央 +X 方向）が常に地球側を向くよう公転角 + π に合わせます。
+      moonMesh.rotation.y = moonLonRad + Math.PI;
+
+      const moonLineAttr = earthMoonLine.geometry.getAttribute(
+        "position"
+      ) as THREE.BufferAttribute;
+      moonLineAttr.setXYZ(1, moonX, moonY, moonZ);
+      moonLineAttr.needsUpdate = true;
+
       // 地球の自転（赤道座標系内の Y 軸周り GMST）
       earthGroup.rotation.y = curSolar.gmstRad;
 
       earthSystemGroup.updateMatrixWorld(true);
       earthBundle.uniforms.uSunDirection.value.copy(sunDirWorld);
       atmosphereBundle.uniforms.uSunDirection.value.copy(sunDirWorld);
+      // 太陽は非常に遠く太陽光線はほぼ平行なため、月の満ち欠けにも平行光線ベクトルを使い上弦・下弦の半月を正確に再現します。
+      moonBundle.uniforms.uSunDirection.value.copy(sunDirWorld);
 
-      // 2. 右観察パネル開閉に応じた水平オフセットを補間
-      const targetOffsetX =
-        curInspectorOpen && hostW > 860
-          ? Math.min(176, Math.max(0, (hostW - 760) * 0.45))
-          : 0;
+      // 2. 左視点カード（288px）と右観察パネル（318px）の中央に収まるよう水平オフセットを補間
+      // パネル展開時は左288px・右318pxの差（約15px分）だけわずかに左寄せして中央領域のど真ん中に配置します。
+      const targetOffsetX = curInspectorOpen && hostW > 860 ? 16 : 0;
       currentOffsetX += (targetOffsetX - currentOffsetX) * (1 - Math.exp(-9 * dt));
       if (Math.abs(currentOffsetX) > 0.5) {
         camera.setViewOffset(hostW, hostH, currentOffsetX, 0, hostW, hostH);
@@ -1119,19 +1212,36 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         curLayers.terminatorGuide ? 1.0 : 0.0;
       atmosphereBundle.uniforms.uIsDiagram.value = isDiagram ? 1.0 : 0.0;
 
-      const isEarthCloseup = curPose.sunCenterBlend < 0.45;
+      // カメラ距離に応じて「地球クローズアップ」「月の公転観察」「太陽中心の公転俯瞰」の3帯域を切り替えます。
       const isOrbitOverview = curPose.sunCenterBlend >= 0.45;
+      const isEarthCloseup = !isOrbitOverview && curPose.distance < 7.5;
+      const isMoonView = !isOrbitOverview && curPose.distance >= 7.5;
+
+      // 月の観察距離では、太陽光線矢印と「☀ 太陽」バッジが白道リングの外側に来るよう滑らかに押し出します。
+      const moonBeamFactor = THREE.MathUtils.clamp(
+        (curPose.distance - 5.5) / 5.5,
+        0,
+        1
+      );
+      sunBeamRoot.position.copy(sunDirWorld).multiplyScalar(2.45 * moonBeamFactor);
+      sunBeamRoot.updateMatrixWorld(true);
 
       graticuleGroup.visible = curLayers.graticule;
       celestialCompassGroup.visible =
         curLayers.celestialCompass && isEarthCloseup;
-      eclipticLocalGroup.visible = curLayers.eclipticPlane && isEarthCloseup;
-      orbitGuideGroup.visible = curLayers.eclipticPlane;
-      sunEarthLine.visible = curLayers.eclipticPlane || curLayers.terminatorGuide;
-      sunGuideGroup.visible = curLayers.terminatorGuide && isEarthCloseup;
+      eclipticLocalGroup.visible =
+        curLayers.eclipticPlane && !isOrbitOverview;
+      orbitGuideGroup.visible = curLayers.eclipticPlane && isOrbitOverview;
+      sunEarthLine.visible =
+        (curLayers.eclipticPlane || curLayers.terminatorGuide) &&
+        isOrbitOverview;
+      sunGuideGroup.visible = curLayers.terminatorGuide && !isOrbitOverview;
       citiesGroup.visible = curLayers.cities && isEarthCloseup;
       equinoxGroup.visible = curLayers.starsAndEquinox && isEarthCloseup;
       starsGroup.visible = curLayers.starsAndEquinox;
+      moonSystemGroup.visible = curLayers.moonAndOrbit;
+      moonEclipticRefRing.visible =
+        curLayers.moonAndOrbit && curLayers.eclipticPlane && isMoonView;
 
       if (lastCompassCityId !== curSelectedId) {
         const foundCity = curCities.find((c) => c.id === curSelectedId);
@@ -1195,7 +1305,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         btn.classList.toggle("is-night", !isDay);
       }
 
-      // 太陽・地球・春分点・公転軌道の季節ラベルを更新
+      // 太陽・地球・月・春分点・公転軌道の季節ラベルを更新
       if (isOrbitOverview) {
         tmpWorldPos.copy(camera.up).multiplyScalar(SUN_RADIUS + 0.22);
         updateFloatingBadgeAtPosition(
@@ -1222,15 +1332,42 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         );
       }
 
+      if (isMoonView) {
+        tmpWorldPos
+          .copy(earthOrbitPos)
+          .addScaledVector(camera.up, 1.12);
+      } else {
+        tmpWorldPos.copy(earthOrbitPos);
+      }
       updateFloatingBadgeAtPosition(
         earthBadgeRef.current,
-        earthOrbitPos,
+        tmpWorldPos,
         camera,
         hostW,
         hostH,
-        isOrbitOverview,
+        isOrbitOverview || isMoonView,
         curInspectorOpen,
         false
+      );
+
+      if (moonBadgeRef.current) {
+        const nextMoonText = `☾ 月 (${curMoon.phaseLabelJa})`;
+        if (lastMoonBadgeText !== nextMoonText) {
+          moonBadgeRef.current.textContent = nextMoonText;
+          lastMoonBadgeText = nextMoonText;
+        }
+      }
+      moonMesh.getWorldPosition(tmpWorldPos);
+      tmpWorldPos.addScaledVector(camera.up, MOON_RADIUS + 0.14);
+      updateFloatingBadgeAtPosition(
+        moonBadgeRef.current,
+        tmpWorldPos,
+        camera,
+        hostW,
+        hostH,
+        curLayers.moonAndOrbit && isMoonView,
+        curInspectorOpen,
+        true
       );
 
       equinoxMarker.getWorldPosition(tmpWorldPos);
@@ -1277,9 +1414,11 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       renderer.domElement.removeEventListener("pointercancel", onPointerUp);
       renderer.domElement.removeEventListener("wheel", onWheel);
       textures.dispose();
+      moonTexture.dispose();
       starTexture.dispose();
       earthBundle.material.dispose();
       atmosphereBundle.material.dispose();
+      moonBundle.material.dispose();
       sunBundle.material.dispose();
       sunCoronaMaterial.dispose();
       renderer.dispose();
@@ -1331,6 +1470,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           style={{ display: "none" }}
         >
           ● 地球
+        </span>
+
+        <span
+          ref={moonBadgeRef}
+          className="space-badge is-moon"
+          style={{ display: "none" }}
+        >
+          ☾ 月
         </span>
 
         <span

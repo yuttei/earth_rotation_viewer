@@ -319,6 +319,65 @@ export function createSunCoronaMaterial(): THREE.ShaderMaterial {
   });
 }
 
+const MOON_VERTEX_SHADER = /* glsl */ `
+  varying vec2 vUv;
+  varying vec3 vWorldNormal;
+
+  void main() {
+    vUv = uv;
+    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const MOON_FRAGMENT_SHADER = /* glsl */ `
+  uniform sampler2D uMoonMap;
+  uniform vec3 uSunDirection;
+
+  varying vec2 vUv;
+  varying vec3 vWorldNormal;
+
+  void main() {
+    vec3 normal = normalize(vWorldNormal);
+    vec3 sunDir = normalize(uSunDirection);
+    vec3 albedo = texture2D(uMoonMap, vUv).rgb;
+
+    // 大気のない月面のくっきりした昼夜境界と、なだらかな拡散反射
+    float ndotl = dot(normal, sunDir);
+    float dayMask = smoothstep(-0.04, 0.08, ndotl);
+    float diffuse = pow(max(ndotl, 0.0), 0.72);
+
+    vec3 sunlit = albedo * mix(0.75, 1.22, diffuse);
+    // 影側も完全に真っ黒にせず、地球からの反射光（地球照）でうっすら青白く見せます。
+    vec3 earthshine = albedo * vec3(0.11, 0.14, 0.22) + vec3(0.015, 0.024, 0.045);
+
+    vec3 finalColor = mix(earthshine, sunlit, dayMask);
+    gl_FragColor = vec4(finalColor, 1.0);
+  }
+`;
+
+/**
+ * 月本体用の ShaderMaterial（太陽光による満ち欠け＋地球照表現）を生成します。
+ */
+export function createMoonMaterial(moonMap: THREE.Texture): {
+  material: THREE.ShaderMaterial;
+  uniforms: {
+    uMoonMap: { value: THREE.Texture };
+    uSunDirection: { value: THREE.Vector3 };
+  };
+} {
+  const uniforms = {
+    uMoonMap: { value: moonMap },
+    uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
+  };
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: MOON_VERTEX_SHADER,
+    fragmentShader: MOON_FRAGMENT_SHADER,
+  });
+  return { material, uniforms };
+}
+
 /**
  * 地球の輪郭を包む青い大気ハロー（外気圏の光）用 ShaderMaterial を生成します。
  */

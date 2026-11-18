@@ -188,6 +188,27 @@ $$A = \operatorname{wrap}_{360}(\operatorname{radToDeg}(\operatorname{atan2}(A_{
 
 また、ある都市から太陽が東から昇り西へ沈む理由は、地表における「東」の向き（経度が増える向き）が地球の自転方向（反時計回り）と一致しているためである。夜の側にある地点が自転によって東向きへ回転して昼夜の境界（夜明け線）を通過するとき、進行方向前方にあたる東の地平線側から太陽光が差し込み、正午（南中、南半球中緯度では北中）を経て、さらに東へ回転するにつれ太陽は進行方向後方の西へ傾いていく。
 
+### 2.7 月の軌道・満ち欠け・白道傾斜（`MoonState`）
+
+任意の UTC 時刻（J2000.0 からの経過日数 $D$）と太陽視黄経 $\lambda_\odot$ から、天文年鑑の簡易月位置式（精度約 $0.3^\circ$）を用いて月の黄道座標と満ち欠け状態を算出する。
+
+- **基本周期・軌道定数**：
+  - 恒星月（恒星に対する公転周期）：$27.321661\text{ 日}$
+  - 朔望月（新月から次の新月までの満ち欠け周期）：$29.530588853\text{ 日}$
+  - 白道傾斜角（黄道面に対する月の軌道傾斜角）：$5.145^\circ$
+- **黄経 $\lambda_m$・黄緯 $\beta_m$・昇交点黄経 $\Omega$**：
+  - 平均黄経 $L_m = (218.316 + 13.176396 \cdot D) \bmod 360$
+  - 平均近点角 $M_m = (134.963 + 13.064993 \cdot D) \bmod 360$
+  - 昇交点からの平均引数 $F = (93.272 + 13.229350 \cdot D) \bmod 360$
+  - 太陽平均近点角 $M_\odot$ と月太陽平均離角 $D_m = L_m - L_\odot$ の主要摂動項（中心差・出差・二均差）を加えて黄経 $\lambda_m$ を算出し、黄緯 $\beta_m = 5.128 \sin F$、昇交点黄経 $\Omega = (L_m - F) \bmod 360$ を得る
+- **月相角・輝面比・月齢**：
+  - 月相角 $\psi = (\lambda_m - \lambda_\odot) \bmod 360$（$0^\circ$: 新月、$90^\circ$: 上弦、$180^\circ$: 満月、$270^\circ$: 下弦）
+  - 輝面比 $k = \dfrac{1 - \cos\psi}{2} \in [0, 1]$
+  - 月齢目安 $= (\psi / 360) \times 29.530588853$
+- **3D 表現**：
+  - 地球中心の黄道座標系に半径 `MOON_ORBIT_RADIUS = 3.45`、月半径 `MOON_RADIUS = 0.27` で配置し、常に表側（嵐の大洋・雨の海・静かの海など）が地球へ向く潮汐ロック回転（`rotation.y = lonRad + π`）を適用する
+  - 太陽光は遠方からの平行光線（地球-太陽単位ベクトル `sunDirWorld`）で照明し、夜側には淡い地球照（Earthshine）を描画することで、上弦・下弦の正確な半月と満ち欠けを再現する
+
 ---
 
 ## 3. 表示・操作仕様
@@ -214,14 +235,16 @@ $$A = \operatorname{wrap}_{360}(\operatorname{radToDeg}(\operatorname{atan2}(A_{
 
 | プリセット値 | 名称 | カメラ姿勢と役割 |
 |---|---|---|
-| `"northPole"` | 天の北極（初期値） | 地球中心を注視し、天の北極軸上空（`eclipticBlend = 0`, `pitch = 90°`, `distance = 3.92`）から地球の反時計回り自転・北極圏の白夜極夜を観察 |
-| `"eclipticPlane"` | 黄道面 (水平) | 地球中心を注視し、黄道面の水平真横（`eclipticBlend = 1`, `pitch = 0°`, `distance = 4.02`）から太陽光線の水平照射と地軸 $23.4^\circ$ の傾きを観察 |
-| `"sunOverhead"` | 太陽の真上 | 太陽中心 $(0, 0, 0)$ を注視し、黄道北極の上空（`eclipticBlend = 1`, `sunCenterBlend = 1`, `pitch = 90°`, `distance = 56.0`）から、下=春分・右=夏至・上=秋分・左=冬至の配置で公転全体を一望 |
-| `"sunEclipticOblique"` | 公転面 (やや上) | 太陽中心 $(0, 0, 0)$ を注視し、公転面水平よりやや上（`eclipticBlend = 1`, `sunCenterBlend = 1`, `pitch = 20°`, `yaw = 0`, `distance = 43.0`）から、真ん前=春分・右=夏至・真後ろ=秋分・左=冬至の配置で公転軌道を立体的に観察 |
+| `"northPole"` | 地球：天の北極（初期値） | 地球中心を注視し、天の北極軸上空（`eclipticBlend = 0`, `pitch = 90°`, `distance = 3.92`）から地球の反時計回り自転・北極圏の白夜極夜を観察 |
+| `"eclipticPlane"` | 地球：黄道面 (水平) | 地球中心を注視し、黄道面の水平真横（`eclipticBlend = 1`, `pitch = 0°`, `distance = 4.02`）から太陽光線の水平照射と地軸 $23.4^\circ$ の傾きを観察 |
+| `"moonNorthPole"` | 月：天の北極 (真上) | 地球中心を注視し、天の北極軸上空の月軌道距離（`eclipticBlend = 0`, `pitch = 90°`, `distance = 14.0`）から、地球の周りを反時計回りに公転する月と満ち欠けを一望 |
+| `"moonEclipticPlane"` | 月：公転面 (水平) | 地球中心を注視し、黄道面の水平真横の月軌道距離（`eclipticBlend = 1`, `pitch = 0°`, `distance = 14.0`）から、水平な黄道面に対する白道（約 $5.145^\circ$）の傾きと月の公転を観察 |
+| `"sunOverhead"` | 太陽：太陽の真上 | 太陽中心 $(0, 0, 0)$ を注視し、黄道北極の上空（`eclipticBlend = 1`, `sunCenterBlend = 1`, `pitch = 90°`, `distance = 56.0`）から、下=春分・右=夏至・上=秋分・左=冬至の配置で公転全体を一望 |
+| `"sunEclipticOblique"` | 太陽：公転面 (やや上) | 太陽中心 $(0, 0, 0)$ を注視し、公転面水平よりやや上（`eclipticBlend = 1`, `sunCenterBlend = 1`, `pitch = 20°`, `yaw = 0`, `distance = 43.0`）から、真ん前=春分・右=夏至・真後ろ=秋分・左=冬至の配置で公転軌道を立体的に観察 |
 
-- **ゆっくり滑らかな連続トランジション**：プリセット切り替え時は、現在の姿勢を始点として 3 次イージング（`easeInOutCubic`）と対数距離補間（$\exp(\operatorname{lerp}(\ln d_0, \ln d_1))$）を用い、地球視点間は `2.6 秒`、太陽中心視点を跨ぐ移動は `3.2〜3.4 秒` かけて連続的に視点移動する
-- **天の北極 ⇄ 黄道面（水平）連続スライダー**：`0%`〜`100%` のスライダー操作で `eclipticBlend`（`0 -> 1`）と `pitch`（`90° -> 0°`）を連続補間し、途中の任意の角度へ移動できる
-- **視点に応じた再生倍率の自動調整**：`"sunOverhead"` / `"sunEclipticOblique"` へ移動した際に速度が `1日/s` 未満であれば公転のデフォルト速度 **`1日/s`（`86400×`）** へ切り替え、地球視点へ戻った際に `1日/s` 以上であれば自転が見やすい `30分/s`（`1800×`）へ戻す（手動での倍率変更も可能）
+- **ゆっくり滑らかな連続トランジション**：プリセット切り替え時は、現在の姿勢を始点として 3 次イージング（`easeInOutCubic`）と対数距離補間（$\exp(\operatorname{lerp}(\ln d_0, \ln d_1))$）を用い、同一距離帯内は `2.6〜2.8 秒`、距離帯を跨ぐ移動は `3.0〜3.4 秒` かけて連続的に視点移動する
+- **天の北極 ⇄ 公転面（水平）連続スライダー**：`0%`〜`100%` のスライダー操作で `eclipticBlend`（`0 -> 1`）と `pitch`（`90° -> 0°`）を連続補間し、地球クローズアップ距離でも月観察距離でも途中の任意の角度へ移動できる
+- **視点に応じた再生倍率の自動調整**：月観察視点（`"moonNorthPole"` / `"moonEclipticPlane"`）または太陽公転視点（`"sunOverhead"` / `"sunEclipticOblique"`）へ移動した際に速度が `1日/s` 未満であれば公転のデフォルト速度 **`1日/s`（`86400×`）** へ切り替え、地球近接視点へ戻った際に `1日/s` 以上であれば自転が見やすい `30分/s`（`1800×`）へ戻す（手動での倍率変更も可能）
 - ドラッグ操作で自由回転、ホイール操作で拡大縮小が可能
 
 ### 3.4 オーバーレイレイヤー（`DisplayLayers`）
@@ -230,10 +253,11 @@ $$A = \operatorname{wrap}_{360}(\operatorname{radToDeg}(\operatorname{atan2}(A_{
 |---|---|---|
 | `graticule` | 緯線・経線・赤道・北極圏（`66.6°N`）・地軸のガイド線 | 緯度帯ごとの昼夜の割合と、白夜・極夜が生じる北極圏の境界・地軸の傾きを確認 |
 | `celestialCompass` | 天の北極周りの角度目盛り・反時計回り自転矢印 | 自転の向きと、1恒星日・1太陽日ステップによる回転角の違いを確認 |
-| `eclipticPlane` | 黄道面（公転面）リング・太陽中心の公転軌道リング・4季節マーカー | 赤道面に対して約 $23.44^\circ$ 傾いた黄道面と公転軌道上の季節位置を確認 |
+| `eclipticPlane` | 黄道面（公転面）リング・月観察時の黄道基準リング・太陽中心の公転軌道リング・4季節マーカー | 赤道面に対して約 $23.44^\circ$ 傾いた黄道面、白道との角度差、公転軌道上の季節位置を確認 |
 | `terminatorGuide` | 太陽光線ベクトルと昼夜境界（ターミネーター）の強調線 | 太陽直下点方向と昼夜の切り替わり位置（日の出・日の入り境界）を強調 |
 | `cities` | 都市マーカー・投影ラベル・選択都市の局所方位（N/E/S/W）ベクトル | 各地点の昼夜状態と、地表から見た東・西・南・北の向きを確認 |
 | `starsAndEquinox` | 恒星背景と春分点（`♈`）の基準方向ライン | 基準フレームによる恒星・春分点の動きと太陽移動の対比を確認 |
+| `moonAndOrbit` | 月本体・白道リング（約 $5.145^\circ$ 傾斜）・昇交点・地球-月動径線・月相ラベル | 月の公転、満ち欠け、潮汐ロック、黄道面に対する白道の傾きを確認 |
 
 ### 3.5 時間操作と季節プリセット
 
@@ -271,6 +295,7 @@ $$A = \operatorname{wrap}_{360}(\operatorname{radToDeg}(\operatorname{atan2}(A_{
 
 | 学習テーマ | 適用される状態（実装） | 観察ポイント |
 |---|---|---|
+| **月の公転・満ち欠けと白道の傾き** | 視点：`"moonNorthPole"`<br>速度：`86400×`（`1日/s`）再生 / レイヤー：`moonAndOrbit`・`eclipticPlane`・`terminatorGuide` 有効 | 約27.3日で地球の周りを反時計回りに公転する月の満ち欠けと、公転面（水平）視点での約 $5.1^\circ$ の白道傾斜を確認 |
 | **太陽の真上から見る公転と季節** | 視点：`"sunOverhead"`<br>速度：`86400×`（`1日/s`）再生 / レイヤー：`eclipticPlane`・`starsAndEquinox` 有効 | 中心の太陽の周りを地球が反時計回りに公転し、春分・夏至・秋分・冬至が巡る様子を確認 |
 | **なぜ天の北極からは反時計回り？** | 視点：`"northPole"`<br>速度：`7200×`（`2時間/s`）再生 / レイヤー：`celestialCompass`・`graticule` 有効 | 北極点を中心に地球全体および本初子午線（黄色線）が反時計回りに回転する様子を確認 |
 | **黄道面（公転面）と地軸23.4°の傾き** | 視点：`"eclipticPlane"` / 日時：夏至（`2026-06-21T08:24:00Z`）<br>フレーム：`"solar"` / レイヤー：`eclipticPlane`・`graticule`・`terminatorGuide` 有効 | 黄道面が水平一直線、太陽光が水平右から差し込む中で地軸が約 $23.4^\circ$ 傾いている様子を確認 |
@@ -306,16 +331,17 @@ $$A = \operatorname{wrap}_{360}(\operatorname{radToDeg}(\operatorname{atan2}(A_{
 | `tsconfig.json` / `vite.config.ts` | TypeScript 厳格設定および Vite（チャンク分割含む）・Vitest 共通設定 |
 | `flake.nix` / `packages.nix` / `flake.lock` | Nix 開発環境とツールチェーン（`nodejs_22`、`git`、`gh`、`gitleaks` 等）の定義 |
 | `.githooks/pre-commit` / `.github/workflows/check.yml` | `gitleaks` コミット検査および PR 時の自動チェック（`typecheck`・`test`・`build`） |
-| `src/types/astronomy.ts` | `VisualStyle`、`ReferenceFrame`、`CameraPreset`、`City`、`SolarSystemState`、`CityObservation`、`DisplayLayers` の型定義 |
+| `src/types/astronomy.ts` | `VisualStyle`、`ReferenceFrame`、`CameraPreset`、`City`、`SolarSystemState`、`MoonState`、`CityObservation`、`DisplayLayers` の型定義 |
 | `src/data/cities.ts` | 代表7都市および北極点の定義配列 `OBSERVATION_CITIES` |
-| `src/astronomy/calculations.ts` | ユリウス日、GMST、太陽位置、太陽直下点、都市観測値、季節日時プリセットの純粋関数群 |
-| `src/astronomy/__tests__/calculations.test.ts` | 天文計算エンジンの単体テスト（Vitest 5件） |
+| `src/astronomy/calculations.ts` | ユリウス日、GMST、太陽位置、太陽直下点、月の黄道座標・月相、都市観測値、季節日時プリセットの純粋関数群 |
+| `src/astronomy/__tests__/calculations.test.ts` | 天文計算エンジンの単体テスト（Vitest 6件） |
 | `src/scene/earthTexture.ts` | Natural Earth 50m データからの等距円筒図法テクスチャ（宇宙リアル / 天文図解 / 陸マスク・夜景ライト）生成 |
-| `src/scene/shaders.ts` | 地球（薄明・夜間都市灯・海洋鏡面反射・大気リム）および太陽（粒状斑・コロナ）用 GLSL シェーダー |
-| `src/scene/EarthGlobeCanvas.tsx` | Three.js 太陽・公転軌道・自転する3D地球儀、3視点連続トランジションカメラ、都市・軌道ラベル投影の統合 |
+| `src/scene/moonTexture.ts` | 月の海（嵐の大洋・雨の海・静かの海など）とクレーターを描くプロシージャル等距円筒図法テクスチャ生成 |
+| `src/scene/shaders.ts` | 地球（薄明・夜間都市灯・海洋鏡面反射・大気リム）、月（太陽光ターミネーター・地球照）、太陽（粒状斑・コロナ）用 GLSL シェーダー |
+| `src/scene/EarthGlobeCanvas.tsx` | Three.js 太陽・月・白道・公転軌道・自転する3D地球儀、6視点連続トランジションカメラ、都市・軌道ラベル投影の統合 |
 | `src/components/HeaderBar.tsx` | アプリタイトル、観測日時・太陽赤緯・北極状態テレメトリ、ビジュアルモード切替 |
-| `src/components/ViewTransitionWidget.tsx` | 左上の天の北極・黄道面（水平）・太陽の真上の連続視点移動スライダーおよびプリセットボタン |
-| `src/components/InspectorPanel.tsx` | 「地点観測」「視点・表示」「学習ガイド」3タブの観察パネル |
+| `src/components/ViewTransitionWidget.tsx` | 左上の地球・月・太陽3グループ連続視点移動スライダーおよびプリセットボタン |
+| `src/components/InspectorPanel.tsx` | 「地点・月」「視点・表示」「学習ガイド」3タブの観察パネル |
 | `src/components/TimeControlBar.tsx` | 再生/一時停止、現在時刻同期、自転/公転倍速、1恒星日/1太陽日ステップ、1日スライダー、季節プリセット |
 | `src/styles/app.css` | 宇宙テーマのダークグラス UI と重なり防止レスポンシブレイアウト |
 | `src/App.tsx` / `src/main.tsx` | 全体状態管理、アニメーション進行ループ、DOM マウント処理 |
@@ -330,6 +356,7 @@ $$A = \operatorname{wrap}_{360}(\operatorname{radToDeg}(\operatorname{atan2}(A_{
   - 代表都市の正午・日の出・深夜における太陽高度角・太陽方位角（東 $= 90^\circ$、南 $= 180^\circ$、西 $= 270^\circ$、南半球正午 $= 0^\circ$）・昼夜区分の判定
   - 夏至・冬至・分点における北極点の `northPoleDaylightState`（`"polar-day"` / `"polar-night"` / `"equinox-transition"`）の判定
   - 1恒星日経過時の GMST $360^\circ$ 回転と 1太陽日との約 $0.9856^\circ$（約3分56秒）差の再現
+  - 月の黄緯が白道傾斜（$\pm 5.15^\circ$）の範囲に収まること、および 1恒星月での黄経復帰と 1朔望月での月相角復帰の検証
 - **TypeScript 型チェック（`npm run typecheck` / `tsc --noEmit`）**：`strict: true` 条件下での型定義とモジュール境界の整合性確認
 - **ビルド確認（`npm run build` / `tsc --noEmit && vite build`）**：型チェック後の Vite 本番バンドル生成成功の確認
 - **対象外とする過剰テスト**：Three.js の WebGL ピクセルスナップショットテストおよび網羅的 UI E2E 自動テストの除外（3D 表示は開発サーバー `npm run dev` での目視確認に限定）

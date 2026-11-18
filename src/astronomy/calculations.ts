@@ -1,6 +1,7 @@
 import type {
   City,
   CityObservation,
+  MoonState,
   SolarSystemState,
 } from "../types/astronomy";
 
@@ -12,6 +13,15 @@ export const SOLAR_DAY_SECONDS = 86400;
 
 /** 地球の自転軸の傾き（赤道傾斜角・度）：J2000.0 時点の平均値 */
 export const EARTH_AXIAL_TILT_DEG = 23.4392911;
+
+/** 1朔望月の平均長さ（日）：新月から次の新月までの周期（約29.53日） */
+export const SYNODIC_MONTH_DAYS = 29.530588853;
+
+/** 1恒星月の平均長さ（日）：恒星に対して月が地球の周りを1周する周期（約27.32日） */
+export const SIDEREAL_MONTH_DAYS = 27.321661;
+
+/** 月の公転軌道面（白道）と黄道面の傾き（度）：約5.145° */
+export const MOON_ORBIT_INCLINATION_DEG = 5.145;
 
 /** 2000年1月1日 12:00 UTC（J2000.0 エポック）のユリウス日 */
 const J2000_JULIAN_DAY = 2451545.0;
@@ -507,4 +517,79 @@ export function getSeasonLabelJa(eclipticLongitudeDeg: number): string {
     return "秋";
   }
   return "冬";
+}
+
+/**
+ * 太陽と月の黄経差（月相角：0°=新月, 90°=上弦, 180°=満月, 270°=下弦）から日本語の月相名を返します。
+ */
+export function getMoonPhaseLabelJa(phaseAngleDeg: number): string {
+  const angle = wrapPositive(phaseAngleDeg, 360);
+  if (angle < 11.25 || angle >= 348.75) {
+    return "新月";
+  }
+  if (angle < 78.75) {
+    return "三日月";
+  }
+  if (angle < 101.25) {
+    return "上弦の月";
+  }
+  if (angle < 168.75) {
+    return "満ちていく月";
+  }
+  if (angle < 191.25) {
+    return "満月";
+  }
+  if (angle < 258.75) {
+    return "欠けていく月";
+  }
+  if (angle < 281.25) {
+    return "下弦の月";
+  }
+  return "有明の月";
+}
+
+/**
+ * 指定された日時の月の黄道座標（視黄経・視黄緯・昇交点黄経）と満ち欠け（月相角・輝面比・月齢）を計算します。
+ * Astronomical Almanac の低精度月位置近似式を使用しています。
+ */
+export function calculateMoonState(
+  date: Date,
+  sunEclipticLongitudeDeg?: number
+): MoonState {
+  const julianDay = dateToJulianDay(date);
+  const d = julianDay - J2000_JULIAN_DAY;
+
+  // 1. 月の平均黄経 L0、平均近点角 M、昇交点からの平均引数 F
+  const meanLongitudeDeg = wrapPositive(218.316 + 13.176396 * d, 360);
+  const meanAnomalyDeg = wrapPositive(134.963 + 13.064993 * d, 360);
+  const argumentOfLatitudeDeg = wrapPositive(93.272 + 13.22935 * d, 360);
+
+  // 2. 楕円軌道の主要項（中心差）を加えた視黄経と、白道の傾きによる視黄緯
+  const eclipticLongitudeDeg = wrapPositive(
+    meanLongitudeDeg + 6.289 * Math.sin(degToRad(meanAnomalyDeg)),
+    360
+  );
+  const eclipticLatitudeDeg =
+    5.128 * Math.sin(degToRad(argumentOfLatitudeDeg));
+  const ascendingNodeDeg = wrapPositive(
+    meanLongitudeDeg - argumentOfLatitudeDeg,
+    360
+  );
+
+  // 3. 太陽の視黄経との差から月相角・輝面比・月齢を算出
+  const sunLon =
+    sunEclipticLongitudeDeg ?? calculateSolarPosition(julianDay).eclipticLongitudeDeg;
+  const phaseAngleDeg = wrapPositive(eclipticLongitudeDeg - sunLon, 360);
+  const illumination = (1 - Math.cos(degToRad(phaseAngleDeg))) / 2;
+  const moonAgeDays = (phaseAngleDeg / 360) * SYNODIC_MONTH_DAYS;
+
+  return {
+    eclipticLongitudeDeg,
+    eclipticLatitudeDeg,
+    ascendingNodeDeg,
+    phaseAngleDeg,
+    illumination,
+    moonAgeDays,
+    phaseLabelJa: getMoonPhaseLabelJa(phaseAngleDeg),
+  };
 }

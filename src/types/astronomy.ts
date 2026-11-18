@@ -12,6 +12,8 @@ export type ReferenceFrame = "solar" | "sidereal";
 export type CameraPreset =
   | "northPole"
   | "eclipticPlane"
+  | "moonNorthPole"
+  | "moonEclipticPlane"
   | "sunOverhead"
   | "sunEclipticOblique";
 
@@ -84,4 +86,24 @@ export interface DisplayLayers {
   starsAndEquinox: boolean;
   /** 公転面（黄道面：赤道面と約23.4°傾いた軌道面）のガイドリング */
   eclipticPlane: boolean;
+  /** 月本体と白道（月の公転軌道）の表示 */
+  moonAndOrbit: boolean;
+}
+
+/** ある瞬間における月の位置（黄道座標）と満ち欠けの状態 */
+export interface MoonState {
+  /** 月の視黄経（度：0°〜360° 未満） */
+  eclipticLongitudeDeg: number;
+  /** 月の視黄緯（度：白道の傾きにより約 -5.15°〜+5.15° の間で変化） */
+  eclipticLatitudeDeg: number;
+  /** 白道の昇交点黄経（度：月の軌道面が黄道面を南から北へ横切る方向） */
+  ascendingNodeDeg: number;
+  /** 太陽からの離角・月相角（度：0°=新月, 90°=上弦, 180°=満月, 270°=下弦） */
+  phaseAngleDeg: number;
+  /** 地球から見た月の輝面比（0.0 = 新月 〜 1.0 = 満月） */
+  illumination: number;
+  /** 平均朔望月に基づく月齢の目安（日：0 〜 29.53） */
+  moonAgeDays: number;
+  /** 月相の日本語名（例：「上弦の月」「満月」） */
+  phaseLabelJa: string;
 }

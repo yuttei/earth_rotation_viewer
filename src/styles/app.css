@@ -182,6 +182,15 @@ input {
   box-shadow: 0 0 14px rgba(56, 189, 248, 0.28);
 }
 
+.space-badge.is-moon {
+  background: rgba(20, 27, 45, 0.86);
+  border: 1px solid rgba(203, 213, 225, 0.6);
+  color: #f1f5f9;
+  margin-left: -34px;
+  margin-top: -30px;
+  box-shadow: 0 0 14px rgba(203, 213, 225, 0.24);
+}
+
 .space-badge.is-season {
   background: rgba(22, 16, 8, 0.72);
   border: 1px solid rgba(245, 158, 11, 0.38);
@@ -505,10 +514,44 @@ input {
   color: var(--text-secondary);
 }
 
+.view-group-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.view-group-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
 .view-preset-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 5px;
+}
+
+.moon-view-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-color: rgba(203, 213, 225, 0.3);
+  color: #e2e8f0;
+  background: rgba(20, 29, 48, 0.56);
+}
+
+.moon-view-btn:hover {
+  border-color: rgba(226, 232, 240, 0.62);
+  color: #ffffff;
+}
+
+.moon-view-btn.is-active {
+  border-color: #cbd5e1;
+  background: rgba(148, 163, 184, 0.24);
+  color: #f8fafc;
+  box-shadow: 0 0 14px rgba(203, 213, 225, 0.24);
 }
 
 .sun-overhead-btn {
@@ -574,6 +617,11 @@ input {
 .legend-swatch.ecliptic {
   border: 2px solid #f59e0b;
   background: rgba(245, 158, 11, 0.25);
+}
+
+.legend-swatch.moon {
+  border: 2px solid #cbd5e1;
+  background: rgba(203, 213, 225, 0.28);
 }
 
 .legend-swatch.equinox {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OBSERVATION_CITIES } from "./data/cities";
 import {
+  calculateMoonState,
   calculateSolarSystemState,
   degToRad,
   SEASON_PRESETS,
@@ -30,6 +31,7 @@ const DEFAULT_LAYERS: DisplayLayers = {
   terminatorGuide: true,
   cities: true,
   starsAndEquinox: true,
+  moonAndOrbit: true,
 };
 
 const PRESET_POSES: Record<
@@ -52,6 +54,24 @@ const PRESET_POSES: Record<
     eclipticBlend: 1,
     sunCenterBlend: 0,
     durationSec: 2.6,
+    ratio: 1,
+  },
+  moonNorthPole: {
+    yaw: 0,
+    pitch: Math.PI / 2,
+    distance: 14.0,
+    eclipticBlend: 0,
+    sunCenterBlend: 0,
+    durationSec: 2.8,
+    ratio: 0,
+  },
+  moonEclipticPlane: {
+    yaw: 0,
+    pitch: 0,
+    distance: 14.0,
+    eclipticBlend: 1,
+    sunCenterBlend: 0,
+    durationSec: 2.8,
     ratio: 1,
   },
   sunOverhead: {
@@ -133,6 +153,11 @@ export function App() {
     [currentDate]
   );
 
+  const moonState = useMemo(
+    () => calculateMoonState(currentDate, solarState.sunEclipticLongitudeDeg),
+    [currentDate, solarState.sunEclipticLongitudeDeg]
+  );
+
   const handleStepSeconds = useCallback(
     (deltaSeconds: number) => {
       const next = new Date(simTimeMsRef.current + deltaSeconds * 1000);
@@ -151,24 +176,33 @@ export function App() {
       setActivePresetButton(preset);
       setViewTransitionRatio(p.ratio);
 
-      // 太陽中心ビューと地球中心ビューを跨ぐ場合は、よりゆっくり移動して距離変化を見やすくします。
+      // 太陽中心・月軌道・地球近接の各距離帯を跨ぐ場合は、よりゆっくり移動して距離変化を見やすくします。
       setCameraPoseTarget((prev) => {
         const crossesSunCenter = prev.sunCenterBlend !== p.sunCenterBlend;
+        const crossesMoonBand = (prev.distance >= 7.5) !== (p.distance >= 7.5);
+        const durationSec = crossesSunCenter
+          ? 3.4
+          : crossesMoonBand
+          ? 3.0
+          : p.durationSec;
         return {
           yaw: p.yaw,
           pitch: p.pitch,
           distance: p.distance,
           eclipticBlend: p.eclipticBlend,
           sunCenterBlend: p.sunCenterBlend,
-          durationSec: crossesSunCenter ? 3.4 : p.durationSec,
+          durationSec,
           seq: prev.seq + 1,
         };
       });
 
       if (adjustSpeedAutomatically) {
-        const isOrbitView =
-          preset === "sunOverhead" || preset === "sunEclipticOblique";
-        if (isOrbitView) {
+        const isOrbitalView =
+          preset === "moonNorthPole" ||
+          preset === "moonEclipticPlane" ||
+          preset === "sunOverhead" ||
+          preset === "sunEclipticOblique";
+        if (isOrbitalView) {
           setSpeedMultiplier((prev) => (prev < 86400 ? 86400 : prev));
           setIsPlaying(true);
         } else {
@@ -179,30 +213,45 @@ export function App() {
     []
   );
 
-  const handleChangeViewTransitionRatio = useCallback((ratio: number) => {
-    const clamped = Math.max(0, Math.min(1, ratio));
-    setViewTransitionRatio(clamped);
+  const isMoonDistanceMode =
+    cameraPoseTarget.sunCenterBlend < 0.5 && cameraPoseTarget.distance >= 7.5;
 
-    if (clamped <= 0.005) {
-      setActivePresetButton("northPole");
-    } else if (clamped >= 0.995) {
-      setActivePresetButton("eclipticPlane");
-    } else {
-      setActivePresetButton(null);
-    }
+  const handleChangeViewTransitionRatio = useCallback(
+    (ratio: number) => {
+      const clamped = Math.max(0, Math.min(1, ratio));
+      setViewTransitionRatio(clamped);
 
-    setSpeedMultiplier((prev) => (prev >= 86400 ? 1800 : prev));
+      if (isMoonDistanceMode) {
+        if (clamped <= 0.005) {
+          setActivePresetButton("moonNorthPole");
+        } else if (clamped >= 0.995) {
+          setActivePresetButton("moonEclipticPlane");
+        } else {
+          setActivePresetButton(null);
+        }
+      } else {
+        if (clamped <= 0.005) {
+          setActivePresetButton("northPole");
+        } else if (clamped >= 0.995) {
+          setActivePresetButton("eclipticPlane");
+        } else {
+          setActivePresetButton(null);
+        }
+        setSpeedMultiplier((prev) => (prev >= 86400 ? 1800 : prev));
+      }
 
-    setCameraPoseTarget((prev) => ({
-      yaw: 0,
-      pitch: (1 - clamped) * (Math.PI / 2),
-      distance: 3.92 + clamped * 0.1,
-      eclipticBlend: clamped,
-      sunCenterBlend: 0,
-      durationSec: prev.sunCenterBlend > 0.5 ? 2.6 : 0.45,
-      seq: prev.seq,
-    }));
-  }, []);
+      setCameraPoseTarget((prev) => ({
+        yaw: 0,
+        pitch: (1 - clamped) * (Math.PI / 2),
+        distance: isMoonDistanceMode ? 14.0 : 3.92 + clamped * 0.1,
+        eclipticBlend: clamped,
+        sunCenterBlend: 0,
+        durationSec: prev.sunCenterBlend > 0.5 ? 2.6 : 0.45,
+        seq: prev.seq,
+      }));
+    },
+    [isMoonDistanceMode]
+  );
 
   const handleResetNorthPoleCamera = useCallback(() => {
     handleSelectCameraPreset("northPole");
@@ -219,6 +268,18 @@ export function App() {
   const handleRunGuideExperiment = useCallback(
     (id: GuideExperimentId) => {
       switch (id) {
+        case "moon-orbit-observe":
+          handleSelectCameraPreset("moonNorthPole", false);
+          setLayers((prev) => ({
+            ...prev,
+            moonAndOrbit: true,
+            eclipticPlane: true,
+            terminatorGuide: true,
+          }));
+          setSpeedMultiplier(86400);
+          setIsPlaying(true);
+          break;
+
         case "sun-orbit-overview":
           handleSelectCameraPreset("sunOverhead", false);
           setLayers((prev) => ({
@@ -321,6 +382,7 @@ export function App() {
     <div className="app-shell">
       <EarthGlobeCanvas
         solarState={solarState}
+        moonState={moonState}
         cities={OBSERVATION_CITIES}
         selectedCityId={selectedCityId}
         onSelectCity={setSelectedCityId}
@@ -366,6 +428,10 @@ export function App() {
                 <span>オレンジリング：黄道面（公転面・公転軌道）</span>
               </div>
               <div className="legend-row">
+                <span className="legend-swatch moon" />
+                <span>銀白リング：月の公転軌道（白道・約5.1°傾斜）</span>
+              </div>
+              <div className="legend-row">
                 <span className="legend-swatch arctic" />
                 <span>水色破線：北極圏 (66.6°N・白夜と極夜の境界)</span>
               </div>
@@ -379,6 +445,7 @@ export function App() {
           <InspectorPanel
             isOpen={isInspectorOpen}
             solarState={solarState}
+            moonState={moonState}
             cities={OBSERVATION_CITIES}
             selectedCityId={selectedCityId}
             onSelectCity={setSelectedCityId}

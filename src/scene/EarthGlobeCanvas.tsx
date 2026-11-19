@@ -1717,6 +1717,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       { mesh: THREE.Mesh; orbitFactor: number }
     >();
     let jupiterMoonsGroup: THREE.Group | null = null;
+    // 木星の主要4衛星の軌道リング（木星が衝突で消えたときに隠すため保持します）
+    const jupiterMoonOrbitLines: THREE.Object3D[] = [];
 
     for (const id of extraPlanetIds) {
       const el = SOLAR_SYSTEM_ELEMENTS.find((item) => item.id === id)!;
@@ -1780,6 +1782,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
             96
           );
           jupiterMoonsGroup.add(ringLine);
+          jupiterMoonOrbitLines.push(ringLine);
 
           const mMat = new THREE.MeshBasicMaterial({ color: gm.hex });
           extraDisposableMaterials.push(mMat);
@@ -2536,14 +2539,38 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
 
     // 画面に今描かれている太陽系天体の位置と大きさです（天体を押したかどうかの判定に使います）。
     // N体計算で軌道が乱れた後は、本来の公転位置（solarBaselineList）と描かれている位置がずれるため、別に持ちます。
-    const displayedSolarTargets: Array<
-      SolarBaselineBodyInput & { visible: boolean }
-    > = SOLAR_TARGET_SPECS.map((s) => ({
-      id: s.id,
-      pos: new THREE.Vector3(),
-      radius: s.baseRadius,
-      visible: true,
-    }));
+    const displayedSolarTargets: SolarBaselineBodyInput[] = SOLAR_TARGET_SPECS.map(
+      (s) => ({
+        id: s.id,
+        pos: new THREE.Vector3(),
+        radius: s.baseRadius,
+      })
+    );
+
+    // 各太陽系天体を画面に描いている 3D オブジェクトです。
+    // 押下判定では、このオブジェクトと親がすべて表示中か（＝実際に描かれているか）を調べ、見えない天体は押せないようにします。
+    const solarTargetRenderObjects = new Map<SolarImpactTargetId, THREE.Object3D>();
+    solarTargetRenderObjects.set("sun", sunMesh);
+    solarTargetRenderObjects.set("earth", earthMesh);
+    solarTargetRenderObjects.set("moon", moonMesh);
+    solarTargetRenderObjects.set("venus", venusMesh);
+    for (const [pId, entry] of extraPlanetMap.entries()) {
+      solarTargetRenderObjects.set(pId, entry.spinMesh);
+    }
+    for (const [gmId, mEntry] of jupiterGalileanMeshes.entries()) {
+      solarTargetRenderObjects.set(gmId as SolarImpactTargetId, mEntry.mesh);
+    }
+
+    /** オブジェクト自身と、その親をたどったすべてが表示中なら true を返します。 */
+    const isRenderedVisible = (obj: THREE.Object3D | undefined): boolean => {
+      let current: THREE.Object3D | null = obj ?? null;
+      if (!current) return false;
+      while (current) {
+        if (!current.visible) return false;
+        current = current.parent;
+      }
+      return true;
+    };
 
     // 狙いの状態をまとめて保持します（すべて solarWorldGroup 太陽中心のワールド座標）。
     const impactAim = {
@@ -2582,8 +2609,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       let bestDistAlongRay = Infinity;
       const ray = raycaster.ray;
       for (const b of displayedSolarTargets) {
-        // 衝突で消えた天体は狙えません
-        if (!b.visible) continue;
+        // 画面に描かれていない天体（衝突で消えた天体、遠景で隠した衛星など）は狙えません
+        if (!isRenderedVisible(solarTargetRenderObjects.get(b.id))) continue;
         const toBody = aimTmpWorld.copy(b.pos).sub(ray.origin);
         const proj = toBody.dot(ray.direction);
         if (proj <= 0.1) continue;
@@ -3972,6 +3999,18 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         );
       }
 
+      // 天体衝突シミュレーターはリアル太陽系モード専用です。
+      // 移動先の視点（anim.to）がリアル太陽系の外なら、置いた天体と軌道の乱れをすべて消して元に戻します。
+      // こうしないと、簡易視点や地上視点でも N体計算の結果で地球・月・金星の位置や消滅が上書きされ続けます。
+      const isTargetRealSolarSystem =
+        anim.to.solarSystemBlend > 0.5 &&
+        anim.to.groundBlend < 0.5 &&
+        anim.to.eclipticViewBlend < 0.5 &&
+        anim.to.cosmicLevel < 0.5;
+      if (!isTargetRealSolarSystem && lastImpactPhase !== "idle") {
+        impactRig.resetImmediate();
+      }
+
       const impOut = impactRig.update(
         dt,
         totalTimeSec,
@@ -3991,7 +4030,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         if (!base) continue;
         target.pos.copy(impOut.isNBodyActive ? st.worldPos : base.pos);
         target.radius = base.radius;
-        target.visible = !impOut.isNBodyActive || st.scaleFactor > 0.01;
       }
 
       // N体シミュレーション中（または「ぬるっと復活」復元中）は全15天体の座標と消滅/復元スケールをN体計算結果で更新します
@@ -4026,10 +4064,20 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           const pSt = impOut.bodyStates[pId];
           if (!pSt) continue;
           entry.root.position.copy(pSt.worldPos);
-          entry.root.scale.multiplyScalar(Math.max(0.001, pSt.scaleFactor));
-          entry.root.visible = pSt.scaleFactor > 0.01;
+          const planetAlive = pSt.scaleFactor > 0.01;
           if (pId === "jupiter") {
+            // 木星の4衛星は木星の子として描いているため、木星全体（root）を隠すと物理上は残っている衛星まで消えてしまいます。
+            // そこで木星本体の球（spinMesh）だけを縮めて隠し、衛星は N体計算の位置に描き続けます。
+            entry.spinMesh.scale.setScalar(Math.max(0.001, pSt.scaleFactor));
+            entry.spinMesh.visible = planetAlive;
+            entry.root.visible = true;
+            for (const line of jupiterMoonOrbitLines) {
+              line.visible = planetAlive;
+            }
             jupiterWorldPos.copy(pSt.worldPos);
+          } else {
+            entry.root.scale.multiplyScalar(Math.max(0.001, pSt.scaleFactor));
+            entry.root.visible = planetAlive;
           }
           // 太陽自身が動いた場合も各惑星の昼夜向きが太陽を向くよう更新
           entry.uniforms.uSunDirection.value
@@ -4057,6 +4105,11 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         moonMesh.visible = true;
         for (const entry of extraPlanetMap.values()) {
           entry.root.visible = true;
+          entry.spinMesh.scale.setScalar(1);
+          entry.spinMesh.visible = true;
+        }
+        for (const line of jupiterMoonOrbitLines) {
+          line.visible = true;
         }
         for (const mEntry of jupiterGalileanMeshes.values()) {
           mEntry.mesh.scale.setScalar(1);

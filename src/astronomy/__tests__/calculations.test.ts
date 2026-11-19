@@ -643,12 +643,15 @@ describe("天文計算エンジン (calculations)", () => {
         y: 0,
         z: 0,
       },
-      radius: s.baseRadius,
     }));
 
     // 1) 木星 (x = 5.2044 * 13.5 ≈ 70.26) のすぐ近くへ小惑星を置くと、木星への衝突が予測される
     const jupX = 5.2044 * 13.5;
     const startBodies = createSolarNBodyEntriesFromSnapshot(snapshot);
+    // 衝突半径は表示（ズーム）に左右されない固定値 baseRadius になる
+    for (const spec of SOLAR_TARGET_SPECS) {
+      expect(startBodies[spec.id].radius).toBe(spec.baseRadius);
+    }
     const hitJupiter = predictSolarNBodyTrajectory(
       startBodies,
       [],

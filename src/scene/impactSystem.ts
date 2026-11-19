@@ -1646,7 +1646,6 @@ export function createImpactSystemRig(
             baselineBodies.map((b) => ({
               id: b.id,
               pos: { x: b.pos.x, y: b.pos.y, z: b.pos.z },
-              radius: b.radius,
             }))
           );
       const predicted = predictSolarNBodyTrajectory(
@@ -1742,7 +1741,6 @@ export function createImpactSystemRig(
           baselineBodies.map((b) => ({
             id: b.id,
             pos: { x: b.pos.x, y: b.pos.y, z: b.pos.z },
-            radius: b.radius,
           }))
         );
         for (const b of baselineBodies) {
@@ -1924,13 +1922,10 @@ export function createImpactSystemRig(
       // ---------------------------------------------------------------------
       // N体相互万有引力＆天体間連鎖衝突のリアルタイム進行（自動復活せず、カオスな軌道をずっと観察可能）
       // ---------------------------------------------------------------------
+      // 衝突半径は初期化時の固定値（baseRadius）のまま使います。
+      // 表示半径（ズームで拡大される）を毎フレーム上書きすると、ズームアウトしただけで水星が太陽に吸収されるなどの誤衝突が起きます。
       const subSteps = 4;
       const subDt = safeDt / subSteps;
-      for (const b of baselineBodies) {
-        if (liveBodies[b.id]) {
-          liveBodies[b.id].radius = b.radius;
-        }
-      }
 
       const impactorEntries = collectImpactorEntries();
       for (let step = 0; step < subSteps; step++) {

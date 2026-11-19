@@ -613,12 +613,13 @@ function mergeVelocityByGM(
 /**
  * 現在のリアル太陽系15天体の位置スナップショットから、ケプラー公転速度を備えた
  * N体万有引力シミュレーションの初期状態を生成します。
+ * 衝突半径は SOLAR_TARGET_SPECS の baseRadius（固定値）を使います。
+ * 画面の表示半径はカメラのズームで変わるため、物理計算には持ち込みません。
  */
 export function createSolarNBodyEntriesFromSnapshot(
   snapshot: ReadonlyArray<{
     id: SolarImpactTargetId;
     pos: Vec3Tuple;
-    radius?: number;
   }>
 ): Record<SolarImpactTargetId, SolarNBodyEntry> {
   const entries = {} as Record<SolarImpactTargetId, SolarNBodyEntry>;
@@ -627,7 +628,7 @@ export function createSolarNBodyEntriesFromSnapshot(
   // 1) まず太陽と9惑星の位置と公転速度を設定
   for (const item of snapshot) {
     const spec = SOLAR_TARGET_MAP[item.id];
-    const radius = item.radius ?? spec.baseRadius;
+    const radius = spec.baseRadius;
     if (spec.id === "sun") {
       entries.sun = {
         id: "sun",
@@ -666,7 +667,7 @@ export function createSolarNBodyEntriesFromSnapshot(
     const spec = SOLAR_TARGET_MAP[item.id];
     if (spec.parentId === null) continue;
     const host = entries[spec.parentId];
-    const radius = item.radius ?? spec.baseRadius;
+    const radius = spec.baseRadius;
     if (!host) {
       entries[spec.id] = {
         id: spec.id,

@@ -863,6 +863,40 @@ input {
   font-variant-numeric: tabular-nums;
 }
 
+.phase-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(5, 10, 22, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.phase-diagram-svg {
+  flex-shrink: 0;
+  display: block;
+}
+
+.phase-preview-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.phase-preview-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.phase-preview-sub {
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
 .note-box {
   margin: 0;
   font-size: 12px;

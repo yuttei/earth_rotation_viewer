@@ -24,6 +24,7 @@ import {
   observeCity,
   SEASON_PRESETS,
 } from "../astronomy/calculations";
+import { CelestialPhaseDiagram } from "./CelestialPhaseDiagram";
 
 type InspectorTab = "city" | "display" | "guide";
 
@@ -237,6 +238,30 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 <Moon size={13} />
                 月の観測状態（白道・満ち欠け）
               </h2>
+              <div className="phase-preview-row">
+                <CelestialPhaseDiagram
+                  body="moon"
+                  illumination={moonState.illumination}
+                  litSide={moonState.phaseAngleDeg < 180 ? "right" : "left"}
+                  ariaLabel={`現在の月の満ち欠け：${moonState.phaseLabelJa}（輝面比 ${Math.round(
+                    moonState.illumination * 100
+                  )}%）`}
+                />
+                <div className="phase-preview-meta">
+                  <div className="phase-preview-title">
+                    {moonState.phaseLabelJa}（{Math.round(moonState.illumination * 100)}%）
+                  </div>
+                  <div className="phase-preview-sub">
+                    {moonState.illumination < 0.03
+                      ? "ほぼ新月（太陽と同じ方向）"
+                      : moonState.illumination > 0.97
+                      ? "ほぼ満月（全面が光る）"
+                      : moonState.phaseAngleDeg < 180
+                      ? "地球から見て右側が光る（満ちていく時期）"
+                      : "地球から見て左側が光る（欠けていく時期）"}
+                  </div>
+                </div>
+              </div>
               <div className="observation-metrics">
                 <div className="metric-box">
                   <div className="metric-label">月相</div>
@@ -274,14 +299,31 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 <Sparkles size={13} />
                 金星の観測状態（内惑星）
               </h2>
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: "#fef08a",
-                }}
-              >
-                {venusState.visibilityLabelJa}
+              <div className="phase-preview-row">
+                <CelestialPhaseDiagram
+                  body="venus"
+                  illumination={venusState.illumination}
+                  litSide={venusState.elongationDeg >= 0 ? "right" : "left"}
+                  distanceAu={venusState.distanceAu}
+                  ariaLabel={`現在の金星の満ち欠け：${venusState.visibilityLabelJa}（輝面比 ${Math.round(
+                    venusState.illumination * 100
+                  )}%、距離 ${venusState.distanceAu.toFixed(2)} AU）`}
+                />
+                <div className="phase-preview-meta">
+                  <div
+                    className="phase-preview-title"
+                    style={{ color: "#fef08a" }}
+                  >
+                    {venusState.visibilityLabelJa}
+                  </div>
+                  <div className="phase-preview-sub">
+                    {Math.abs(venusState.elongationDeg) < 8
+                      ? "太陽付近（点線円は最大視直径の目安）"
+                      : venusState.elongationDeg >= 0
+                      ? "右側が光る・距離に応じて見かけの大きさも変化"
+                      : "左側が光る・距離に応じて見かけの大きさも変化"}
+                  </div>
+                </div>
               </div>
               <div className="observation-metrics">
                 <div className="metric-box">

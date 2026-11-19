@@ -641,6 +641,41 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     venusGlowSprite.visible = false;
     scene.add(venusGlowSprite);
 
+    // 太陽の真上視点で「地球から見える半球の境目（地球に対して平行な補助線）」を示すガイド線群
+    const makeDynamicLine = (
+      color: number,
+      opacity: number,
+      dashed = false
+    ) => {
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(1, 0, 0),
+      ]);
+      const mat = dashed
+        ? new THREE.LineDashedMaterial({
+            color,
+            dashSize: 0.45,
+            gapSize: 0.35,
+            transparent: true,
+            opacity,
+          })
+        : new THREE.LineBasicMaterial({
+            color,
+            transparent: true,
+            opacity,
+          });
+      const line = new THREE.Line(geo, mat);
+      line.renderOrder = 4;
+      line.visible = false;
+      scene.add(line);
+      return { line, mat };
+    };
+
+    // 月・金星それぞれに地球と平行な断面補助線（地球から見える面と裏側を分ける線）と、地球-金星の視線ガイド線
+    const moonEarthParallel = makeDynamicLine(0x38bdf8, 0.96, false);
+    const venusEarthParallel = makeDynamicLine(0x38bdf8, 0.96, false);
+    const earthVenusSight = makeDynamicLine(0x7dd3fc, 0.36, true);
+
     // 4. 地球システム（公転位置へ毎フレーム移動させるルート）
     const earthSystemGroup = new THREE.Group();
     scene.add(earthSystemGroup);
@@ -1556,7 +1591,9 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         .copy(tokyoLocalOffset)
         .addScaledVector(moonDirWorld, 55);
       moonMesh.position.copy(moonSpaceLocalPos).lerp(moonGroundLocalPos, g);
-      const moonScale = 1.0 + 8.5 * g;
+      // 太陽中心の俯瞰ビューでは月の満ち欠けと補助線が見やすいよう半径をやや強調します。
+      const orbitMoonBoost = 1.0 + 0.85 * curPose.sunCenterBlend;
+      const moonScale = THREE.MathUtils.lerp(orbitMoonBoost, 9.5, g);
       moonMesh.scale.setScalar(moonScale);
       moonMesh.updateMatrixWorld(true);
 
@@ -1782,6 +1819,67 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         curLayers.venusAndOrbit && (isOrbitOverview || isGroundView);
       venusGlowSprite.visible =
         curLayers.venusAndOrbit && isGroundView && g > 0.45;
+
+      // 太陽の真上視点のとき、月と金星それぞれに「地球に対して平行な補助線（地球から見える半球の境界線）」を表示します。
+      const isSunOverhead = isOrbitOverview && curPose.pitch > degToRad(65);
+
+      const showMoonParallel = isSunOverhead && curLayers.moonAndOrbit;
+      moonEarthParallel.line.visible = showMoonParallel;
+      if (showMoonParallel) {
+        const emLen = Math.hypot(moonSpaceLocalPos.x, moonSpaceLocalPos.z) || 1;
+        // 地球→月ベクトルに直交（＝地球に対して平行）する水平単位ベクトル
+        const px = -moonSpaceLocalPos.z / emLen;
+        const pz = moonSpaceLocalPos.x / emLen;
+        const halfLen = MOON_RADIUS * moonScale * 2.6;
+        const cx = earthOrbitPos.x + moonSpaceLocalPos.x;
+        const cy = moonSpaceLocalPos.y + MOON_RADIUS * moonScale + 0.08;
+        const cz = earthOrbitPos.z + moonSpaceLocalPos.z;
+        const attr = moonEarthParallel.line.geometry.getAttribute(
+          "position"
+        ) as THREE.BufferAttribute;
+        attr.setXYZ(0, cx - px * halfLen, cy, cz - pz * halfLen);
+        attr.setXYZ(1, cx + px * halfLen, cy, cz + pz * halfLen);
+        attr.needsUpdate = true;
+      }
+
+      const showVenusParallel = isSunOverhead && curLayers.venusAndOrbit;
+      venusEarthParallel.line.visible = showVenusParallel;
+      earthVenusSight.line.visible = showVenusParallel;
+      if (showVenusParallel) {
+        const evX = venusSpacePos.x - earthOrbitPos.x;
+        const evZ = venusSpacePos.z - earthOrbitPos.z;
+        const evLen = Math.hypot(evX, evZ) || 1;
+        // 地球→金星ベクトルに直交（＝地球に対して平行）する水平単位ベクトル
+        const px = -evZ / evLen;
+        const pz = evX / evLen;
+        const halfLen = VENUS_RADIUS * 2.25;
+        const cy = venusSpacePos.y + VENUS_RADIUS + 0.08;
+
+        const pAttr = venusEarthParallel.line.geometry.getAttribute(
+          "position"
+        ) as THREE.BufferAttribute;
+        pAttr.setXYZ(
+          0,
+          venusSpacePos.x - px * halfLen,
+          cy,
+          venusSpacePos.z - pz * halfLen
+        );
+        pAttr.setXYZ(
+          1,
+          venusSpacePos.x + px * halfLen,
+          cy,
+          venusSpacePos.z + pz * halfLen
+        );
+        pAttr.needsUpdate = true;
+
+        const sAttr = earthVenusSight.line.geometry.getAttribute(
+          "position"
+        ) as THREE.BufferAttribute;
+        sAttr.setXYZ(0, earthOrbitPos.x, 0.04, earthOrbitPos.z);
+        sAttr.setXYZ(1, venusSpacePos.x, venusSpacePos.y + 0.04, venusSpacePos.z);
+        sAttr.needsUpdate = true;
+        earthVenusSight.line.computeLineDistances();
+      }
 
       if (lastCompassCityId !== curSelectedId) {
         const foundCity = curCities.find((c) => c.id === curSelectedId);
@@ -2059,6 +2157,12 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       moonBundle.material.dispose();
       venusBundle.material.dispose();
       venusGlowMat.dispose();
+      moonEarthParallel.line.geometry.dispose();
+      moonEarthParallel.mat.dispose();
+      venusEarthParallel.line.geometry.dispose();
+      venusEarthParallel.mat.dispose();
+      earthVenusSight.line.geometry.dispose();
+      earthVenusSight.mat.dispose();
       sunBundle.material.dispose();
       sunCoronaMaterial.dispose();
       tokyoSkyBundle.material.dispose();

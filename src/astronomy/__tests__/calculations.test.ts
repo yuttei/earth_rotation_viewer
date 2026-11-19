@@ -716,7 +716,12 @@ describe("天文計算エンジン (calculations)", () => {
         30
       );
     // 中心をねらえば当たる
-    expect(aimAt(0).hitTargets.some((t) => t.id === "earth")).toBe(true);
+    const centerHit = aimAt(0).hitTargets.find((t) => t.id === "earth");
+    expect(centerHit).toBeDefined();
+    // 当たる天体のリングを描く位置に直すときの母惑星の位置は、衝突した瞬間の地球の位置（予測区間の終わりではない）
+    const earthHostAtHit = centerHit!.hosts.find((h) => h.hostId === "earth")!;
+    expect(earthHostAtHit.center.x).toBeCloseTo(centerHit!.center.x, 9);
+    expect(earthHostAtHit.center.z).toBeCloseTo(centerHit!.center.z, 9);
     // 地球の半径の5倍（約0.0029）ずらすと、描いた地球（半径 約0.277）の中を通っても当たらない
     expect(aimAt(kmToScene(6378.1) * 5).hitTargets.some((t) => t.id === "earth")).toBe(false);
   });

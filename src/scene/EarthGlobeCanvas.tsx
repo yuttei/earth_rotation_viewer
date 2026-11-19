@@ -55,7 +55,6 @@ import {
   createCosmicScaleRig,
 } from "./cosmicScale";
 import {
-  IMPACTOR_MAP,
   ImpactorId,
   SOLAR_TARGET_SPECS,
   SolarImpactTargetId,
@@ -2718,6 +2717,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     // 狙いの状態をまとめて保持します（すべて solarWorldGroup 太陽中心のワールド座標）。
     const impactAim = {
       active: false,
+      /** 天体の上を押したときに、その天体の中心から置いた位置までの距離（描く空間） */
+      clearance: 0,
       targetBodyId: null as SolarImpactTargetId | null,
       targetBodyPos: new THREE.Vector3(),
       planeY: 0,
@@ -2801,6 +2802,9 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     };
 
     /** ドラッグ距離 d から初速度の大きさを滑らかに算出します。 */
+    /** 天体から引っ張って投げる操作になる距離の余白（描く空間）。投入天体の描く大きさには左右されません */
+    const SLINGSHOT_DRAG_MARGIN = 0.3;
+
     const computeThrowSpeedFromDragDist = (dragDist: number): number => {
       return Math.min(
         48.0,
@@ -2818,7 +2822,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       clientX: number,
       clientY: number
     ): boolean => {
-      const spec = IMPACTOR_MAP[impactorId];
       if (!setRayFromClient(clientX, clientY)) return false;
 
       const hitBody = findSolarTargetAtClient(clientX, clientY);
@@ -2841,11 +2844,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         } else {
           offsetDir.normalize();
         }
-        const clearance =
-          hitBody.radius * 1.9 + spec.visualRadius * 1.45 + 1.4;
-        impactAim.spawnWorld
-          .copy(hitBody.pos)
-          .addScaledVector(offsetDir, clearance);
+        // 天体の「すぐ近く」に置きます。描いた絵の外側と、実際の大きさで触れない距離のうち遠いほう（impactSystem.ts）
+        impactAim.clearance = impactRig.computeNearBodySpawn(
+          impactorId,
+          hitBody.id,
+          offsetDir,
+          solarBaselineList,
+          impactAim.spawnWorld
+        );
       } else {
         impactAim.targetBodyId = null;
         impactAim.planeY = 0;
@@ -2882,7 +2888,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       clientY: number
     ) => {
       if (!setRayFromClient(clientX, clientY)) return;
-      const spec = IMPACTOR_MAP[impactorId];
       const hoverBody = findSolarTargetAtClient(clientX, clientY);
 
       if (!projectToAimPlaneWorld(clientX, clientY, impactAim.planeY, aimTmpWorld)) {
@@ -2893,11 +2898,20 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         impactAim.targetBodyId !== null &&
         aimTmpWorld.distanceTo(impactAim.targetBodyPos) >
           (solarBaselineMap.get(impactAim.targetBodyId)?.radius ?? 1.0) * 1.5 +
-            spec.visualRadius
+            SLINGSHOT_DRAG_MARGIN
       ) {
-        // 天体の上から外側へ引っ張った場合：その天体へ向けたスリングショット投げ込み
-        impactAim.spawnWorld.copy(aimTmpWorld);
-        const pullVec = impactAim.targetBodyPos.clone().sub(aimTmpWorld);
+        // 天体の上から外側へ引っ張った場合：その天体へ向けたスリングショット投げ込み。
+        // 置く位置は引っ張った位置ですが、天体を押したときの「すぐ近く」の距離より内側には置きません
+        // （リゲルのように実際の大きさが大きい天体が、置いた瞬間に相手を飲み込まないように）
+        const fromTarget = aimTmpWorld.clone().sub(impactAim.targetBodyPos);
+        const dragDistFromTarget = fromTarget.length();
+        impactAim.spawnWorld
+          .copy(impactAim.targetBodyPos)
+          .addScaledVector(
+            fromTarget.divideScalar(Math.max(1e-6, dragDistFromTarget)),
+            Math.max(dragDistFromTarget, impactAim.clearance)
+          );
+        const pullVec = impactAim.targetBodyPos.clone().sub(impactAim.spawnWorld);
         const pullDist = pullVec.length();
         const speed = computeThrowSpeedFromDragDist(pullDist);
         impactAim.aimVel
@@ -2907,7 +2921,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       } else if (
         hoverBody &&
         hoverBody.pos.distanceTo(impactAim.spawnWorld) >
-          hoverBody.radius + spec.visualRadius
+          hoverBody.radius + SLINGSHOT_DRAG_MARGIN
       ) {
         // 宇宙空間から特定の太陽系天体（冥王星など黄道面から傾いた天体も含む）の上へドラッグした場合：その天体の3D座標方向へ狙いを合わせます
         const toTarget = hoverBody.pos.clone().sub(impactAim.spawnWorld);

@@ -220,7 +220,8 @@ const IMPACTOR_DEFINITIONS: ImpactorDefinition[] = [
     accentColor: "#fb923c",
     model: {
       nameJa: "チクシュルーブ衝突体",
-      // 直径 約10 km（推定）。質量は岩石の密度 2,600 kg/m³ を仮定した推定値
+      // 直径 約10 km（Alvarez ほか 1980, Science 208, 1095 の推定）。
+      // 質量は岩石の密度 2,600 kg/m³ を仮定して、この大きさの球から計算した推定値
       radiusKm: 5,
       massKg: sphereMassKg(5, 2600),
       radiusUnit: "km",
@@ -249,8 +250,9 @@ const IMPACTOR_DEFINITIONS: ImpactorDefinition[] = [
     accentColor: "#38bdf8",
     model: {
       nameJa: "ハレー彗星",
-      // 核の大きさ 約15 × 8 × 8 km（探査機ジオット）を、同じ体積の球の半径 約5.5 km にした値
-      radiusKm: 5.5,
+      // 核の大きさ 約15 × 8 × 8 km（探査機ジオットの観測）の楕円体と同じ体積の球の半径：
+      // (15 × 8 × 8)^(1/3) ÷ 2 ≒ 4.9 km。質量 約2.2 × 10¹⁴ kg は推定値（文献により幅あり）
+      radiusKm: Math.cbrt(15 * 8 * 8) / 2,
       massKg: 2.2e14,
       radiusUnit: "km",
       massUnit: "kg",
@@ -419,9 +421,10 @@ const IMPACTOR_DEFINITIONS: ImpactorDefinition[] = [
     accentColor: "#60a5fa",
     model: {
       nameJa: "リゲル",
-      // 代表値（文献により幅あり）：半径 約79 R☉（Moravveji ほか 2012）、質量 約21 M☉
+      // 半径 78.9 R☉（Moravveji ほか 2012, ApJ 747, 108）、
+      // 質量 23 M☉（Przybilla ほか 2010, A&A 517, A38 の推定。Moravveji ほか 2012 が引用している値）
       radiusKm: 78.9 * SUN_RADIUS_KM,
-      massKg: 21 * SUN_MASS_KG,
+      massKg: 23 * SUN_MASS_KG,
       radiusUnit: "solarRadius",
       massUnit: "solarMass",
       radiusLabelJa: "半径",
@@ -843,6 +846,11 @@ export interface SolarCollisionEvent {
   secondaryCenterAt: Vec3Tuple;
   /** 主側天体の中心から衝突点へ向かう法線単位ベクトル */
   contactNormalOnPrimary: Vec3Tuple;
+  /**
+   * 触れた瞬間の、衛星を持つ母惑星（地球・木星）の位置と生死です。
+   * 衝突の位置を「描く位置」に直すときは、フレームの終わりではなくこの瞬間の母惑星の位置を使います。
+   */
+  hostsAtContact: SatelliteHostSnapshot[];
   /** 主側天体が消滅したか（主側は相手を取り込んで残るので常に false） */
   primaryDestroyed: boolean;
   /** 副側天体が消滅したか（取り込まれるので常に true） */
@@ -1067,6 +1075,8 @@ class FlatNBodySystem {
   readonly bodyRefs: Array<SolarNBodyEntry | null>;
   /** 配列の番号 → 投入天体（太陽系天体なら null） */
   readonly impactorRefs: Array<SolarImpactorEntry | null>;
+  /** 衛星を持つ母惑星（地球・木星）の配列の番号（見つからなければ -1） */
+  readonly hostIndex: Record<SatelliteHostId, number>;
   /** 最後に加速度を計算したときに求めた、ステップの長さの目安（シミュレーション時間） */
   timescale = MAX_STEP_SIM_TIME;
 
@@ -1121,7 +1131,35 @@ class FlatNBodySystem {
       this.impactorRefs.push(imp);
       i++;
     }
+    this.hostIndex = { earth: -1, jupiter: -1 };
+    for (const sys of SATELLITE_DISPLAY_SYSTEMS) {
+      this.hostIndex[sys.hostId] = this.bodyRefs.findIndex(
+        (b) => b !== null && b.id === sys.hostId
+      );
+    }
     this.computeAccelerations();
+  }
+
+  /**
+   * ステップ中の時点 t（0 = 始め、1 = 終わり）での、各母惑星の位置と生死を記録します。
+   * 衝突した瞬間の母惑星の位置を残すために使います。
+   */
+  hostsAt(t: number): SatelliteHostSnapshot[] {
+    return SATELLITE_DISPLAY_SYSTEMS.map((sys) => {
+      const i = this.hostIndex[sys.hostId];
+      if (i < 0) {
+        return { hostId: sys.hostId, center: { x: 0, y: 0, z: 0 }, alive: false };
+      }
+      return {
+        hostId: sys.hostId,
+        center: {
+          x: this.sx[i] + (this.px[i] - this.sx[i]) * t,
+          y: this.sy[i] + (this.py[i] - this.sy[i]) * t,
+          z: this.sz[i] + (this.pz[i] - this.sz[i]) * t,
+        },
+        alive: this.alive[i] === 1,
+      };
+    });
   }
 
   private load(
@@ -1310,6 +1348,9 @@ class FlatNBodySystem {
     const ny = dist > 0 ? (ly - wy) * inv : 1;
     const nz = dist > 0 ? (lz - wz) * inv : 0;
 
+    // 触れた瞬間の母惑星の位置（取り込まれるのが母惑星でも、この瞬間はまだ生きています）
+    const hostsAtContact = this.hostsAt(t);
+
     // 運動量を保存して合体（速度を GM の比で混ぜ、GM を足し合わせます）
     const total = gm[winner] + gm[loser];
     if (total > 0) {
@@ -1343,6 +1384,7 @@ class FlatNBodySystem {
       primaryCenterAt: { x: wx, y: wy, z: wz },
       secondaryCenterAt: { x: lx, y: ly, z: lz },
       contactNormalOnPrimary: { x: nx, y: ny, z: nz },
+      hostsAtContact,
       primaryDestroyed: false,
       secondaryDestroyed: true,
     });
@@ -1444,100 +1486,147 @@ const PREDICTION_MAX_STEPS = 9000;
 /** 惑星の軌道の乱れを予測線で見せる、投入天体の重さの下限（木星の質量の半分） */
 const PERTURBATION_PREVIEW_MIN_GM = massKgToGmScene(BODY_MASS_KG.jupiter) * 0.5;
 
-/** 配列の中の母惑星の位置と生死を記録します（予測の途中用） */
-function snapshotHostsFromFlat(
-  system: FlatNBodySystem,
-  hostIndex: Record<SatelliteHostId, number>
-): SatelliteHostSnapshot[] {
-  return SATELLITE_DISPLAY_SYSTEMS.map((sys) => {
-    const i = hostIndex[sys.hostId];
-    if (i < 0) {
-      return { hostId: sys.hostId, center: { x: 0, y: 0, z: 0 }, alive: false };
-    }
-    return {
-      hostId: sys.hostId,
-      center: system.positionOf(i),
-      alive: system.alive[i] === 1,
-    };
-  });
-}
+/** 予測を少しずつ進めるときの、1回あたりのステップ数（この回数ごとに「中断するか」を確かめます） */
+const PREDICTION_STEPS_PER_CHUNK = 64;
 
 /**
- * リアル太陽系全15天体＋投入天体のN体相互万有引力を先読み積分し、
- * これから投げる天体の軌道、引き寄せられて軌道が乱れる惑星たちの軌跡、および衝突するすべての太陽系天体を予測します。
+ * 先読み予測を「少しずつ」計算するための入れ物です。
+ *
+ * 予測は数千ステップの計算になり、置いた天体が多いほど重くなります。狙っている間に毎回最後まで計算すると
+ * 画面がカクつくため、run() に「そろそろ止めるか」を判定する関数を渡し、決めた時間を使い切ったら途中で止め、
+ * 次のフレームで続きを計算できるようにしています。途中までの結果も result() で取り出せます。
  *
  * startBodies と existingImpactors は「今この瞬間の状態」（物理上の値）です。
  * 中で複製してから計算するので、渡した本物の状態は書き換わりません。
  * 実際の進行（advanceSolarNBody）とまったく同じ計算（ステップの決め方・衝突の判定）を使います。
  */
-export function predictSolarNBodyTrajectory(
-  startBodies: Record<SolarImpactTargetId, SolarNBodyEntry>,
-  existingImpactors: ReadonlyArray<SolarImpactorEntry>,
-  impactorId: ImpactorId,
-  spawnPos: Vec3Tuple,
-  launchVel: Vec3Tuple,
-  horizon = PREDICTION_HORIZON_SIM_TIME,
-  sampleCount = PREDICTION_SAMPLE_COUNT
-): SolarNBodyPredictionResult {
-  const spec = IMPACTOR_MAP[impactorId];
-  const bodies = cloneSolarNBodyEntries(startBodies);
-  const impactors: SolarImpactorEntry[] = [];
-  for (const existing of existingImpactors) {
-    if (existing.alive) impactors.push(cloneImpactorEntry(existing));
-  }
-  impactors.push({
-    uid: PREDICTION_IMPACTOR_UID,
-    specId: impactorId,
-    pos: { ...spawnPos },
-    vel: { ...launchVel },
-    gravityGM: spec.gravityGM,
-    radius: spec.physicalRadius,
-    alive: true,
-  });
-
-  const system = new FlatNBodySystem(bodies, impactors);
-  const newIndex = system.n - 1;
-  const hostIndex = {} as Record<SatelliteHostId, number>;
-  for (const sys of SATELLITE_DISPLAY_SYSTEMS) {
-    hostIndex[sys.hostId] = system.bodyRefs.findIndex(
-      (b) => b !== null && b.id === sys.hostId
-    );
-  }
-  const planetIndices: Array<{ id: SolarImpactTargetId; index: number }> = [];
-  system.bodyRefs.forEach((b, index) => {
-    if (b && b.parentId === null) planetIndices.push({ id: b.id, index });
-  });
-
-  const impactorPath: Vec3Tuple[] = [system.positionOf(newIndex)];
-  const impactorPathHosts: SatelliteHostSnapshot[][] = [
-    snapshotHostsFromFlat(system, hostIndex),
-  ];
-  const showPerturbation = spec.gravityGM >= PERTURBATION_PREVIEW_MIN_GM;
-  const allPlanetPaths = {} as Record<SolarImpactTargetId, Vec3Tuple[]>;
-  if (showPerturbation) {
-    for (const { id, index } of planetIndices) {
-      if (system.alive[index]) allPlanetPaths[id] = [system.positionOf(index)];
-    }
-  }
-
-  const hitMap = new Map<
+export class SolarNBodyPredictor {
+  private readonly spec: ImpactorSpec;
+  private readonly system: FlatNBodySystem;
+  private readonly newIndex: number;
+  private readonly planetIndices: Array<{ id: SolarImpactTargetId; index: number }> = [];
+  private readonly showPerturbation: boolean;
+  private readonly interval: number;
+  private readonly sampleCount: number;
+  private readonly impactorPath: Vec3Tuple[];
+  private readonly impactorPathHosts: SatelliteHostSnapshot[][];
+  private readonly allPlanetPaths = {} as Record<SolarImpactTargetId, Vec3Tuple[]>;
+  private readonly hitMap = new Map<
     SolarImpactTargetId,
     SolarNBodyPredictionResult["hitTargets"][number]
   >();
-  const interval = horizon / Math.max(1, sampleCount - 1);
-  let totalSteps = 0;
-  let completed = true;
+  /** 次に記録する点の番号 */
+  private sample = 1;
+  /** 今の点の区間のうち、すでに進めた時間 */
+  private sampleElapsed = 0;
+  private totalSteps = 0;
+  private finished = false;
+  private completed = true;
 
-  for (let sample = 1; sample < sampleCount; sample++) {
-    const events: SolarCollisionEvent[] = [];
-    const { steps } = system.advance(
-      interval,
-      PREDICTION_MAX_STEPS - totalSteps,
-      events
-    );
-    totalSteps += steps;
+  constructor(
+    startBodies: Record<SolarImpactTargetId, SolarNBodyEntry>,
+    existingImpactors: ReadonlyArray<SolarImpactorEntry>,
+    impactorId: ImpactorId,
+    spawnPos: Vec3Tuple,
+    launchVel: Vec3Tuple,
+    horizon = PREDICTION_HORIZON_SIM_TIME,
+    sampleCount = PREDICTION_SAMPLE_COUNT
+  ) {
+    this.spec = IMPACTOR_MAP[impactorId];
+    const bodies = cloneSolarNBodyEntries(startBodies);
+    const impactors: SolarImpactorEntry[] = [];
+    for (const existing of existingImpactors) {
+      if (existing.alive) impactors.push(cloneImpactorEntry(existing));
+    }
+    impactors.push({
+      uid: PREDICTION_IMPACTOR_UID,
+      specId: impactorId,
+      pos: { ...spawnPos },
+      vel: { ...launchVel },
+      gravityGM: this.spec.gravityGM,
+      radius: this.spec.physicalRadius,
+      alive: true,
+    });
 
-    const hostsNow = snapshotHostsFromFlat(system, hostIndex);
+    this.system = new FlatNBodySystem(bodies, impactors);
+    this.newIndex = this.system.n - 1;
+    this.system.bodyRefs.forEach((b, index) => {
+      if (b && b.parentId === null) this.planetIndices.push({ id: b.id, index });
+    });
+    this.sampleCount = sampleCount;
+    this.interval = horizon / Math.max(1, sampleCount - 1);
+    this.impactorPath = [this.system.positionOf(this.newIndex)];
+    this.impactorPathHosts = [this.system.hostsAt(1)];
+    this.showPerturbation = this.spec.gravityGM >= PERTURBATION_PREVIEW_MIN_GM;
+    if (this.showPerturbation) {
+      for (const { id, index } of this.planetIndices) {
+        if (this.system.alive[index]) {
+          this.allPlanetPaths[id] = [this.system.positionOf(index)];
+        }
+      }
+    }
+  }
+
+  /** 予測を最後まで計算し終えたか */
+  get isFinished(): boolean {
+    return this.finished;
+  }
+
+  /**
+   * 予測の続きを計算します。PREDICTION_STEPS_PER_CHUNK ステップごとに shouldStop() を呼び、
+   * true が返ったらそこで止めます（次に run() を呼ぶと続きから計算します）。
+   * @returns 最後まで計算し終えたら true
+   */
+  run(shouldStop: () => boolean): boolean {
+    const { system, newIndex } = this;
+    while (!this.finished) {
+      if (shouldStop()) return false;
+
+      const events: SolarCollisionEvent[] = [];
+      const { advancedTime, steps } = system.advance(
+        this.interval - this.sampleElapsed,
+        Math.min(PREDICTION_STEPS_PER_CHUNK, PREDICTION_MAX_STEPS - this.totalSteps),
+        events
+      );
+      this.sampleElapsed += advancedTime;
+      this.totalSteps += steps;
+      this.recordHits(events);
+
+      // 点の区間を進め終えたら、その時点の位置を記録します
+      if (this.sampleElapsed >= this.interval * (1 - 1e-9)) {
+        this.sampleElapsed = 0;
+        const hostsNow = system.hostsAt(1);
+        if (system.alive[newIndex]) {
+          this.impactorPath.push(system.positionOf(newIndex));
+          this.impactorPathHosts.push(hostsNow);
+        }
+        if (this.showPerturbation) {
+          for (const { id, index } of this.planetIndices) {
+            if (system.alive[index] && this.allPlanetPaths[id]) {
+              this.allPlanetPaths[id].push(system.positionOf(index));
+            }
+          }
+        }
+        this.sample++;
+        if (this.sample >= this.sampleCount) this.finished = true;
+        // 小天体・惑星級は、これから投げる天体が消えた時点で予測を打ち切ります
+        if (!system.alive[newIndex] && this.spec.tier <= 2) this.finished = true;
+      }
+
+      if (!this.finished && this.totalSteps >= PREDICTION_MAX_STEPS) {
+        this.completed = false;
+        this.finished = true;
+      }
+      if (steps === 0 && advancedTime === 0 && !this.finished) {
+        // 進められなかった（念のための安全策）
+        this.finished = true;
+      }
+    }
+    return true;
+  }
+
+  /** 衝突した太陽系天体を、触れた瞬間の中心・法線・母惑星の位置と一緒に記録します */
+  private recordHits(events: SolarCollisionEvent[]): void {
     for (const ev of events) {
       const parties: Array<{
         id: SolarCollisionPartyId;
@@ -1548,8 +1637,8 @@ export function predictSolarNBodyTrajectory(
         { id: ev.secondaryId, center: ev.secondaryCenterAt, normalSign: -1 },
       ];
       for (const party of parties) {
-        if (party.id === "impactor" || hitMap.has(party.id)) continue;
-        hitMap.set(party.id, {
+        if (party.id === "impactor" || this.hitMap.has(party.id)) continue;
+        this.hitMap.set(party.id, {
           id: party.id,
           center: { ...party.center },
           normal: {
@@ -1557,44 +1646,53 @@ export function predictSolarNBodyTrajectory(
             y: ev.contactNormalOnPrimary.y * party.normalSign,
             z: ev.contactNormalOnPrimary.z * party.normalSign,
           },
-          hosts: hostsNow,
+          hosts: ev.hostsAtContact,
         });
       }
     }
+  }
 
-    if (system.alive[newIndex]) {
-      impactorPath.push(system.positionOf(newIndex));
-      impactorPathHosts.push(hostsNow);
-    }
-    if (showPerturbation) {
-      for (const { id, index } of planetIndices) {
-        if (system.alive[index] && allPlanetPaths[id]) {
-          allPlanetPaths[id].push(system.positionOf(index));
-        }
+  /** ここまでに計算できた予測の結果（途中でも取り出せます） */
+  result(): SolarNBodyPredictionResult {
+    const perturbedPaths: Partial<Record<SolarImpactTargetId, Vec3Tuple[]>> = {};
+    if (this.showPerturbation) {
+      for (const { id } of this.planetIndices) {
+        const path = this.allPlanetPaths[id];
+        if (path && path.length >= 6) perturbedPaths[id] = path;
       }
     }
-
-    // 小天体・惑星級は、これから投げる天体が消えた時点で予測を打ち切ります
-    if (!system.alive[newIndex] && spec.tier <= 2) break;
-    if (totalSteps >= PREDICTION_MAX_STEPS) {
-      completed = false;
-      break;
-    }
+    return {
+      impactorPath: this.impactorPath,
+      impactorPathHosts: this.impactorPathHosts,
+      perturbedPaths,
+      hitTargets: Array.from(this.hitMap.values()),
+      completed: this.completed && this.finished,
+    };
   }
+}
 
-  const perturbedPaths: Partial<Record<SolarImpactTargetId, Vec3Tuple[]>> = {};
-  if (showPerturbation) {
-    for (const { id } of planetIndices) {
-      const path = allPlanetPaths[id];
-      if (path && path.length >= 6) perturbedPaths[id] = path;
-    }
-  }
-
-  return {
-    impactorPath,
-    impactorPathHosts,
-    perturbedPaths,
-    hitTargets: Array.from(hitMap.values()),
-    completed,
-  };
+/**
+ * 先読み予測を最後まで一度に計算します（テストや、時間を気にしない計算用）。
+ * 画面で狙っている間は、SolarNBodyPredictor を使って複数フレームに分けて計算します。
+ */
+export function predictSolarNBodyTrajectory(
+  startBodies: Record<SolarImpactTargetId, SolarNBodyEntry>,
+  existingImpactors: ReadonlyArray<SolarImpactorEntry>,
+  impactorId: ImpactorId,
+  spawnPos: Vec3Tuple,
+  launchVel: Vec3Tuple,
+  horizon = PREDICTION_HORIZON_SIM_TIME,
+  sampleCount = PREDICTION_SAMPLE_COUNT
+): SolarNBodyPredictionResult {
+  const predictor = new SolarNBodyPredictor(
+    startBodies,
+    existingImpactors,
+    impactorId,
+    spawnPos,
+    launchVel,
+    horizon,
+    sampleCount
+  );
+  predictor.run(() => false);
+  return predictor.result();
 }

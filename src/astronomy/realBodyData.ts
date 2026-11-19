@@ -26,8 +26,8 @@ export function kmToScene(km: number): number {
   return km * SCENE_UNITS_PER_KM;
 }
 
-/** 太陽の質量（kg） */
-export const SUN_MASS_KG = 1.9885e30;
+/** 太陽の質量（kg）。NASA NSSDCA Sun Fact Sheet の 1,988,400 × 10²⁴ kg */
+export const SUN_MASS_KG = 1.9884e30;
 
 /** 太陽の半径（km。IAU の公称値） */
 export const SUN_RADIUS_KM = 695_700;

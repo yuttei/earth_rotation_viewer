@@ -34,6 +34,12 @@ import {
   eclipticToWorldUnitVector,
   getZodiacConstellationAtLongitude,
 } from "../astronomy/zodiac";
+import {
+  REAL_SOLAR_PLANET_SCALE,
+  REAL_SOLAR_SUN_RADIUS,
+  SIMPLE_MODE_MOON_ORBIT_RADIUS,
+  realSolarDisplayRadius,
+} from "../astronomy/bodySizes";
 import { CelestialBodyId } from "../data/celestialBodies";
 import {
   FEATURED_BRIGHT_STARS,
@@ -206,15 +212,19 @@ interface CameraSnapshot {
   rightAngle: number;
 }
 
+/** 天体を押したとみなす、画面上の天体の中心からの最小距離（px）。小さく描かれた天体でも押せるようにします */
+const PICK_MIN_SCREEN_RADIUS_PX = 14;
+/** リアル太陽系モードで月の札を出す、地球と月の画面上の最小の間隔（px） */
+const MOON_BADGE_MIN_GAP_PX = 30;
 /** 公転軌道半径（地球半径 = 1.0 に対する観察用スケール） */
 const ORBIT_RADIUS = 13.5;
 /** 太陽の半径（地球半径 = 1.0 に対する観察用スケール） */
 const SUN_RADIUS = 1.85;
 /** 月の半径（実際の月/地球比 ≈ 0.273 に近い値） */
 const MOON_RADIUS = 0.27;
-/** 地球中心からの月の公転軌道半径（白道半径） */
-const MOON_ORBIT_RADIUS = 3.45;
-/** 金星の半径（実際の金星/地球比 ≈ 0.95 だが地球を主役に見せるためやや控えめに設定） */
+/** 地球中心からの月の公転軌道半径（白道半径。簡易モードの値） */
+const MOON_ORBIT_RADIUS = SIMPLE_MODE_MOON_ORBIT_RADIUS;
+/** 金星の半径（簡易モードの値。実際の金星/地球比 ≈ 0.95 だが地球を主役に見せるためやや控えめに設定。リアル太陽系モードでは実比率に切り替えます） */
 const VENUS_RADIUS = 0.78;
 /** 太陽中心からの金星の公転軌道半径（月の軌道 13.5 - 3.45 = 10.05 の内側に余裕を持って配置） */
 const VENUS_ORBIT_RADIUS = 8.9;
@@ -1826,7 +1836,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         spinMesh,
         uniforms: bundle.uniforms,
         material: bundle.material,
-        baseSize: el.relativeSizeWeight,
+        // 実際の半径（地球 = 1）× 共通の倍率 で、惑星どうしの大きさを実比率にします
+        baseSize: el.relativeSizeWeight * REAL_SOLAR_PLANET_SCALE,
       });
     }
 
@@ -2483,6 +2494,11 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     let pointerDownButton = 0;
     let pointerHadMultiTouch = false;
 
+    // 月と地球の札が画面上でどれだけ離れているかを測る作業ベクトル
+    const badgeGapA = new THREE.Vector3();
+    const badgeGapB = new THREE.Vector3();
+    // 天体タップ判定用の作業ベクトル（毎回 new しないよう使い回します）
+    const pickTmpWorld = new THREE.Vector3();
     const pickCelestialBodyAtClientPos = (
       clientX: number,
       clientY: number
@@ -2535,10 +2551,41 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
 
       const meshes = candidates.map((c) => c.mesh);
       const hits = raycaster.intersectObjects(meshes, false);
-      if (hits.length === 0) return null;
-      const hitObj = hits[0].object;
-      const matched = candidates.find((c) => c.mesh === hitObj);
-      return matched ? matched.id : null;
+      if (hits.length > 0) {
+        const hitObj = hits[0].object;
+        const matched = candidates.find((c) => c.mesh === hitObj);
+        return matched ? matched.id : null;
+      }
+
+      // 球に直接当たらなかった場合：冥王星やイオのように画面上でとても小さい天体でも押せるよう、
+      // 画面上で天体の中心から PICK_MIN_SCREEN_RADIUS_PX 以内を押したら、いちばん近い天体を選びます。
+      let nearestId: CelestialBodyId | null = null;
+      let nearestDistPx = PICK_MIN_SCREEN_RADIUS_PX;
+      for (const c of candidates) {
+        // 衝突で消えた天体など、実際には描かれていない天体は選びません
+        let visibleNow = true;
+        let node: THREE.Object3D | null = c.mesh;
+        while (node) {
+          if (!node.visible) {
+            visibleNow = false;
+            break;
+          }
+          node = node.parent;
+        }
+        if (!visibleNow) continue;
+        c.mesh.getWorldPosition(pickTmpWorld);
+        pickTmpWorld.project(camera);
+        // カメラの後ろにある天体は除きます
+        if (pickTmpWorld.z < -1 || pickTmpWorld.z > 1) continue;
+        const sx = ((pickTmpWorld.x + 1) / 2) * rect.width + rect.left;
+        const sy = ((1 - pickTmpWorld.y) / 2) * rect.height + rect.top;
+        const distPx = Math.hypot(sx - clientX, sy - clientY);
+        if (distPx <= nearestDistPx) {
+          nearestDistPx = distPx;
+          nearestId = c.id;
+        }
+      }
+      return nearestId;
     };
 
     // ---------------------------------------------------------------------
@@ -3471,6 +3518,21 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       const eBlend = THREE.MathUtils.clamp(curPose.eclipticViewBlend, 0, 1);
       const cLevel = THREE.MathUtils.clamp(curPose.cosmicLevel, 0, 7);
       const cBlend = THREE.MathUtils.clamp(cLevel, 0, 1);
+      // リアル太陽系の効き具合（宇宙スケールへ出入りする途中も、リアル太陽系が見えている間は 1 として扱います）
+      const solarBlendEffective =
+        cLevel > 0.001 &&
+        (anim.from.solarSystemBlend > 0.5 || anim.to.solarSystemBlend > 0.5)
+          ? 1.0
+          : s;
+      // リアル太陽系モードでは、地球・月・金星も他の惑星と同じ倍率（REAL_SOLAR_PLANET_SCALE）で縮めて実比率にします。
+      // 地上視点・黄道ビューでは地球の大きさ（半径 1）を変えないよう、その分は効き具合を 0 に戻します。
+      const planetSizeBlend = solarBlendEffective * (1 - g) * (1 - eBlend);
+      // 地球と月のまとまり（earthSystemGroup）に掛ける倍率：簡易モード 1 ↔ リアル太陽系 約 0.277
+      const earthSystemScale = THREE.MathUtils.lerp(
+        1.0,
+        REAL_SOLAR_PLANET_SCALE,
+        planetSizeBlend
+      );
       const hideSolarForCosmic = cLevel >= 0.9;
       const hideSolarBadgesForCosmic = cLevel >= 0.3;
 
@@ -3613,6 +3675,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         earthOrbitPos.lerp(realEarthPos, s);
       }
       earthSystemGroup.position.copy(earthOrbitPos);
+      earthSystemGroup.scale.setScalar(earthSystemScale);
 
       // 太陽-地球間の動径ガイド線を更新
       const lineAttr = sunEarthLine.geometry.getAttribute(
@@ -3644,9 +3707,10 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       // 月の表側（テクスチャ中央 +X 方向）が常に地球側を向くよう公転角 + π に合わせます。
       moonMesh.rotation.y = moonLonRad + Math.PI;
 
-      // リアル太陽系モードでは月の公転軌道スケールを 0.56 倍（半径約1.93）へ滑らかに縮め、金星・火星軌道との干渉を防ぎます。
-      const moonSystemScale = THREE.MathUtils.lerp(1.0, 0.56, s);
-      moonSystemGroup.scale.setScalar(moonSystemScale);
+      // 月の公転軌道と月本体は、親の earthSystemGroup の倍率で地球と一緒に縮みます（地球と月の大きさの比は実比率 0.273 のまま）。
+      // moonSystemScale は「月のまとまりが画面上で何倍になっているか」を表し、位置や半径の計算に使います。
+      moonSystemGroup.scale.setScalar(1);
+      const moonSystemScale = earthSystemScale;
 
       const moonLineAttr = earthMoonLine.geometry.getAttribute(
         "position"
@@ -3790,15 +3854,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       // 3. リアル太陽系モードの距離補正と各惑星・木星4衛星の更新
       const solarBoostDist =
         cLevel > 0.001 && anim.active ? anim.solarRefDist : curPose.distance;
-      const solarBlendEffective =
-        cLevel > 0.001 &&
-        (anim.from.solarSystemBlend > 0.5 || anim.to.solarSystemBlend > 0.5)
-          ? 1.0
-          : s;
-      const outerZoomBoost =
-        solarBlendEffective > 0.01 && jFocus < 0.5
-          ? 1.0 + THREE.MathUtils.clamp((solarBoostDist - 180) / 210, 0, 5.4)
-          : 1.0;
 
       // 太陽サイズ：地上視点では視差なし遠方へ、黄道ビューでは星座と重なりにくいシャープなサイズへ調整します。
       groundSunWorldPos
@@ -3810,7 +3865,18 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         solarBlendEffective *
           (1 - jFocus) *
           THREE.MathUtils.clamp((solarBoostDist - 180) / 145, 0, 6.8);
-      const baseSunScale = THREE.MathUtils.lerp(solarSunBoost, 2.15, g);
+      // リアル太陽系モードの太陽は別の縮尺で、近くでは木星（3.1）より大きい REAL_SOLAR_SUN_RADIUS（3.4）にします。
+      // 遠景では、これまでどおりの拡大（solarSunBoost）のほうが大きければそちらを使い、遠景の見た目は変えません。
+      const realSolarSunSize = THREE.MathUtils.lerp(
+        1.0,
+        REAL_SOLAR_SUN_RADIUS / SUN_RADIUS,
+        planetSizeBlend
+      );
+      const baseSunScale = THREE.MathUtils.lerp(
+        Math.max(solarSunBoost, realSolarSunSize),
+        2.15,
+        g
+      );
       const sunScale = THREE.MathUtils.lerp(baseSunScale, 0.36, eBlend);
       sunMesh.scale.setScalar(sunScale);
       sunCoronaMesh.position.copy(sunMesh.position);
@@ -3913,7 +3979,13 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       venusGroundPos.copy(tokyoEyeWorldPos).addScaledVector(venusGeoDirWorld, 64);
 
       venusMesh.position.copy(venusSpacePos).lerp(venusGroundPos, g);
-      const baseVenusScale = THREE.MathUtils.lerp(1.0, 0.55, g);
+      // リアル太陽系モードの金星は、ほかの惑星と同じ倍率の実比率（0.949 × 0.277）にします
+      const realSolarVenusSize = THREE.MathUtils.lerp(
+        1.0,
+        realSolarDisplayRadius("venus") / VENUS_RADIUS,
+        planetSizeBlend
+      );
+      const baseVenusScale = THREE.MathUtils.lerp(realSolarVenusSize, 0.55, g);
       venusMesh.scale.setScalar(THREE.MathUtils.lerp(baseVenusScale, 0.34, eBlend));
       venusMesh.rotation.y = -totalTimeSec * 0.08;
       venusMesh.updateMatrixWorld(true);
@@ -3941,11 +4013,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           jupiterWorldPos.set(px, py, pz);
         }
 
-        // 内惑星（水・火）は等倍のまま、外惑星（木〜冥）は遠方俯瞰時のみ見やすいよう滑らかに拡大します。
-        const isInnerExtra = body.id === "mercury" || body.id === "mars";
-        const visualRadius =
-          entry.baseSize * (isInnerExtra ? 1.0 : outerZoomBoost);
-        entry.root.scale.setScalar(visualRadius);
+        // どの距離から見ても、実際の半径 × REAL_SOLAR_PLANET_SCALE の大きさのまま描きます（遠景で拡大しません）。
+        entry.root.scale.setScalar(entry.baseSize);
         entry.spinMesh.rotation.y = totalTimeSec * (body.id === "jupiter" ? 0.45 : 0.2);
 
         entry.uniforms.uSunDirection.value
@@ -3991,21 +4060,21 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         earthOrbitPos.x,
         earthOrbitPos.y,
         earthOrbitPos.z,
-        1.0
+        earthSystemScale
       );
       setBaseline(
         "moon",
         earthOrbitPos.x + moonSpaceLocalPos.x * moonSystemScale,
         earthOrbitPos.y + moonSpaceLocalPos.y * moonSystemScale,
         earthOrbitPos.z + moonSpaceLocalPos.z * moonSystemScale,
-        Math.max(0.22, MOON_RADIUS * moonSystemScale * moonScale)
+        MOON_RADIUS * moonSystemScale * moonScale
       );
       setBaseline(
         "venus",
         venusSpacePos.x,
         venusSpacePos.y,
         venusSpacePos.z,
-        VENUS_RADIUS
+        VENUS_RADIUS * venusMesh.scale.x
       );
       for (const [pId, entry] of extraPlanetMap.entries()) {
         setBaseline(
@@ -4029,7 +4098,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           tmpWorldPos.x,
           tmpWorldPos.y,
           tmpWorldPos.z,
-          Math.max(0.2, gm.visualRadiusFactor * jupScale)
+          gm.visualRadiusFactor * jupScale
         );
       }
 
@@ -4345,10 +4414,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           rawRadius = SUN_RADIUS * sunMesh.scale.x;
         } else if (fId === "earth") {
           focusRawPos.copy(earthOrbitPos);
-          rawRadius = 1.0;
+          rawRadius = earthSystemGroup.scale.x;
         } else if (fId === "moon") {
           moonMesh.getWorldPosition(focusRawPos);
-          rawRadius = MOON_RADIUS * moonMesh.scale.x * moonSystemGroup.scale.x;
+          rawRadius =
+            MOON_RADIUS *
+            moonMesh.scale.x *
+            moonSystemGroup.scale.x *
+            earthSystemGroup.scale.x;
         } else if (fId === "venus") {
           venusMesh.getWorldPosition(focusRawPos);
           rawRadius = VENUS_RADIUS * venusMesh.scale.x;
@@ -5018,6 +5091,16 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           false
         );
       } else {
+        // リアル太陽系モードでは地球と月が実比率で小さく描かれ、画面上で近づきます。
+        // 月の札が地球の札に重なって地球の札を隠さないよう、画面上で十分離れているときだけ月の札を出します。
+        badgeGapA.copy(earthOrbitPos).project(camera);
+        badgeGapB.copy(tmpWorldPos).project(camera);
+        const moonEarthGapPx = Math.hypot(
+          ((badgeGapA.x - badgeGapB.x) / 2) * hostW,
+          ((badgeGapA.y - badgeGapB.y) / 2) * hostH
+        );
+        const moonBadgeClearOfEarth =
+          !isRealSolarSystem || moonEarthGapPx >= MOON_BADGE_MIN_GAP_PX;
         tmpWorldPos.addScaledVector(camera.up, MOON_RADIUS + 0.18);
         updateFloatingBadgeAtPosition(
           moonBadgeRef.current,
@@ -5026,7 +5109,11 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           hostW,
           hostH,
           curLayers.moonAndOrbit &&
-            (isMoonView || (isRealSolarSystem && !isJupiterFocus && curPose.distance < 110)),
+            (isMoonView ||
+              (isRealSolarSystem &&
+                !isJupiterFocus &&
+                curPose.distance < 110 &&
+                moonBadgeClearOfEarth)),
           curInspectorOpen,
           !isRealSolarSystem
         );

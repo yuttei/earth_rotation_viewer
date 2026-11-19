@@ -283,12 +283,6 @@ const BODY_COLLISION_EFFECT_SPEC: ImpactorSpec = IMPACTOR_MAP.marsSize;
 /** 中性子星の模型の中で、パルサービームの回転軸に付ける名前 */
 const PULSAR_PIVOT_NAME = "pulsarBeamPivot";
 
-/** 投入天体の模型の表示倍率（小さい天体ほど見やすいように大きめに描きます） */
-function impactorDisplayScale(spec: ImpactorSpec): number {
-  if (spec.tier === 1) return 1.8;
-  if (spec.tier === 2) return 1.35;
-  return 1.2;
-}
 
 function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -772,7 +766,8 @@ export function createImpactSystemRig(
     const spec = IMPACTOR_MAP[entry.specId];
     const { group, pulsarPivot } = createImpactorModel(entry.specId);
     group.position.set(entry.pos.x, entry.pos.y, entry.pos.z);
-    group.scale.setScalar(impactorDisplayScale(spec));
+    // 模型は visualRadius（衝突判定と同じ半径）どおりの大きさで描きます（倍率 1）
+    group.scale.setScalar(1);
     liveImpactorsRoot.add(group);
 
     // 飛行軌跡トレイル（天体ごとに色と太さが違うので、ジオメトリと材質は1個ずつ作ります）
@@ -1234,8 +1229,10 @@ export function createImpactSystemRig(
       ev.secondaryImpactorUid,
       0.5
     );
+    // 爆発の大きさはぶつかった2天体の半径に比例させます。
+    // 惑星を実比率で小さく描くため、最小値も小さく（0.2）して、地球と月サイズの衝突が内惑星全体を覆わないようにします。
     const explosionScale = Math.max(
-      0.8,
+      0.2,
       Math.min(5.5, (primaryRadius + secondaryRadius) * 0.85)
     );
     slot.scale = explosionScale;
@@ -1627,7 +1624,6 @@ export function createImpactSystemRig(
       if (isRestoring) {
         resetAll();
       }
-      const spec = IMPACTOR_MAP[impactorId];
 
       // 狙い中の天体の種類が変わったら、プレビュー模型を作り直します
       if (!aimPreview || aimPreview.impactorId !== impactorId) {
@@ -1637,7 +1633,7 @@ export function createImpactSystemRig(
         aimPreview = { impactorId, ...model };
       }
       aimPreview.group.position.copy(spawnWorldPos);
-      aimPreview.group.scale.setScalar(impactorDisplayScale(spec));
+      aimPreview.group.scale.setScalar(1);
 
       // すでにN体運動中なら現在の動的状態（ほかに置いた天体も含む）を、未開始なら本来の天文座標を基準に先読み予測します
       const startBodies = nBodyInitialized
@@ -1879,7 +1875,7 @@ export function createImpactSystemRig(
         // 置いた天体はすべて小さくなって消えていきます
         for (const visual of liveImpactors) {
           visual.group.scale.setScalar(
-            Math.max(0.01, remain * impactorDisplayScale(visual.spec))
+            Math.max(0.01, remain)
           );
         }
         impactorLight.intensity = IMPACTOR_LIGHT_INTENSITY * remain;

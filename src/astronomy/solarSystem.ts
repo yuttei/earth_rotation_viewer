@@ -4,6 +4,7 @@ import type {
   SolarBodyId,
   SolarSystemBodyState,
 } from "../types/astronomy";
+import { BODY_RADIUS_EARTH } from "./bodySizes";
 import { dateToJulianDay, degToRad, radToDeg } from "./calculations";
 
 /** J2000.0 エポック（2000-01-01T12:00:00Z）のユリウス日 */
@@ -33,7 +34,10 @@ export interface KeplerianBodyElements {
   meanMotionDegPerDay: number;
   /** 恒星公転周期（年） */
   orbitalPeriodYears: number;
-  /** 地球半径 = 1.0 とした実比率に基づく表示半径の目安 */
+  /**
+   * 実際の半径（地球の半径 = 1.0）。
+   * リアル太陽系モードでは、この値に REAL_SOLAR_PLANET_SCALE（bodySizes.ts）を掛けた大きさで描きます。
+   */
   relativeSizeWeight: number;
   /** 自転軸の傾き（度：土星・天王星の環の傾き表現にも使用） */
   axialTiltDeg: number;
@@ -56,7 +60,7 @@ export const SOLAR_SYSTEM_ELEMENTS: KeplerianBodyElements[] = [
     meanLonJ2000Deg: 252.250324,
     meanMotionDegPerDay: 4.09233445,
     orbitalPeriodYears: 0.2408,
-    relativeSizeWeight: 0.42,
+    relativeSizeWeight: BODY_RADIUS_EARTH.mercury,
     axialTiltDeg: 0.03,
     accentColor: "#cbd5e1",
     orbitHex: 0x94a3b8,
@@ -73,7 +77,7 @@ export const SOLAR_SYSTEM_ELEMENTS: KeplerianBodyElements[] = [
     meanLonJ2000Deg: 181.979801,
     meanMotionDegPerDay: 1.60213034,
     orbitalPeriodYears: 0.6152,
-    relativeSizeWeight: 0.78,
+    relativeSizeWeight: BODY_RADIUS_EARTH.venus,
     axialTiltDeg: 177.36,
     accentColor: "#fde68a",
     orbitHex: 0xfde68a,
@@ -90,7 +94,7 @@ export const SOLAR_SYSTEM_ELEMENTS: KeplerianBodyElements[] = [
     meanLonJ2000Deg: 100.464572,
     meanMotionDegPerDay: 0.98560912,
     orbitalPeriodYears: 1.0,
-    relativeSizeWeight: 1.0,
+    relativeSizeWeight: BODY_RADIUS_EARTH.earth,
     axialTiltDeg: 23.439,
     accentColor: "#38bdf8",
     orbitHex: 0xf59e0b,
@@ -107,7 +111,7 @@ export const SOLAR_SYSTEM_ELEMENTS: KeplerianBodyElements[] = [
     meanLonJ2000Deg: 355.433,
     meanMotionDegPerDay: 0.52403295,
     orbitalPeriodYears: 1.8808,
-    relativeSizeWeight: 0.58,
+    relativeSizeWeight: BODY_RADIUS_EARTH.mars,
     axialTiltDeg: 25.19,
     accentColor: "#fb923c",
     orbitHex: 0xf97316,
@@ -124,7 +128,7 @@ export const SOLAR_SYSTEM_ELEMENTS: KeplerianBodyElements[] = [
     meanLonJ2000Deg: 34.351,
     meanMotionDegPerDay: 0.08309121,
     orbitalPeriodYears: 11.862,
-    relativeSizeWeight: 3.1,
+    relativeSizeWeight: BODY_RADIUS_EARTH.jupiter,
     axialTiltDeg: 3.13,
     accentColor: "#fdba74",
     orbitHex: 0xf59e0b,
@@ -141,7 +145,7 @@ export const SOLAR_SYSTEM_ELEMENTS: KeplerianBodyElements[] = [
     meanLonJ2000Deg: 50.077,
     meanMotionDegPerDay: 0.03345965,
     orbitalPeriodYears: 29.457,
-    relativeSizeWeight: 2.6,
+    relativeSizeWeight: BODY_RADIUS_EARTH.saturn,
     axialTiltDeg: 26.73,
     accentColor: "#fcd34d",
     orbitHex: 0xeab308,
@@ -158,7 +162,7 @@ export const SOLAR_SYSTEM_ELEMENTS: KeplerianBodyElements[] = [
     meanLonJ2000Deg: 314.055,
     meanMotionDegPerDay: 0.01173129,
     orbitalPeriodYears: 84.02,
-    relativeSizeWeight: 1.75,
+    relativeSizeWeight: BODY_RADIUS_EARTH.uranus,
     axialTiltDeg: 97.77,
     accentColor: "#67e8f9",
     orbitHex: 0x22d3ee,
@@ -175,7 +179,7 @@ export const SOLAR_SYSTEM_ELEMENTS: KeplerianBodyElements[] = [
     meanLonJ2000Deg: 304.349,
     meanMotionDegPerDay: 0.00598106,
     orbitalPeriodYears: 164.79,
-    relativeSizeWeight: 1.7,
+    relativeSizeWeight: BODY_RADIUS_EARTH.neptune,
     axialTiltDeg: 28.32,
     accentColor: "#60a5fa",
     orbitHex: 0x3b82f6,
@@ -192,7 +196,7 @@ export const SOLAR_SYSTEM_ELEMENTS: KeplerianBodyElements[] = [
     meanLonJ2000Deg: 238.929,
     meanMotionDegPerDay: 0.00397557,
     orbitalPeriodYears: 247.94,
-    relativeSizeWeight: 0.85,
+    relativeSizeWeight: BODY_RADIUS_EARTH.pluto,
     axialTiltDeg: 122.53,
     accentColor: "#d8b4fe",
     orbitHex: 0xc084fc,
@@ -327,7 +331,7 @@ export interface GalileanMoonDef {
   orbitRadiusRj: number;
   /** 3D シーン上で木星本体（半径 1.0 基準）の周囲に配置する視覚的軌道倍率 */
   visualOrbitFactor: number;
-  /** 3D シーン上で木星本体に対する衛星半径比 */
+  /** 木星の半径に対する衛星の半径の比（実際の比率。木星の模型の中で、この半径の球として描きます） */
   visualRadiusFactor: number;
   /** J2000.0 時点の基準位相角（度） */
   epochAngleDeg: number;
@@ -343,7 +347,7 @@ export const GALILEAN_MOONS: GalileanMoonDef[] = [
     periodDays: 1.769138,
     orbitRadiusRj: 5.9,
     visualOrbitFactor: 1.65,
-    visualRadiusFactor: 0.115,
+    visualRadiusFactor: BODY_RADIUS_EARTH.io / BODY_RADIUS_EARTH.jupiter,
     epochAngleDeg: 106.0,
     color: "#facc15",
     hex: 0xfacc15,
@@ -354,7 +358,7 @@ export const GALILEAN_MOONS: GalileanMoonDef[] = [
     periodDays: 3.551181,
     orbitRadiusRj: 9.39,
     visualOrbitFactor: 2.3,
-    visualRadiusFactor: 0.1,
+    visualRadiusFactor: BODY_RADIUS_EARTH.europa / BODY_RADIUS_EARTH.jupiter,
     epochAngleDeg: 175.8,
     color: "#e0f2fe",
     hex: 0xe0f2fe,
@@ -365,7 +369,7 @@ export const GALILEAN_MOONS: GalileanMoonDef[] = [
     periodDays: 7.154553,
     orbitRadiusRj: 14.97,
     visualOrbitFactor: 3.15,
-    visualRadiusFactor: 0.145,
+    visualRadiusFactor: BODY_RADIUS_EARTH.ganymede / BODY_RADIUS_EARTH.jupiter,
     epochAngleDeg: 120.5,
     color: "#d6c7b2",
     hex: 0xd6c7b2,
@@ -376,7 +380,7 @@ export const GALILEAN_MOONS: GalileanMoonDef[] = [
     periodDays: 16.689018,
     orbitRadiusRj: 26.33,
     visualOrbitFactor: 4.35,
-    visualRadiusFactor: 0.13,
+    visualRadiusFactor: BODY_RADIUS_EARTH.callisto / BODY_RADIUS_EARTH.jupiter,
     epochAngleDeg: 84.4,
     color: "#a8a29e",
     hex: 0xa8a29e,

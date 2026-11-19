@@ -462,7 +462,7 @@ describe("天文計算エンジン (calculations)", () => {
       expect(st.latDeg).toBeGreaterThan(40);
     }
 
-    // 南十字星（十字形5星・2交差辺）が南天高緯度に配置され、7つの観察地点（東京〜南極点）が揃っている
+    // 南十字星（十字形5星・2交差辺）が南天高緯度に配置され、8つの観察地点（赤道直下のキトを含む）が揃っている
     expect(SOUTHERN_CROSS_CONSTELLATION.stars).toHaveLength(5);
     expect(SOUTHERN_CROSS_CONSTELLATION.edges).toHaveLength(2);
     for (const st of SOUTHERN_CROSS_CONSTELLATION.stars) {
@@ -473,10 +473,14 @@ describe("天文計算エンジン (calculations)", () => {
       "london",
       "new-york",
       "tromso",
+      "quito",
       "sydney",
       "north-pole",
       "south-pole",
     ]);
+
+    const quito = OBSERVATION_CITIES.find((c) => c.id === "quito")!;
+    expect(quito.latDeg).toBe(0);
   });
 
   it("年周運動モード（snapDateToJstHour / applyAnnualFixedHourLock）が毎日21時JSTを維持したまま1ヶ月約30°ずつ恒星を滑らかに進める", () => {

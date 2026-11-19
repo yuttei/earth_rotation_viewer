@@ -3,8 +3,11 @@ import * as THREE from "three";
 import {
   City,
   DisplayLayers,
+  GalileanMoonState,
   MoonState,
   ReferenceFrame,
+  SolarBodyId,
+  SolarSystemBodyState,
   SolarSystemState,
   VenusState,
   VisualStyle,
@@ -19,13 +22,20 @@ import {
   latLonToVector3Tuple,
   observeCity,
 } from "../astronomy/calculations";
+import {
+  GALILEAN_MOONS,
+  SOLAR_SYSTEM_ELEMENTS,
+  sampleKeplerOrbitPointsAu,
+} from "../astronomy/solarSystem";
 import { createEarthTextures, EarthTextures } from "./earthTexture";
 import { createMoonTexture } from "./moonTexture";
 import { createVenusTexture } from "./venusTexture";
+import { createSolarPlanetTextures } from "./planetTextures";
 import {
   createAtmosphereMaterial,
   createEarthMaterial,
   createMoonMaterial,
+  createPlanetMaterial,
   createSunCoronaMaterial,
   createSunMaterial,
   createTokyoGroundMaterial,
@@ -51,6 +61,10 @@ export interface CameraPoseTarget {
   groundAzimuth: number;
   /** 東京の地上視点で見上げる仰角（ラジアン：0 = 地平線, π/2 = 天頂） */
   groundElevation: number;
+  /** リアル太陽系モードのブレンド率（0 = 簡易版、1 = 忠実な太陽系 水〜冥） */
+  solarSystemBlend: number;
+  /** 木星・主要4衛星フォーカス率（0 = 太陽/地球注視、1 = 木星中心注視） */
+  jupiterFocusBlend: number;
   /** トランジションにかける時間（秒）。プリセット移動時はゆっくり長めに設定します */
   durationSec: number;
   /** 同じ数値でもアニメーションを再適用するための連番トリガー */
@@ -64,6 +78,10 @@ interface EarthGlobeCanvasProps {
   moonState: MoonState;
   /** 現在の金星の位置（日心・地心黄道座標）と見え方状態 */
   venusState: VenusState;
+  /** リアル太陽系モード用：水金地火木土天海冥の9天体の瞬間状態 */
+  solarSystemBodies: SolarSystemBodyState[];
+  /** 木星の主要4衛星（イオ・エウロパ・ガニメデ・カリスト）の瞬間状態 */
+  galileanMoons: GalileanMoonState[];
   /** 表示する代表都市の配列 */
   cities: City[];
   /** 現在選択中の都市ID */
@@ -93,6 +111,8 @@ interface CameraSnapshot {
   groundBlend: number;
   groundAzimuth: number;
   groundElevation: number;
+  solarSystemBlend: number;
+  jupiterFocusBlend: number;
   rightAngle: number;
 }
 
@@ -336,6 +356,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   solarState,
   moonState,
   venusState,
+  solarSystemBodies,
+  galileanMoons,
   cities,
   selectedCityId,
   onSelectCity,
@@ -350,6 +372,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   const labelButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const seasonBadgeRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
   const compassBadgeRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
+  const planetBadgeRefs = useRef<Map<SolarBodyId, HTMLSpanElement>>(new Map());
+  const galileanBadgeRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
   const sunBadgeRef = useRef<HTMLSpanElement | null>(null);
   const earthBadgeRef = useRef<HTMLSpanElement | null>(null);
   const moonBadgeRef = useRef<HTMLSpanElement | null>(null);
@@ -361,6 +385,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     solarState,
     moonState,
     venusState,
+    solarSystemBodies,
+    galileanMoons,
     cities,
     selectedCityId,
     visualStyle,
@@ -372,6 +398,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     solarState,
     moonState,
     venusState,
+    solarSystemBodies,
+    galileanMoons,
     cities,
     selectedCityId,
     visualStyle,
@@ -398,6 +426,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       groundBlend: cameraPoseTarget.groundBlend,
       groundAzimuth: cameraPoseTarget.groundAzimuth,
       groundElevation: cameraPoseTarget.groundElevation,
+      solarSystemBlend: cameraPoseTarget.solarSystemBlend,
+      jupiterFocusBlend: cameraPoseTarget.jupiterFocusBlend,
       rightAngle:
         referenceFrame === "solar"
           ? degToRad(solarState.sunEclipticLongitudeDeg)
@@ -412,6 +442,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       groundBlend: cameraPoseTarget.groundBlend,
       groundAzimuth: cameraPoseTarget.groundAzimuth,
       groundElevation: cameraPoseTarget.groundElevation,
+      solarSystemBlend: cameraPoseTarget.solarSystemBlend,
+      jupiterFocusBlend: cameraPoseTarget.jupiterFocusBlend,
       rightAngle:
         referenceFrame === "solar"
           ? degToRad(solarState.sunEclipticLongitudeDeg)
@@ -440,6 +472,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     cameraPoseTarget.groundBlend,
     cameraPoseTarget.groundAzimuth,
     cameraPoseTarget.groundElevation,
+    cameraPoseTarget.solarSystemBlend,
+    cameraPoseTarget.jupiterFocusBlend,
     cameraPoseTarget.durationSec,
     cameraPoseTarget.seq,
   ]);
@@ -470,6 +504,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     );
     const moonTexture = createMoonTexture();
     const venusTexture = createVenusTexture();
+    const planetTextures = createSolarPlanetTextures();
     const starTexture = createStarSpriteTexture();
 
     const earthBundle = createEarthMaterial(
@@ -675,6 +710,171 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     const moonEarthParallel = makeDynamicLine(0x38bdf8, 0.96, false);
     const venusEarthParallel = makeDynamicLine(0x38bdf8, 0.96, false);
     const earthVenusSight = makeDynamicLine(0x7dd3fc, 0.36, true);
+
+    // 3.8 リアル太陽系モード（1 AU = ORBIT_RADIUS = 13.5 基準の忠実な 3D ケプラー楕円軌道＋水金地火木土天海冥＋木星主要4衛星）
+    const realSolarSystemGroup = new THREE.Group();
+    realSolarSystemGroup.visible = false;
+    scene.add(realSolarSystemGroup);
+
+    const realOrbitMaterials: THREE.LineBasicMaterial[] = [];
+    for (const el of SOLAR_SYSTEM_ELEMENTS) {
+      const ptsAu = sampleKeplerOrbitPointsAu(el, 224);
+      const ptsScene = ptsAu.map(
+        ([x, y, z]) =>
+          new THREE.Vector3(x * ORBIT_RADIUS, y * ORBIT_RADIUS, z * ORBIT_RADIUS)
+      );
+      const orbitGeo = new THREE.BufferGeometry().setFromPoints(ptsScene);
+      const orbitMat = new THREE.LineBasicMaterial({
+        color: el.orbitHex,
+        transparent: true,
+        opacity: el.id === "pluto" ? 0.62 : 0.46,
+      });
+      realOrbitMaterials.push(orbitMat);
+      realSolarSystemGroup.add(new THREE.Line(orbitGeo, orbitMat));
+    }
+
+    // 土星の環テクスチャを内周→外周方向（u: 0 -> 1）へ同心円マッピングするためのヘルパー
+    const createRadialRingGeometry = (
+      innerR: number,
+      outerR: number,
+      segments: number
+    ): THREE.RingGeometry => {
+      const geo = new THREE.RingGeometry(innerR, outerR, segments);
+      const posAttr = geo.attributes.position as THREE.BufferAttribute;
+      const uvAttr = geo.attributes.uv as THREE.BufferAttribute;
+      const v = new THREE.Vector3();
+      for (let i = 0; i < posAttr.count; i++) {
+        v.fromBufferAttribute(posAttr, i);
+        const r = Math.hypot(v.x, v.y);
+        const u = (r - innerR) / Math.max(1e-5, outerR - innerR);
+        uvAttr.setXY(i, u, 0.5);
+      }
+      uvAttr.needsUpdate = true;
+      return geo;
+    };
+
+    type ExtraPlanetId =
+      | "mercury"
+      | "mars"
+      | "jupiter"
+      | "saturn"
+      | "uranus"
+      | "neptune"
+      | "pluto";
+    const extraPlanetIds: ExtraPlanetId[] = [
+      "mercury",
+      "mars",
+      "jupiter",
+      "saturn",
+      "uranus",
+      "neptune",
+      "pluto",
+    ];
+    const extraPlanetMap = new Map<
+      ExtraPlanetId,
+      {
+        root: THREE.Group;
+        spinMesh: THREE.Mesh;
+        uniforms: { uSunDirection: { value: THREE.Vector3 } };
+        material: THREE.ShaderMaterial;
+        baseSize: number;
+      }
+    >();
+
+    const extraDisposableMaterials: THREE.Material[] = [];
+
+    // 木星の主要4衛星（イオ・エウロパ・ガニメデ・カリスト）のメッシュ参照
+    const jupiterGalileanMeshes = new Map<
+      string,
+      { mesh: THREE.Mesh; orbitFactor: number }
+    >();
+    let jupiterMoonsGroup: THREE.Group | null = null;
+
+    for (const id of extraPlanetIds) {
+      const el = SOLAR_SYSTEM_ELEMENTS.find((item) => item.id === id)!;
+      const root = new THREE.Group();
+      realSolarSystemGroup.add(root);
+
+      const tiltGroup = new THREE.Group();
+      tiltGroup.rotation.x = -degToRad(el.axialTiltDeg);
+      root.add(tiltGroup);
+
+      // 外惑星や冥王星でも輪郭が暗すぎないよう少し環境光を補います。
+      const ambientBoost =
+        id === "pluto" || id === "neptune" || id === "uranus" ? 0.34 : 0.24;
+      const bundle = createPlanetMaterial(planetTextures[id], ambientBoost);
+      const spinMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 40, 24),
+        bundle.material
+      );
+      tiltGroup.add(spinMesh);
+
+      if (id === "saturn") {
+        // 土星の美しい同心円リング（C環・B環・カッシーニの間隙・A環）
+        const ringGeo = createRadialRingGeometry(1.3, 2.38, 96);
+        const ringMat = new THREE.MeshBasicMaterial({
+          map: planetTextures.saturnRing,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.92,
+          depthWrite: false,
+        });
+        extraDisposableMaterials.push(ringMat);
+        const saturnRingMesh = new THREE.Mesh(ringGeo, ringMat);
+        saturnRingMesh.rotation.x = Math.PI / 2;
+        tiltGroup.add(saturnRingMesh);
+      } else if (id === "uranus") {
+        // 天王星の横倒し自転軸に沿った淡い細い環
+        const uRingMat = new THREE.MeshBasicMaterial({
+          color: 0xa5f3fc,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.36,
+          depthWrite: false,
+        });
+        extraDisposableMaterials.push(uRingMat);
+        const uRingMesh = new THREE.Mesh(
+          new THREE.RingGeometry(1.42, 1.72, 64),
+          uRingMat
+        );
+        uRingMesh.rotation.x = Math.PI / 2;
+        tiltGroup.add(uRingMesh);
+      } else if (id === "jupiter") {
+        // 木星の赤道面上に主要4衛星（イオ・エウロパ・ガニメデ・カリスト）とそれぞれの軌道リングを配置
+        jupiterMoonsGroup = new THREE.Group();
+        tiltGroup.add(jupiterMoonsGroup);
+
+        for (const gm of GALILEAN_MOONS) {
+          const ringLine = createHorizontalRing(
+            gm.visualOrbitFactor,
+            gm.hex,
+            0.44,
+            96
+          );
+          jupiterMoonsGroup.add(ringLine);
+
+          const mMat = new THREE.MeshBasicMaterial({ color: gm.hex });
+          extraDisposableMaterials.push(mMat);
+          const mMesh = new THREE.Mesh(
+            new THREE.SphereGeometry(gm.visualRadiusFactor, 20, 14),
+            mMat
+          );
+          jupiterMoonsGroup.add(mMesh);
+          jupiterGalileanMeshes.set(gm.id, {
+            mesh: mMesh,
+            orbitFactor: gm.visualOrbitFactor,
+          });
+        }
+      }
+
+      extraPlanetMap.set(id, {
+        root,
+        spinMesh,
+        uniforms: bundle.uniforms,
+        material: bundle.material,
+        baseSize: el.relativeSizeWeight,
+      });
+    }
 
     // 4. 地球システム（公転位置へ毎フレーム移動させるルート）
     const earthSystemGroup = new THREE.Group();
@@ -1338,9 +1538,10 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         );
         return;
       }
+      const maxZoomDist = anim.current.solarSystemBlend > 0.25 ? 2400 : 95;
       const nextDist = Math.max(
         1.85,
-        Math.min(95, anim.current.distance * Math.exp(ev.deltaY * 0.001))
+        Math.min(maxZoomDist, anim.current.distance * Math.exp(ev.deltaY * 0.001))
       );
       anim.current.distance = nextDist;
       anim.to.distance = nextDist;
@@ -1371,6 +1572,9 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     let currentOffsetX = 0;
 
     const earthOrbitPos = new THREE.Vector3();
+    const realEarthPos = new THREE.Vector3();
+    const realVenusPos = new THREE.Vector3();
+    const jupiterWorldPos = new THREE.Vector3();
     const sunDirWorld = new THREE.Vector3();
     const moonDirWorld = new THREE.Vector3();
     const moonSpaceLocalPos = new THREE.Vector3();
@@ -1421,6 +1625,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         solarState: curSolar,
         moonState: curMoon,
         venusState: curVenus,
+        solarSystemBodies: curBodies,
+        galileanMoons: curGalilean,
         cities: curCities,
         selectedCityId: curSelectedId,
         visualStyle: curStyle,
@@ -1435,89 +1641,10 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       // 太陽のプラズマアニメーション更新
       sunBundle.uniforms.uTime.value = totalTimeSec;
 
-      // 1. 地球の公転位置（太陽中心・Y=0黄道面上で反時計回り）を更新します。
+      // 連続カメラアニメーションの現在値を先に進行させ、モードブレンド率 (g, s, j) を確定します。
       const eclipticLonRad = degToRad(curSolar.sunEclipticLongitudeDeg);
-      earthOrbitPos.set(
-        -ORBIT_RADIUS * Math.cos(eclipticLonRad),
-        0,
-        ORBIT_RADIUS * Math.sin(eclipticLonRad)
-      );
-      earthSystemGroup.position.copy(earthOrbitPos);
-
-      // 太陽-地球間の動径ガイド線を更新
-      const lineAttr = sunEarthLine.geometry.getAttribute(
-        "position"
-      ) as THREE.BufferAttribute;
-      lineAttr.setXYZ(1, earthOrbitPos.x, earthOrbitPos.y, earthOrbitPos.z);
-      lineAttr.needsUpdate = true;
-
-      // 地球中心から太陽中心 (0,0,0) へ向く単位ベクトル
-      sunDirWorld.copy(earthOrbitPos).negate().normalize();
-      sunBeamRoot.quaternion.setFromUnitVectors(
-        new THREE.Vector3(0, 0, 1),
-        sunDirWorld
-      );
-
-      // 月の公転方向（白道上の黄経・黄緯）と潮汐ロック自転を更新します。
-      moonNodeGroup.rotation.y = degToRad(curMoon.ascendingNodeDeg);
-      const moonLonRad = degToRad(curMoon.eclipticLongitudeDeg);
-      const moonLatRad = degToRad(curMoon.eclipticLatitudeDeg);
-      const moonCosLat = Math.cos(moonLatRad);
-      moonDirWorld
-        .set(
-          moonCosLat * Math.cos(moonLonRad),
-          Math.sin(moonLatRad),
-          -moonCosLat * Math.sin(moonLonRad)
-        )
-        .normalize();
-      moonSpaceLocalPos.copy(moonDirWorld).multiplyScalar(MOON_ORBIT_RADIUS);
-      // 月の表側（テクスチャ中央 +X 方向）が常に地球側を向くよう公転角 + π に合わせます。
-      moonMesh.rotation.y = moonLonRad + Math.PI;
-
-      const moonLineAttr = earthMoonLine.geometry.getAttribute(
-        "position"
-      ) as THREE.BufferAttribute;
-      moonLineAttr.setXYZ(
-        1,
-        moonSpaceLocalPos.x,
-        moonSpaceLocalPos.y,
-        moonSpaceLocalPos.z
-      );
-      moonLineAttr.needsUpdate = true;
-
-      // 地球の自転（赤道座標系内の Y 軸周り GMST）
-      earthGroup.rotation.y = curSolar.gmstRad;
-
-      earthSystemGroup.updateMatrixWorld(true);
-      earthGroup.getWorldQuaternion(earthQuat);
-
-      // 東京の地表における現在の天頂・北・東のワールド単位ベクトルと視点座標を算出します。
-      tokyoUpWorld.copy(tokyoUpLocal).applyQuaternion(earthQuat).normalize();
-      tokyoNorthWorld.copy(tokyoNorthLocal).applyQuaternion(earthQuat).normalize();
-      tokyoEastWorld.copy(tokyoEastLocal).applyQuaternion(earthQuat).normalize();
-      tokyoLocalOffset
-        .copy(tokyoUpWorld)
-        .multiplyScalar(1.0 + GROUND_EYE_ALTITUDE);
-      tokyoEyeWorldPos.copy(earthOrbitPos).add(tokyoLocalOffset);
-
-      earthBundle.uniforms.uSunDirection.value.copy(sunDirWorld);
-      atmosphereBundle.uniforms.uSunDirection.value.copy(sunDirWorld);
-      // 太陽は非常に遠く太陽光線はほぼ平行なため、月の満ち欠けにも平行光線ベクトルを使い上弦・下弦の半月を正確に再現します。
-      moonBundle.uniforms.uSunDirection.value.copy(sunDirWorld);
-
-      // 2. 左視点カード（288px）と右観察パネル（318px）の中央に収まるよう水平オフセットを補間
-      const targetOffsetX = curInspectorOpen && hostW > 860 ? 16 : 0;
-      currentOffsetX += (targetOffsetX - currentOffsetX) * (1 - Math.exp(-9 * dt));
-      if (Math.abs(currentOffsetX) > 0.5) {
-        camera.setViewOffset(hostW, hostH, currentOffsetX, 0, hostW, hostH);
-      } else {
-        camera.clearViewOffset();
-      }
-
-      // 3. 連続視点アニメーション（ゆっくり・EaseInOutCubic・対数ズーム・地上視点ブレンド）
       const anim = cameraAnimRef.current;
       const desiredEarthRightAngle = curFrame === "solar" ? eclipticLonRad : 0;
-      // 太陽中心ビューでは、下/手前=春分(-X)、右=夏至(+Z)、上/奥=秋分(+X)、左=冬至(-Z) となるよう -π/2 を基準にします。
       const desiredSunRightAngle = -Math.PI / 2;
       const desiredTargetRightAngle =
         anim.to.sunCenterBlend > 0.5
@@ -1553,6 +1680,12 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         anim.current.groundElevation =
           anim.from.groundElevation +
           (anim.to.groundElevation - anim.from.groundElevation) * ease;
+        anim.current.solarSystemBlend =
+          anim.from.solarSystemBlend +
+          (anim.to.solarSystemBlend - anim.from.solarSystemBlend) * ease;
+        anim.current.jupiterFocusBlend =
+          anim.from.jupiterFocusBlend +
+          (anim.to.jupiterFocusBlend - anim.from.jupiterFocusBlend) * ease;
         anim.current.rightAngle =
           anim.from.rightAngle +
           shortestAngleDiff(anim.from.rightAngle, desiredTargetRightAngle) *
@@ -1562,7 +1695,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           anim.active = false;
         }
       } else {
-        // 静止後は現在の地球位置／基準フレームにぴったり合わせます。
         anim.current.rightAngle =
           anim.current.sunCenterBlend > 0.5
             ? desiredSunRightAngle
@@ -1571,18 +1703,121 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
 
       const curPose = anim.current;
       const g = THREE.MathUtils.clamp(curPose.groundBlend, 0, 1);
+      const s = THREE.MathUtils.clamp(curPose.solarSystemBlend, 0, 1);
+      const jFocus = THREE.MathUtils.clamp(curPose.jupiterFocusBlend, 0, 1);
 
       // 宇宙視点へ戻るときは地上用の FOV ズームオフセットを滑らかにリセットします。
       if (g < 0.05 && Math.abs(groundFovOffset) > 0.01) {
         groundFovOffset *= Math.exp(-8 * dt);
       }
 
-      // 地上視点へ降りるにつれ、視差（地球半径によるズレ）を無くすため太陽・月・星空を遠方天球位置へ滑らかに押し出します。
+      // 1. 地球の公転位置（簡易モードの真円 13.5 ↔ リアル太陽系のケプラー楕円を滑らかにブレンド）を更新
+      earthOrbitPos.set(
+        -ORBIT_RADIUS * Math.cos(eclipticLonRad),
+        0,
+        ORBIT_RADIUS * Math.sin(eclipticLonRad)
+      );
+      const earthBodyState = curBodies.find((b) => b.id === "earth");
+      if (earthBodyState && s > 0.001) {
+        realEarthPos.set(
+          earthBodyState.positionAu[0] * ORBIT_RADIUS,
+          earthBodyState.positionAu[1] * ORBIT_RADIUS,
+          earthBodyState.positionAu[2] * ORBIT_RADIUS
+        );
+        earthOrbitPos.lerp(realEarthPos, s);
+      }
+      earthSystemGroup.position.copy(earthOrbitPos);
+
+      // 太陽-地球間の動径ガイド線を更新
+      const lineAttr = sunEarthLine.geometry.getAttribute(
+        "position"
+      ) as THREE.BufferAttribute;
+      lineAttr.setXYZ(1, earthOrbitPos.x, earthOrbitPos.y, earthOrbitPos.z);
+      lineAttr.needsUpdate = true;
+
+      // 地球中心から太陽中心 (0,0,0) へ向く単位ベクトル
+      sunDirWorld.copy(earthOrbitPos).negate().normalize();
+      sunBeamRoot.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 0, 1),
+        sunDirWorld
+      );
+
+      // 月の公転方向（白道上の黄経・黄緯）と潮汐ロック自転を更新します。
+      moonNodeGroup.rotation.y = degToRad(curMoon.ascendingNodeDeg);
+      const moonLonRad = degToRad(curMoon.eclipticLongitudeDeg);
+      const moonLatRad = degToRad(curMoon.eclipticLatitudeDeg);
+      const moonCosLat = Math.cos(moonLatRad);
+      moonDirWorld
+        .set(
+          moonCosLat * Math.cos(moonLonRad),
+          Math.sin(moonLatRad),
+          -moonCosLat * Math.sin(moonLonRad)
+        )
+        .normalize();
+      moonSpaceLocalPos.copy(moonDirWorld).multiplyScalar(MOON_ORBIT_RADIUS);
+      // 月の表側（テクスチャ中央 +X 方向）が常に地球側を向くよう公転角 + π に合わせます。
+      moonMesh.rotation.y = moonLonRad + Math.PI;
+
+      // リアル太陽系モードでは月の公転軌道スケールを 0.56 倍（半径約1.93）へ滑らかに縮め、金星・火星軌道との干渉を防ぎます。
+      const moonSystemScale = THREE.MathUtils.lerp(1.0, 0.56, s);
+      moonSystemGroup.scale.setScalar(moonSystemScale);
+
+      const moonLineAttr = earthMoonLine.geometry.getAttribute(
+        "position"
+      ) as THREE.BufferAttribute;
+      moonLineAttr.setXYZ(
+        1,
+        moonSpaceLocalPos.x,
+        moonSpaceLocalPos.y,
+        moonSpaceLocalPos.z
+      );
+      moonLineAttr.needsUpdate = true;
+
+      // 地球の自転（赤道座標系内の Y 軸周り GMST）
+      earthGroup.rotation.y = curSolar.gmstRad;
+
+      earthSystemGroup.updateMatrixWorld(true);
+      earthGroup.getWorldQuaternion(earthQuat);
+
+      // 東京の地表における現在の天頂・北・東のワールド単位ベクトルと視点座標を算出します。
+      tokyoUpWorld.copy(tokyoUpLocal).applyQuaternion(earthQuat).normalize();
+      tokyoNorthWorld.copy(tokyoNorthLocal).applyQuaternion(earthQuat).normalize();
+      tokyoEastWorld.copy(tokyoEastLocal).applyQuaternion(earthQuat).normalize();
+      tokyoLocalOffset
+        .copy(tokyoUpWorld)
+        .multiplyScalar(1.0 + GROUND_EYE_ALTITUDE);
+      tokyoEyeWorldPos.copy(earthOrbitPos).add(tokyoLocalOffset);
+
+      earthBundle.uniforms.uSunDirection.value.copy(sunDirWorld);
+      atmosphereBundle.uniforms.uSunDirection.value.copy(sunDirWorld);
+      moonBundle.uniforms.uSunDirection.value.copy(sunDirWorld);
+
+      // 2. 左視点カード（288px）と右観察パネル（318px）の中央に収まるよう水平オフセットを補間
+      const targetOffsetX = curInspectorOpen && hostW > 860 ? 16 : 0;
+      currentOffsetX += (targetOffsetX - currentOffsetX) * (1 - Math.exp(-9 * dt));
+      if (Math.abs(currentOffsetX) > 0.5) {
+        camera.setViewOffset(hostW, hostH, currentOffsetX, 0, hostW, hostH);
+      } else {
+        camera.clearViewOffset();
+      }
+
+      // 3. リアル太陽系モードの距離補正と各惑星・木星4衛星の更新
+      const outerZoomBoost =
+        s > 0.01 && jFocus < 0.5
+          ? 1.0 + THREE.MathUtils.clamp((curPose.distance - 180) / 210, 0, 5.4)
+          : 1.0;
+
+      // 太陽サイズ：地上視点では視差なし遠方へ、遠方太陽系俯瞰では見失わないよう滑らかに強調します。
       groundSunWorldPos
         .copy(tokyoEyeWorldPos)
         .addScaledVector(sunDirWorld, 75);
       sunMesh.position.set(0, 0, 0).lerp(groundSunWorldPos, g);
-      const sunScale = 1.0 + 1.15 * g;
+      const solarSunBoost =
+        1.0 +
+        s *
+          (1 - jFocus) *
+          THREE.MathUtils.clamp((curPose.distance - 180) / 145, 0, 6.8);
+      const sunScale = THREE.MathUtils.lerp(solarSunBoost, 2.15, g);
       sunMesh.scale.setScalar(sunScale);
       sunCoronaMesh.position.copy(sunMesh.position);
       sunCoronaMesh.scale.setScalar(sunScale);
@@ -1591,13 +1826,12 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         .copy(tokyoLocalOffset)
         .addScaledVector(moonDirWorld, 55);
       moonMesh.position.copy(moonSpaceLocalPos).lerp(moonGroundLocalPos, g);
-      // 太陽中心の俯瞰ビューでは月の満ち欠けと補助線が見やすいよう半径をやや強調します。
-      const orbitMoonBoost = 1.0 + 0.85 * curPose.sunCenterBlend;
+      const orbitMoonBoost = 1.0 + 0.85 * curPose.sunCenterBlend * (1 - s);
       const moonScale = THREE.MathUtils.lerp(orbitMoonBoost, 9.5, g);
       moonMesh.scale.setScalar(moonScale);
       moonMesh.updateMatrixWorld(true);
 
-      // 金星の日心公転位置（宇宙ビュー）と、視差のない真の地心方向（東京の地上ビュー）を滑らかにブレンドします。
+      // 金星の日心公転位置（簡易 8.9 ↔ リアル 0.723 AU = 9.765）と地上ビューを滑らかにブレンド
       const vHelioLonRad = degToRad(curVenus.heliocentricLongitudeDeg);
       const vHelioLatRad = degToRad(curVenus.heliocentricLatitudeDeg);
       const vCosLat = Math.cos(vHelioLatRad);
@@ -1606,6 +1840,15 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         VENUS_ORBIT_RADIUS * Math.sin(vHelioLatRad),
         -VENUS_ORBIT_RADIUS * vCosLat * Math.sin(vHelioLonRad)
       );
+      const venusBodyState = curBodies.find((b) => b.id === "venus");
+      if (venusBodyState && s > 0.001) {
+        realVenusPos.set(
+          venusBodyState.positionAu[0] * ORBIT_RADIUS,
+          venusBodyState.positionAu[1] * ORBIT_RADIUS,
+          venusBodyState.positionAu[2] * ORBIT_RADIUS
+        );
+        venusSpacePos.lerp(realVenusPos, s);
+      }
       venusSunDirWorld.copy(venusSpacePos).negate().normalize();
       venusBundle.uniforms.uSunDirection.value.copy(venusSunDirWorld);
 
@@ -1623,20 +1866,70 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
 
       venusMesh.position.copy(venusSpacePos).lerp(venusGroundPos, g);
       venusMesh.scale.setScalar(THREE.MathUtils.lerp(1.0, 0.55, g));
-      // 金星の大気は逆行（時計回り）でスーパーローテーションしています。
       venusMesh.rotation.y = -totalTimeSec * 0.08;
       venusMesh.updateMatrixWorld(true);
 
       venusGlowSprite.position.copy(venusMesh.position);
       venusGlowSprite.scale.setScalar(3.6 * Math.max(0.01, g));
 
+      // リアル太陽系モードの追加7天体（水星・火星・木星・土星・天王星・海王星・冥王星）と木星4衛星を更新
+      realSolarSystemGroup.visible = s > 0.01 && g < 0.5;
+      for (const body of curBodies) {
+        const entry = extraPlanetMap.get(body.id as ExtraPlanetId);
+        if (!entry) continue;
+        const px = body.positionAu[0] * ORBIT_RADIUS;
+        const py = body.positionAu[1] * ORBIT_RADIUS;
+        const pz = body.positionAu[2] * ORBIT_RADIUS;
+        entry.root.position.set(px, py, pz);
+
+        if (body.id === "jupiter") {
+          jupiterWorldPos.set(px, py, pz);
+        }
+
+        // 内惑星（水・火）は等倍のまま、外惑星（木〜冥）は遠方俯瞰時のみ見やすいよう滑らかに拡大します。
+        const isInnerExtra = body.id === "mercury" || body.id === "mars";
+        const visualRadius =
+          entry.baseSize * (isInnerExtra ? 1.0 : outerZoomBoost);
+        entry.root.scale.setScalar(visualRadius);
+        entry.spinMesh.rotation.y = totalTimeSec * (body.id === "jupiter" ? 0.45 : 0.2);
+
+        entry.uniforms.uSunDirection.value
+          .set(-px, -py, -pz)
+          .normalize();
+      }
+
+      // 木星の主要4衛星（イオ・エウロパ・ガニメデ・カリスト）の公転位置を更新
+      if (jupiterMoonsGroup) {
+        // 遠方全体俯瞰時（distance >= 320）は木星の周囲がごちゃつかないよう4衛星リングを控えめに隠します。
+        jupiterMoonsGroup.visible =
+          s > 0.01 && (jFocus > 0.1 || curPose.distance < 320);
+        for (const gm of curGalilean) {
+          const mEntry = jupiterGalileanMeshes.get(gm.id);
+          if (!mEntry) continue;
+          const aRad = degToRad(gm.angleDeg);
+          mEntry.mesh.position.set(
+            Math.cos(aRad) * mEntry.orbitFactor,
+            0,
+            -Math.sin(aRad) * mEntry.orbitFactor
+          );
+        }
+      }
+      realSolarSystemGroup.updateMatrixWorld(true);
+
+      // 遠方星空をリアル太陽系（冥王星 665 単位）の外側へ滑らかに押し広げ、星の大きさも等角に保ちます。
+      const starExpansion = 1.0 + 21.0 * s;
+      starsGroup.scale.setScalar(starExpansion);
+      starMat.size = 1.55 * (1.0 + 20.0 * s);
       starsGroup.position.copy(tokyoEyeWorldPos).multiplyScalar(g);
       tokyoSkyMesh.position.copy(tokyoEyeWorldPos);
 
-      // 宇宙視点カメラの位置・姿勢を計算
+      // 宇宙視点カメラの注視点（地球 ↔ 太陽 ↔ 木星）と位置・姿勢を計算
       lookAtPos
         .copy(earthOrbitPos)
         .multiplyScalar(1 - curPose.sunCenterBlend);
+      if (jFocus > 0.001) {
+        lookAtPos.lerp(jupiterWorldPos, jFocus);
+      }
 
       tmpUpAxis
         .copy(celestialNorthWorld)
@@ -1732,14 +2025,24 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       camera.up.set(0, 1, 0).applyQuaternion(camera.quaternion);
       camForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
 
-      // 地上視点ではプラネタリウム風の広角視野（約 76°）にして、地平線シルエット・方位・南中太陽・北極星を一望できるようにします。
+      // 地上視点では広角 76°、リアル太陽系の遠方俯瞰では冥王星と星空全体が入るよう far を 6800 まで広げます。
       const targetFov = THREE.MathUtils.lerp(40, 76 + groundFovOffset, g);
-      const targetNear = THREE.MathUtils.lerp(0.1, 0.005, g);
-      const targetFar = THREE.MathUtils.lerp(420, 360, g);
+      const farDistFactor =
+        g < 0.1
+          ? THREE.MathUtils.clamp((curPose.distance - 140) / 360, 0, 1)
+          : 0;
+      const targetNear =
+        g > 0.01
+          ? THREE.MathUtils.lerp(0.1, 0.005, g)
+          : THREE.MathUtils.lerp(0.1, 1.2, farDistFactor);
+      const targetFar =
+        g > 0.01
+          ? THREE.MathUtils.lerp(420, 360, g)
+          : THREE.MathUtils.lerp(420, 6800, s);
       if (
         Math.abs(camera.fov - targetFov) > 0.01 ||
         Math.abs(camera.near - targetNear) > 0.0005 ||
-        Math.abs(camera.far - targetFar) > 0.1
+        Math.abs(camera.far - targetFar) > 0.5
       ) {
         camera.fov = targetFov;
         camera.near = targetNear;
@@ -1759,7 +2062,10 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       atmosphereBundle.uniforms.uIsDiagram.value = isDiagram ? 1.0 : 0.0;
 
       const isGroundView = g >= 0.55;
+      const isRealSolarSystem = !isGroundView && s >= 0.45;
+      const isJupiterFocus = isRealSolarSystem && jFocus >= 0.45;
       const isOrbitOverview = !isGroundView && curPose.sunCenterBlend >= 0.45;
+      const isSimpleOrbitOverview = isOrbitOverview && !isRealSolarSystem;
       const isEarthCloseup =
         !isGroundView && !isOrbitOverview && curPose.distance < 7.5;
       const isMoonView =
@@ -1795,33 +2101,40 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       sunBeamRoot.position.copy(sunDirWorld).multiplyScalar(2.45 * moonBeamFactor);
       sunBeamRoot.updateMatrixWorld(true);
 
-      graticuleGroup.visible = curLayers.graticule && g < 0.45;
+      graticuleGroup.visible =
+        curLayers.graticule && g < 0.45 && !isRealSolarSystem;
       celestialCompassGroup.visible =
         curLayers.celestialCompass && isEarthCloseup;
       eclipticLocalGroup.visible =
         curLayers.eclipticPlane && !isOrbitOverview && !isGroundView;
-      orbitGuideGroup.visible = curLayers.eclipticPlane && isOrbitOverview;
+      orbitGuideGroup.visible =
+        curLayers.eclipticPlane && isSimpleOrbitOverview;
       sunEarthLine.visible =
         (curLayers.eclipticPlane || curLayers.terminatorGuide) &&
-        isOrbitOverview;
+        isSimpleOrbitOverview;
       sunGuideGroup.visible =
         curLayers.terminatorGuide && !isOrbitOverview && !isGroundView;
       citiesGroup.visible = curLayers.cities && isEarthCloseup;
       equinoxGroup.visible = curLayers.starsAndEquinox && isEarthCloseup;
       starsGroup.visible = curLayers.starsAndEquinox || isGroundView;
-      moonSystemGroup.visible = curLayers.moonAndOrbit;
+      // リアル太陽系モードでも地球の衛星（月）を保持し、遠方全体俯瞰時だけ小さなリングが潰れないよう整理します。
+      moonSystemGroup.visible =
+        curLayers.moonAndOrbit && (!isRealSolarSystem || curPose.distance < 260);
       moonNodeGroup.visible = !isGroundView;
-      earthMoonLine.visible = !isGroundView;
+      earthMoonLine.visible = !isGroundView && !isRealSolarSystem;
       moonEclipticRefRing.visible =
         curLayers.moonAndOrbit && curLayers.eclipticPlane && isMoonView;
-      venusOrbitGroup.visible = curLayers.venusAndOrbit && isOrbitOverview;
+      venusOrbitGroup.visible =
+        curLayers.venusAndOrbit && isSimpleOrbitOverview;
       venusMesh.visible =
-        curLayers.venusAndOrbit && (isOrbitOverview || isGroundView);
+        (curLayers.venusAndOrbit || isRealSolarSystem) &&
+        (isOrbitOverview || isGroundView);
       venusGlowSprite.visible =
         curLayers.venusAndOrbit && isGroundView && g > 0.45;
 
-      // 太陽の真上視点のとき、月と金星それぞれに「地球に対して平行な補助線（地球から見える半球の境界線）」を表示します。
-      const isSunOverhead = isOrbitOverview && curPose.pitch > degToRad(65);
+      // 簡易版「太陽の真上」視点のとき、月と金星に地球と平行な補助線を表示します。
+      const isSunOverhead =
+        isSimpleOrbitOverview && curPose.pitch > degToRad(65);
 
       const showMoonParallel = isSunOverhead && curLayers.moonAndOrbit;
       moonEarthParallel.line.visible = showMoonParallel;
@@ -1941,7 +2254,10 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         btn.classList.toggle("is-night", !isDay);
       }
 
-      // 太陽・地球・月・春分点・公転軌道の季節ラベル・東京地上の8方位/北極星ラベルを更新
+      // 太陽・地球・月・金星・リアル太陽系の惑星/木星4衛星・春分点・季節・方位ラベルを更新
+      const isInnerSolarLabelsVisible =
+        !isRealSolarSystem || (!isJupiterFocus && curPose.distance < 260);
+
       if (isGroundView) {
         const sunInFront = sunDirWorld.dot(camForward) > 0.12;
         const sunAboveHorizon = tokyoSunElev > -0.03;
@@ -1959,14 +2275,15 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           false
         );
       } else if (isOrbitOverview) {
-        tmpWorldPos.copy(camera.up).multiplyScalar(SUN_RADIUS + 0.22);
+        tmpWorldPos.copy(camera.up).multiplyScalar(SUN_RADIUS * sunScale + 0.4);
+        tmpToCam.copy(tmpWorldPos).sub(camera.position).normalize();
         updateFloatingBadgeAtPosition(
           sunBadgeRef.current,
           tmpWorldPos,
           camera,
           hostW,
           hostH,
-          true,
+          !isJupiterFocus && tmpToCam.dot(camForward) > 0.1,
           curInspectorOpen,
           false
         );
@@ -1997,13 +2314,15 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         camera,
         hostW,
         hostH,
-        isOrbitOverview || isMoonView,
+        (isOrbitOverview && isInnerSolarLabelsVisible) || isMoonView,
         curInspectorOpen,
         false
       );
 
       if (moonBadgeRef.current) {
-        const nextMoonText = `☾ 月 (${curMoon.phaseLabelJa})`;
+        const nextMoonText = isRealSolarSystem
+          ? "☾ 月"
+          : `☾ 月 (${curMoon.phaseLabelJa})`;
         if (lastMoonBadgeText !== nextMoonText) {
           moonBadgeRef.current.textContent = nextMoonText;
           lastMoonBadgeText = nextMoonText;
@@ -2025,16 +2344,17 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           false
         );
       } else {
-        tmpWorldPos.addScaledVector(camera.up, MOON_RADIUS + 0.14);
+        tmpWorldPos.addScaledVector(camera.up, MOON_RADIUS + 0.18);
         updateFloatingBadgeAtPosition(
           moonBadgeRef.current,
           tmpWorldPos,
           camera,
           hostW,
           hostH,
-          curLayers.moonAndOrbit && isMoonView,
+          curLayers.moonAndOrbit &&
+            (isMoonView || (isRealSolarSystem && !isJupiterFocus && curPose.distance < 110)),
           curInspectorOpen,
-          true
+          !isRealSolarSystem
         );
       }
 
@@ -2052,7 +2372,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         false
       );
 
-      // 金星ラベル（太陽中心の公転ビュー、および東京地上視点で地平線上に見えているとき）
+      // 金星ラベル（太陽中心の公転ビュー・リアル太陽系内惑星ビュー・東京地上視点）
       if (isGroundView) {
         const venusInFront = venusGeoDirWorld.dot(camForward) > 0.14;
         const venusAboveHorizon = venusGeoDirWorld.dot(tokyoUpWorld) > -0.02;
@@ -2079,7 +2399,64 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           camera,
           hostW,
           hostH,
-          curLayers.venusAndOrbit && isOrbitOverview,
+          (curLayers.venusAndOrbit || isRealSolarSystem) &&
+            isOrbitOverview &&
+            isInnerSolarLabelsVisible,
+          curInspectorOpen,
+          false
+        );
+      }
+
+      // リアル太陽系モードの追加7惑星（水星・火星・木星・土星・天王星・海王星・冥王星）ラベル
+      for (const id of extraPlanetIds) {
+        const el = planetBadgeRefs.current.get(id) ?? null;
+        const entry = extraPlanetMap.get(id);
+        if (!el || !entry) continue;
+
+        const isInner = id === "mercury" || id === "mars";
+        const shouldShow =
+          isRealSolarSystem &&
+          (isJupiterFocus
+            ? id === "jupiter"
+            : isInner
+            ? curPose.distance < 260
+            : true);
+
+        entry.root.getWorldPosition(tmpWorldPos);
+        tmpWorldPos.addScaledVector(
+          camera.up,
+          entry.root.scale.x * (id === "saturn" ? 1.55 : 1.15) + 0.4
+        );
+        tmpToCam.copy(tmpWorldPos).sub(camera.position).normalize();
+        updateFloatingBadgeAtPosition(
+          el,
+          tmpWorldPos,
+          camera,
+          hostW,
+          hostH,
+          shouldShow && tmpToCam.dot(camForward) > 0.1,
+          curInspectorOpen,
+          false
+        );
+      }
+
+      // 木星の主要4衛星（イオ・エウロパ・ガニメデ・カリスト）ラベル
+      const showGalileanBadges =
+        isRealSolarSystem && (isJupiterFocus || curPose.distance < 120);
+      for (const gm of GALILEAN_MOONS) {
+        const el = galileanBadgeRefs.current.get(gm.id) ?? null;
+        const mEntry = jupiterGalileanMeshes.get(gm.id);
+        if (!el || !mEntry) continue;
+        mEntry.mesh.getWorldPosition(tmpWorldPos);
+        tmpWorldPos.addScaledVector(camera.up, 0.55);
+        tmpToCam.copy(tmpWorldPos).sub(camera.position).normalize();
+        updateFloatingBadgeAtPosition(
+          el,
+          tmpWorldPos,
+          camera,
+          hostW,
+          hostH,
+          showGalileanBadges && tmpToCam.dot(camForward) > 0.12,
           curInspectorOpen,
           false
         );
@@ -2128,7 +2505,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
             camera,
             hostW,
             hostH,
-            isOrbitOverview && curLayers.eclipticPlane,
+            isSimpleOrbitOverview && curLayers.eclipticPlane,
             curInspectorOpen,
             false
           );
@@ -2151,6 +2528,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       textures.dispose();
       moonTexture.dispose();
       venusTexture.dispose();
+      planetTextures.dispose();
       starTexture.dispose();
       earthBundle.material.dispose();
       atmosphereBundle.material.dispose();
@@ -2163,6 +2541,9 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       venusEarthParallel.mat.dispose();
       earthVenusSight.line.geometry.dispose();
       earthVenusSight.mat.dispose();
+      for (const mat of realOrbitMaterials) mat.dispose();
+      for (const entry of extraPlanetMap.values()) entry.material.dispose();
+      for (const mat of extraDisposableMaterials) mat.dispose();
       sunBundle.material.dispose();
       sunCoronaMaterial.dispose();
       tokyoSkyBundle.material.dispose();
@@ -2234,6 +2615,50 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         >
           ♀ 金星
         </span>
+
+        {SOLAR_SYSTEM_ELEMENTS.filter(
+          (el) => el.id !== "earth" && el.id !== "venus"
+        ).map((el) => (
+          <span
+            key={el.id}
+            ref={(node) => {
+              if (node) {
+                planetBadgeRefs.current.set(el.id, node);
+              } else {
+                planetBadgeRefs.current.delete(el.id);
+              }
+            }}
+            className="space-badge is-planet"
+            style={{
+              display: "none",
+              borderColor: `${el.accentColor}99`,
+              color: el.accentColor,
+            }}
+          >
+            {el.symbol} {el.nameJa}
+          </span>
+        ))}
+
+        {GALILEAN_MOONS.map((gm) => (
+          <span
+            key={gm.id}
+            ref={(node) => {
+              if (node) {
+                galileanBadgeRefs.current.set(gm.id, node);
+              } else {
+                galileanBadgeRefs.current.delete(gm.id);
+              }
+            }}
+            className="space-badge is-satellite"
+            style={{
+              display: "none",
+              borderColor: `${gm.color}88`,
+              color: gm.color,
+            }}
+          >
+            ◦ {gm.nameJa}
+          </span>
+        ))}
 
         <span
           ref={polarisBadgeRef}

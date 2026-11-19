@@ -14,8 +14,10 @@ import {
   CameraPreset,
   City,
   DisplayLayers,
+  GalileanMoonState,
   MoonState,
   ReferenceFrame,
+  SolarSystemBodyState,
   SolarSystemState,
   VenusState,
 } from "../types/astronomy";
@@ -38,13 +40,17 @@ export type GuideExperimentId =
   | "sun-orbit-overview"
   | "moon-orbit-observe"
   | "venus-orbit-observe"
-  | "tokyo-ground-sky";
+  | "tokyo-ground-sky"
+  | "real-solar-system";
 
 interface InspectorPanelProps {
   isOpen: boolean;
   solarState: SolarSystemState;
   moonState: MoonState;
   venusState: VenusState;
+  solarSystemBodies: SolarSystemBodyState[];
+  galileanMoons: GalileanMoonState[];
+  isRealSolarSystemMode: boolean;
   cities: City[];
   selectedCityId: string;
   onSelectCity: (cityId: string) => void;
@@ -80,6 +86,9 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   solarState,
   moonState,
   venusState,
+  solarSystemBodies,
+  galileanMoons,
+  isRealSolarSystemMode,
   cities,
   selectedCityId,
   onSelectCity,
@@ -105,6 +114,49 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
     twilight: "薄明（明け方・夕暮れ）",
     night: "夜（地球の影側です）",
   };
+
+  const solarSystemOverviewCard = (
+    <div className="section-card">
+      <h2 className="section-title">
+        <Sparkles size={13} />
+        リアル太陽系 9天体・衛星（水〜冥）
+      </h2>
+      <div className="solar-body-list">
+        {solarSystemBodies.map((body) => (
+          <div key={body.id} className="solar-body-row">
+            <span className="solar-body-name" style={{ color: body.accentColor }}>
+              <span>{body.symbol}</span>
+              <span>{body.nameJa}</span>
+            </span>
+            <span className="solar-body-meta">
+              {body.distanceFromSunAu.toFixed(2)} AU ・ 傾 {body.inclinationDeg.toFixed(1)}°
+            </span>
+            <span className="solar-body-meta">
+              {body.orbitalPeriodYears < 1
+                ? `${Math.round(body.orbitalPeriodYears * 365.25)}日`
+                : `${body.orbitalPeriodYears.toFixed(1)}年`}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="view-group-block" style={{ marginTop: 4 }}>
+        <span className="view-group-label">木星の主要4衛星（ガリレオ衛星）</span>
+        <div className="galilean-pill-grid">
+          {galileanMoons.map((gm) => (
+            <div key={gm.id} className="galilean-pill">
+              <span style={{ color: gm.color, fontWeight: 600 }}>
+                ◦ {gm.nameJa}
+              </span>
+              <span className="solar-body-meta">{gm.periodDays.toFixed(2)}日</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <p className="note-box" style={{ fontSize: 11 }}>
+        軌道半径・離心率・傾斜角は J2000.0 ケプラー軌道要素（1 AU 比例縮尺）で再現しています。地球は月、木星は主要4衛星を伴って公転します。
+      </p>
+    </div>
+  );
 
   return (
     <aside
@@ -147,6 +199,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
       <div className="inspector-body">
         {activeTab === "city" && (
           <>
+            {isRealSolarSystemMode && solarSystemOverviewCard}
             <div className="section-card">
               <h2 className="section-title">
                 <Globe size={13} />
@@ -356,6 +409,8 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 金星は地球の内側（0.72 AU）を約225日で公転するため、太陽から約47°以上離れず、明け方の東の空や夕方の西の空で輝きます。
               </p>
             </div>
+
+            {!isRealSolarSystemMode && solarSystemOverviewCard}
           </>
         )}
 
@@ -485,6 +540,48 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 </div>
               </div>
 
+              <div className="view-group-block">
+                <span className="view-group-label">リアル太陽系（水〜冥・衛星）</span>
+                <div className="option-btn-group two-col">
+                  <button
+                    type="button"
+                    className={`choice-btn solar-real-btn ${
+                      cameraPreset === "solarInner" ? "is-active" : ""
+                    }`}
+                    onClick={() => onSelectCameraPreset("solarInner")}
+                  >
+                    内惑星 (水金地火)
+                  </button>
+                  <button
+                    type="button"
+                    className={`choice-btn solar-real-btn ${
+                      cameraPreset === "solarJupiter" ? "is-active" : ""
+                    }`}
+                    onClick={() => onSelectCameraPreset("solarJupiter")}
+                  >
+                    木星・4衛星
+                  </button>
+                  <button
+                    type="button"
+                    className={`choice-btn solar-real-btn ${
+                      cameraPreset === "solarFullTop" ? "is-active" : ""
+                    }`}
+                    onClick={() => onSelectCameraPreset("solarFullTop")}
+                  >
+                    全体・真上
+                  </button>
+                  <button
+                    type="button"
+                    className={`choice-btn solar-real-btn ${
+                      cameraPreset === "solarFullOblique" ? "is-active" : ""
+                    }`}
+                    onClick={() => onSelectCameraPreset("solarFullOblique")}
+                  >
+                    全体・斜め
+                  </button>
+                </div>
+              </div>
+
               <div className="view-slider-wrap">
                 <input
                   type="range"
@@ -574,6 +671,20 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
 
         {activeTab === "guide" && (
           <>
+            <div className="guide-card">
+              <h3 className="guide-title">★ リアル太陽系（水金地火木土天海冥・衛星）</h3>
+              <p className="guide-text">
+                1 AU 比例縮尺の忠実なケプラー楕円軌道で水星から冥王星までを一望できます。冥王星の17.2°傾いた軌道や、地球の月・木星の主要4衛星（イオ・エウロパ・ガニメデ・カリスト）も観察できます。
+              </p>
+              <button
+                type="button"
+                className="guide-action-btn"
+                onClick={() => onRunGuideExperiment("real-solar-system")}
+              >
+                リアル太陽系（全体・斜め）へ移動
+              </button>
+            </div>
+
             <div className="guide-card">
               <h3 className="guide-title">1. 東京の地上から見る空（日周運動と北極星）</h3>
               <p className="guide-text">

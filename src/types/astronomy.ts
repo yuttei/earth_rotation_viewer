@@ -19,7 +19,65 @@ export type CameraPreset =
   | "tokyoNorth"
   | "tokyoEast"
   | "tokyoSouth"
-  | "tokyoWest";
+  | "tokyoWest"
+  | "solarInner"
+  | "solarJupiter"
+  | "solarFullTop"
+  | "solarFullOblique";
+
+/** 木星の主要4衛星（ガリレオ衛星）の識別子 */
+export type GalileanMoonId = "io" | "europa" | "ganymede" | "callisto";
+
+/** 木星の主要4衛星（ガリレオ衛星）の瞬間状態 */
+export interface GalileanMoonState {
+  id: GalileanMoonId;
+  nameJa: string;
+  /** 公転周期（日） */
+  periodDays: number;
+  /** 木星中心からの軌道半径（木星半径 R_J 倍） */
+  orbitRadiusRj: number;
+  /** 現在の公転位相角（度：0°〜360°） */
+  angleDeg: number;
+  /** 代表カラー（HEX文字列） */
+  color: string;
+}
+
+/** リアル太陽系モードで扱う9天体（水金地火木土天海冥）の識別子 */
+export type SolarBodyId =
+  | "mercury"
+  | "venus"
+  | "earth"
+  | "mars"
+  | "jupiter"
+  | "saturn"
+  | "uranus"
+  | "neptune"
+  | "pluto";
+
+/** リアル太陽系モードにおける各天体の瞬間状態（日心黄道座標・AU単位） */
+export interface SolarSystemBodyState {
+  id: SolarBodyId;
+  nameJa: string;
+  symbol: string;
+  /** 軌道長半径 (AU) */
+  semiMajorAxisAu: number;
+  /** 軌道離心率 */
+  eccentricity: number;
+  /** 黄道面に対する軌道傾斜角（度） */
+  inclinationDeg: number;
+  /** 恒星公転周期（年） */
+  orbitalPeriodYears: number;
+  /** 現在の太陽からの距離 (AU) */
+  distanceFromSunAu: number;
+  /** 現在の日心黄経（度：0°〜360° 未満） */
+  heliocentricLongitudeDeg: number;
+  /** 現在の日心黄緯（度） */
+  heliocentricLatitudeDeg: number;
+  /** 日心黄道直交座標 [x, y, z] (AU、+X=春分点, +Y=黄道北極, -Z=黄経90°) */
+  positionAu: [number, number, number];
+  /** UI・軌道ライン用の代表カラー（HEX文字列） */
+  accentColor: string;
+}
 
 /** 観測したい主要都市（または北極点）の定義 */
 export interface City {

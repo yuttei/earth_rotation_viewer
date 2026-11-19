@@ -9,6 +9,10 @@ import {
   SeasonPreset,
 } from "./astronomy/calculations";
 import {
+  calculateFullSolarSystemState,
+  calculateGalileanMoonsState,
+} from "./astronomy/solarSystem";
+import {
   CameraPreset,
   DisplayLayers,
   ReferenceFrame,
@@ -52,6 +56,8 @@ const PRESET_POSES: Record<
     groundBlend: 0,
     groundAzimuth: 0,
     groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
     durationSec: 2.6,
     ratio: 0,
   },
@@ -64,6 +70,8 @@ const PRESET_POSES: Record<
     groundBlend: 0,
     groundAzimuth: 0,
     groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
     durationSec: 2.6,
     ratio: 1,
   },
@@ -76,6 +84,8 @@ const PRESET_POSES: Record<
     groundBlend: 0,
     groundAzimuth: 0,
     groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
     durationSec: 2.8,
     ratio: 0,
   },
@@ -88,6 +98,8 @@ const PRESET_POSES: Record<
     groundBlend: 0,
     groundAzimuth: 0,
     groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
     durationSec: 2.8,
     ratio: 1,
   },
@@ -100,6 +112,8 @@ const PRESET_POSES: Record<
     groundBlend: 0,
     groundAzimuth: 0,
     groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
     durationSec: 3.4,
     ratio: 1,
   },
@@ -112,6 +126,8 @@ const PRESET_POSES: Record<
     groundBlend: 0,
     groundAzimuth: 0,
     groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
     durationSec: 3.2,
     ratio: 1,
   },
@@ -124,6 +140,8 @@ const PRESET_POSES: Record<
     groundBlend: 1,
     groundAzimuth: 0,
     groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
     durationSec: 1.8,
     ratio: 0,
   },
@@ -136,6 +154,8 @@ const PRESET_POSES: Record<
     groundBlend: 1,
     groundAzimuth: Math.PI / 2,
     groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
     durationSec: 1.8,
     ratio: 0,
   },
@@ -148,6 +168,8 @@ const PRESET_POSES: Record<
     groundBlend: 1,
     groundAzimuth: Math.PI,
     groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
     durationSec: 1.8,
     ratio: 0,
   },
@@ -160,8 +182,66 @@ const PRESET_POSES: Record<
     groundBlend: 1,
     groundAzimuth: -Math.PI / 2,
     groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
     durationSec: 1.8,
     ratio: 0,
+  },
+  solarInner: {
+    yaw: 0,
+    pitch: Math.PI / 2,
+    distance: 78.0,
+    eclipticBlend: 1,
+    sunCenterBlend: 1,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 1,
+    jupiterFocusBlend: 0,
+    durationSec: 3.4,
+    ratio: 1,
+  },
+  solarJupiter: {
+    yaw: 0,
+    pitch: degToRad(26),
+    distance: 34.0,
+    eclipticBlend: 1,
+    sunCenterBlend: 1,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 1,
+    jupiterFocusBlend: 1,
+    durationSec: 3.4,
+    ratio: 1,
+  },
+  solarFullTop: {
+    yaw: 0,
+    pitch: Math.PI / 2,
+    distance: 1520.0,
+    eclipticBlend: 1,
+    sunCenterBlend: 1,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 1,
+    jupiterFocusBlend: 0,
+    durationSec: 3.8,
+    ratio: 1,
+  },
+  solarFullOblique: {
+    yaw: 0,
+    pitch: degToRad(24),
+    distance: 1320.0,
+    eclipticBlend: 1,
+    sunCenterBlend: 1,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 1,
+    jupiterFocusBlend: 0,
+    durationSec: 3.6,
+    ratio: 1,
   },
 };
 
@@ -189,6 +269,8 @@ export function App() {
     groundBlend: PRESET_POSES.northPole.groundBlend,
     groundAzimuth: PRESET_POSES.northPole.groundAzimuth,
     groundElevation: PRESET_POSES.northPole.groundElevation,
+    solarSystemBlend: PRESET_POSES.northPole.solarSystemBlend,
+    jupiterFocusBlend: PRESET_POSES.northPole.jupiterFocusBlend,
     durationSec: PRESET_POSES.northPole.durationSec,
     seq: 0,
   });
@@ -316,6 +398,16 @@ export function App() {
     [currentDate, solarState.sunEclipticLongitudeDeg]
   );
 
+  const solarSystemBodies = useMemo(
+    () => calculateFullSolarSystemState(currentDate),
+    [currentDate]
+  );
+
+  const galileanMoons = useMemo(
+    () => calculateGalileanMoonsState(currentDate),
+    [currentDate]
+  );
+
   const handleStepSeconds = useCallback(
     (deltaSeconds: number) => {
       const next = new Date(simTimeMsRef.current + deltaSeconds * 1000);
@@ -340,15 +432,19 @@ export function App() {
         setSelectedCityId("tokyo");
       }
 
-      // 宇宙空間 ⇄ 東京地上、および太陽中心・月軌道・地球近接の各距離帯を跨ぐ場合はゆっくり連続移動します。
+      // 宇宙空間 ⇄ 東京地上、簡易版 ⇄ リアル太陽系、各距離帯を跨ぐ場合はゆっくり連続移動します。
       setCameraPoseTarget((prev) => {
         const crossesGround = prev.groundBlend !== p.groundBlend;
+        const crossesSolarMode = prev.solarSystemBlend !== p.solarSystemBlend;
+        const crossesJupiter = prev.jupiterFocusBlend !== p.jupiterFocusBlend;
         const crossesSunCenter = prev.sunCenterBlend !== p.sunCenterBlend;
         const crossesMoonBand = (prev.distance >= 7.5) !== (p.distance >= 7.5);
         const durationSec = crossesGround
           ? prev.sunCenterBlend > 0.5 || p.sunCenterBlend > 0.5
-            ? 3.6
+            ? 3.8
             : 3.1
+          : crossesSolarMode || crossesJupiter
+          ? 3.6
           : crossesSunCenter
           ? 3.4
           : crossesMoonBand
@@ -362,24 +458,40 @@ export function App() {
           eclipticBlend: p.eclipticBlend,
           sunCenterBlend: p.sunCenterBlend,
           groundBlend: p.groundBlend,
-          // 地上から宇宙へ戻るときは直前に見ていた方角を保ったまま滑らかに上昇します。
           groundAzimuth: isTargetGround ? p.groundAzimuth : prev.groundAzimuth,
           groundElevation: isTargetGround
             ? p.groundElevation
             : prev.groundElevation,
+          solarSystemBlend: p.solarSystemBlend,
+          jupiterFocusBlend: p.jupiterFocusBlend,
           durationSec,
           seq: prev.seq + 1,
         };
       });
 
       if (adjustSpeedAutomatically) {
-        const isOrbitalView =
+        const isOuterSolarView =
+          preset === "solarFullTop" || preset === "solarFullOblique";
+        const isJupiterOrInnerView =
+          preset === "solarInner" || preset === "solarJupiter";
+        const isSimpleOrbitalView =
           preset === "moonNorthPole" ||
           preset === "moonEclipticPlane" ||
           preset === "sunOverhead" ||
           preset === "sunEclipticOblique";
-        if (isOrbitalView) {
-          setSpeedMultiplier((prev) => (prev < 86400 ? 86400 : prev));
+
+        if (isOuterSolarView) {
+          // 冥王星までの全体俯瞰では外惑星も滑らかに動く 30日/s を標準にします。
+          setSpeedMultiplier((prev) => (prev < 2592000 ? 2592000 : prev));
+          setIsPlaying(true);
+        } else if (isJupiterOrInnerView) {
+          // 内惑星・木星4衛星ではイオ(1.77日)や月が見やすい 1日/s を標準にします。
+          setSpeedMultiplier(86400);
+          setIsPlaying(true);
+        } else if (isSimpleOrbitalView) {
+          setSpeedMultiplier((prev) =>
+            prev < 86400 || prev > 2592000 ? 86400 : prev
+          );
           setIsPlaying(true);
         } else {
           setSpeedMultiplier((prev) => (prev >= 86400 ? 1800 : prev));
@@ -392,7 +504,10 @@ export function App() {
   const isMoonDistanceMode =
     cameraPoseTarget.groundBlend < 0.5 &&
     cameraPoseTarget.sunCenterBlend < 0.5 &&
+    cameraPoseTarget.solarSystemBlend < 0.5 &&
     cameraPoseTarget.distance >= 7.5;
+
+  const isRealSolarSystemMode = cameraPoseTarget.solarSystemBlend >= 0.5;
 
   const handleChangeViewTransitionRatio = useCallback(
     (ratio: number) => {
@@ -427,8 +542,14 @@ export function App() {
         groundBlend: 0,
         groundAzimuth: prev.groundAzimuth,
         groundElevation: prev.groundElevation,
+        solarSystemBlend: 0,
+        jupiterFocusBlend: 0,
         durationSec:
-          prev.sunCenterBlend > 0.5 || prev.groundBlend > 0.5 ? 2.6 : 0.45,
+          prev.sunCenterBlend > 0.5 ||
+          prev.groundBlend > 0.5 ||
+          prev.solarSystemBlend > 0.5
+            ? 2.8
+            : 0.45,
         seq: prev.seq,
       }));
     },
@@ -450,6 +571,18 @@ export function App() {
   const handleRunGuideExperiment = useCallback(
     (id: GuideExperimentId) => {
       switch (id) {
+        case "real-solar-system":
+          handleSelectCameraPreset("solarFullOblique", false);
+          setLayers((prev) => ({
+            ...prev,
+            moonAndOrbit: true,
+            venusAndOrbit: true,
+            starsAndEquinox: true,
+          }));
+          setSpeedMultiplier(2592000);
+          setIsPlaying(true);
+          break;
+
         case "tokyo-ground-sky":
           handleSelectCameraPreset("tokyoSouth", false);
           setSelectedCityId("tokyo");
@@ -591,6 +724,8 @@ export function App() {
         solarState={solarState}
         moonState={moonState}
         venusState={venusState}
+        solarSystemBodies={solarSystemBodies}
+        galileanMoons={galileanMoons}
         cities={OBSERVATION_CITIES}
         selectedCityId={selectedCityId}
         onSelectCity={setSelectedCityId}
@@ -659,6 +794,9 @@ export function App() {
             solarState={solarState}
             moonState={moonState}
             venusState={venusState}
+            solarSystemBodies={solarSystemBodies}
+            galileanMoons={galileanMoons}
+            isRealSolarSystemMode={isRealSolarSystemMode}
             cities={OBSERVATION_CITIES}
             selectedCityId={selectedCityId}
             onSelectCity={setSelectedCityId}

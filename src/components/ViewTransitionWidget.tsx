@@ -1,5 +1,5 @@
 import React from "react";
-import { Compass, Moon, Orbit, RotateCcw, Sun } from "lucide-react";
+import { Compass, Moon, Orbit, RotateCcw, Sparkles, Sun } from "lucide-react";
 import { CameraPreset } from "../types/astronomy";
 
 interface ViewTransitionWidgetProps {
@@ -28,10 +28,16 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
     activePreset === "tokyoEast" ||
     activePreset === "tokyoSouth" ||
     activePreset === "tokyoWest";
+  const isRealSolarView =
+    activePreset === "solarInner" ||
+    activePreset === "solarJupiter" ||
+    activePreset === "solarFullTop" ||
+    activePreset === "solarFullOblique";
   const isSliderDimmed =
     activePreset === "sunOverhead" ||
     activePreset === "sunEclipticOblique" ||
-    isTokyoGroundView;
+    isTokyoGroundView ||
+    isRealSolarView;
 
   let statusLabel = `移行 ${percent}%`;
   if (activePreset === "northPole") {
@@ -54,6 +60,14 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
     statusLabel = "東京地上：南の空";
   } else if (activePreset === "tokyoWest") {
     statusLabel = "東京地上：西の空";
+  } else if (activePreset === "solarInner") {
+    statusLabel = "太陽系：内惑星";
+  } else if (activePreset === "solarJupiter") {
+    statusLabel = "太陽系：木星4衛星";
+  } else if (activePreset === "solarFullTop") {
+    statusLabel = "太陽系：全体(真上)";
+  } else if (activePreset === "solarFullOblique") {
+    statusLabel = "太陽系：全体(斜め)";
   }
 
   return (
@@ -209,6 +223,55 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
             title="東京の地上から西の空（太陽・月・星が右下へ沈む様子）を観察"
           >
             西
+          </button>
+        </div>
+      </div>
+
+      <div className="view-group-block">
+        <span className="view-group-label">
+          <Sparkles size={10} style={{ marginRight: 3, verticalAlign: -1 }} />
+          リアル太陽系（水〜冥・衛星）
+        </span>
+        <div className="view-preset-grid">
+          <button
+            type="button"
+            className={`choice-btn solar-real-btn ${
+              activePreset === "solarInner" ? "is-active" : ""
+            }`}
+            onClick={() => onSelectPreset("solarInner")}
+            title="水星・金星・地球（月付き）・火星の忠実な1:1 AU 楕円軌道を真上から観察"
+          >
+            内惑星 (水金地火)
+          </button>
+          <button
+            type="button"
+            className={`choice-btn solar-real-btn ${
+              activePreset === "solarJupiter" ? "is-active" : ""
+            }`}
+            onClick={() => onSelectPreset("solarJupiter")}
+            title="木星へ滑らかに接近し、主要4衛星（イオ・エウロパ・ガニメデ・カリスト）の公転を観察"
+          >
+            木星・4衛星
+          </button>
+          <button
+            type="button"
+            className={`choice-btn solar-real-btn ${
+              activePreset === "solarFullTop" ? "is-active" : ""
+            }`}
+            onClick={() => onSelectPreset("solarFullTop")}
+            title="水金地火木土天海冥までの太陽系全体を1:1 AU 縮尺の真上から一望"
+          >
+            全体・真上
+          </button>
+          <button
+            type="button"
+            className={`choice-btn solar-real-btn ${
+              activePreset === "solarFullOblique" ? "is-active" : ""
+            }`}
+            onClick={() => onSelectPreset("solarFullOblique")}
+            title="太陽系全体を斜めから観察し、冥王星の約17.2°傾いた楕円軌道と海王星との位置関係を確認"
+          >
+            全体・斜め
           </button>
         </div>
       </div>

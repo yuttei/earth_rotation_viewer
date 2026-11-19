@@ -446,6 +446,69 @@ export function createVenusMaterial(venusMap: THREE.Texture): {
   return { material, uniforms };
 }
 
+const PLANET_VERTEX_SHADER = /* glsl */ `
+  varying vec2 vUv;
+  varying vec3 vWorldNormal;
+
+  void main() {
+    vUv = uv;
+    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const PLANET_FRAGMENT_SHADER = /* glsl */ `
+  uniform sampler2D uMap;
+  uniform vec3 uSunDirection;
+  uniform float uAmbientBoost;
+
+  varying vec2 vUv;
+  varying vec3 vWorldNormal;
+
+  void main() {
+    vec3 normal = normalize(vWorldNormal);
+    vec3 sunDir = normalize(uSunDirection);
+    vec3 albedo = texture2D(uMap, vUv).rgb;
+
+    float ndotl = dot(normal, sunDir);
+    float dayMask = smoothstep(-0.14, 0.22, ndotl);
+    float diffuse = pow(max(ndotl, 0.0), 0.72);
+
+    vec3 sunlit = albedo * mix(0.8, 1.32, diffuse);
+    vec3 nightSide = albedo * uAmbientBoost;
+    vec3 color = mix(nightSide, sunlit, dayMask);
+
+    gl_FragColor = vec4(color, 1.0);
+  }
+`;
+
+/**
+ * リアル太陽系モードの各惑星（水星・火星・木星・土星・天王星・海王星・冥王星）用 ShaderMaterial を生成します。
+ */
+export function createPlanetMaterial(
+  map: THREE.Texture,
+  ambientBoost = 0.24
+): {
+  material: THREE.ShaderMaterial;
+  uniforms: {
+    uMap: { value: THREE.Texture };
+    uSunDirection: { value: THREE.Vector3 };
+    uAmbientBoost: { value: number };
+  };
+} {
+  const uniforms = {
+    uMap: { value: map },
+    uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
+    uAmbientBoost: { value: ambientBoost },
+  };
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: PLANET_VERTEX_SHADER,
+    fragmentShader: PLANET_FRAGMENT_SHADER,
+  });
+  return { material, uniforms };
+}
+
 /**
  * 地球の輪郭を包む青い大気ハロー（外気圏の光）用 ShaderMaterial を生成します。
  */

@@ -31,12 +31,13 @@ interface TimeControlBarProps {
 }
 
 const SPEED_OPTIONS: Array<{ value: number; label: string }> = [
-  { value: 1, label: "1× (実時間)" },
+  { value: 1, label: "1×" },
   { value: 1800, label: "30分/s" },
   { value: 7200, label: "2時間/s" },
   { value: 86400, label: "1日/s" },
   { value: 864000, label: "10日/s" },
   { value: 2592000, label: "30日/s" },
+  { value: 31557600, label: "1年/s" },
 ];
 
 /**

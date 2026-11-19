@@ -29,6 +29,10 @@ import {
   raDecToVector3Tuple,
   radToDeg,
 } from "../calculations";
+import {
+  calculateFullSolarSystemState,
+  calculateGalileanMoonsState,
+} from "../solarSystem";
 
 /** 2つの角度（度）の符号付き最短差（-180° 〜 +180°）を計算するテスト用補助関数 */
 function signedAngleDiffDeg(targetDeg: number, baseDeg: number): number {
@@ -344,5 +348,47 @@ describe("天文計算エンジン (calculations)", () => {
       expect(Math.abs(v.elongationDeg)).toBeLessThanOrEqual(48);
       expect(Math.abs(v.heliocentricLatitudeDeg)).toBeLessThanOrEqual(3.5);
     }
+  });
+
+  it("リアル太陽系エンジンが水金地火木土天海冥の9天体と木星主要4衛星を軌道要素どおりに算出する", () => {
+    const sampleDate = new Date("2026-11-19T00:00:00Z");
+    const bodies = calculateFullSolarSystemState(sampleDate);
+    expect(bodies).toHaveLength(9);
+    expect(bodies.map((b) => b.id)).toEqual([
+      "mercury",
+      "venus",
+      "earth",
+      "mars",
+      "jupiter",
+      "saturn",
+      "uranus",
+      "neptune",
+      "pluto",
+    ]);
+
+    const earth = bodies.find((b) => b.id === "earth")!;
+    const pluto = bodies.find((b) => b.id === "pluto")!;
+    expect(earth.distanceFromSunAu).toBeGreaterThan(0.98);
+    expect(earth.distanceFromSunAu).toBeLessThan(1.02);
+    expect(pluto.distanceFromSunAu).toBeGreaterThan(29.5);
+    expect(pluto.distanceFromSunAu).toBeLessThan(50.0);
+    expect(pluto.inclinationDeg).toBeCloseTo(17.16, 1);
+
+    // 木星の主要4衛星（イオ・エウロパ・ガニメデ・カリスト）の算出とイオの1公転復帰
+    const moons = calculateGalileanMoonsState(sampleDate);
+    expect(moons.map((m) => m.id)).toEqual([
+      "io",
+      "europa",
+      "ganymede",
+      "callisto",
+    ]);
+    const io0 = moons[0];
+    const afterIoOrbit = new Date(
+      sampleDate.getTime() + io0.periodDays * SOLAR_DAY_SECONDS * 1000
+    );
+    const io1 = calculateGalileanMoonsState(afterIoOrbit)[0];
+    expect(Math.abs(signedAngleDiffDeg(io1.angleDeg, io0.angleDeg))).toBeLessThan(
+      0.01
+    );
   });
 });

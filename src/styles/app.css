@@ -200,6 +200,27 @@ input {
   box-shadow: 0 0 14px rgba(253, 224, 71, 0.26);
 }
 
+.space-badge.is-planet {
+  background: rgba(8, 13, 28, 0.84);
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  color: #e2e8f0;
+  font-size: 10.5px;
+  padding: 2px 8px;
+  margin-left: -28px;
+  margin-top: -26px;
+  box-shadow: 0 0 12px rgba(15, 23, 42, 0.45);
+}
+
+.space-badge.is-satellite {
+  background: rgba(10, 16, 32, 0.8);
+  border: 1px solid rgba(203, 213, 225, 0.45);
+  color: #e2e8f0;
+  font-size: 10px;
+  padding: 1.5px 6px;
+  margin-left: -22px;
+  margin-top: -22px;
+}
+
 .space-badge.is-polaris {
   background: rgba(8, 24, 48, 0.82);
   border: 1px solid rgba(125, 211, 252, 0.55);
@@ -488,8 +509,8 @@ input {
   width: 288px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 6px;
+  padding: 9px 11px;
   border-radius: var(--radius-md);
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
@@ -597,6 +618,79 @@ input {
   background: rgba(16, 185, 129, 0.24);
   color: #ecfdf5;
   box-shadow: 0 0 14px rgba(52, 211, 153, 0.24);
+}
+
+.solar-real-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-color: rgba(192, 132, 252, 0.34);
+  color: #e9d5ff;
+  background: rgba(24, 14, 42, 0.56);
+}
+
+.solar-real-btn:hover {
+  border-color: rgba(216, 180, 254, 0.68);
+  color: #faf5ff;
+}
+
+.solar-real-btn.is-active {
+  border-color: #c084fc;
+  background: rgba(168, 85, 247, 0.26);
+  color: #faf5ff;
+  box-shadow: 0 0 14px rgba(192, 132, 252, 0.28);
+}
+
+.solar-body-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.solar-body-row {
+  display: grid;
+  grid-template-columns: 62px 1fr 56px;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: rgba(6, 11, 24, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  font-size: 11px;
+}
+
+.solar-body-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.solar-body-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.galilean-pill-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 5px;
+}
+
+.galilean-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: rgba(6, 11, 24, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  font-size: 10.5px;
 }
 
 .moon-view-btn {

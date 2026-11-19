@@ -1,5 +1,7 @@
 # POLARIS — 天の北極から見る地球の自転
 
+**公開 Web サイト（GitHub Pages）**: https://yuttei.github.io/earth_rotation_viewer/
+
 天の北極（地球の自転軸の北側延長線上）からの視点を中心に、地球の自転と太陽・恒星との位置関係を3Dで観察する Web アプリケーションです。
 
 地球がなぜ反時計回りに回転して見えるのか、昼夜の境界（ターミネーター）が季節によってどう傾くのか、北極圏で白夜・極夜が生じる仕組み、恒星日（約23時間56分）と太陽日（24時間）の約4分の差、各地点で太陽が東から昇り西に沈む理由を、時刻や視点を切り替えながら直感的に観察できます。
@@ -68,7 +70,8 @@ earth_rotation_viewer/
 │   └── pre-commit                     # gitleaks によるコミット前シークレット検査
 ├── .github/
 │   └── workflows/
-│       └── check.yml                  # PR 時の typecheck / test / build 自動実行
+│       ├── check.yml                  # PR 時の typecheck / test / build 自動実行
+│       └── deploy.yml                 # main ブランチ反映時の GitHub Pages 自動デプロイ
 ├── docs/
 │   └── specification.md               # 詳細仕様書（座標系・天文計算・UI・テスト方針）
 ├── src/

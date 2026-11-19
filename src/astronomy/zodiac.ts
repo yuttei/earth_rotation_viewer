@@ -608,3 +608,29 @@ export function getSunAndMidnightZodiac(sunEclipticLongitudeDeg: number): {
     ),
   };
 }
+
+/**
+ * 東京の北の空で北極星のまわりを1年中反時計回りに巡る周極星座「カシオペア座」（W字形・J2000.0）です。
+ */
+export const CASSIOPEIA_CONSTELLATION: {
+  nameJa: string;
+  labelPoint: { lonDeg: number; latDeg: number };
+  stars: ZodiacStarPoint[];
+  edges: Array<[number, number]>;
+} = {
+  nameJa: "カシオペア座",
+  labelPoint: equatorialToEclipticDeg(0.98, 63.8),
+  stars: buildStars([
+    { raHours: 0.153, decDeg: 59.15, mag: 2.27, nameJa: "カフ" }, // 0: β Cas
+    { raHours: 0.675, decDeg: 56.54, mag: 2.23, nameJa: "シェダル" }, // 1: α Cas
+    { raHours: 0.945, decDeg: 60.72, mag: 2.47, nameJa: "ツィー" }, // 2: γ Cas
+    { raHours: 1.430, decDeg: 60.24, mag: 2.68, nameJa: "ルクバー" }, // 3: δ Cas
+    { raHours: 1.907, decDeg: 63.67, mag: 3.38, nameJa: "セギン" }, // 4: ε Cas
+  ]),
+  edges: [
+    [0, 1],
+    [1, 2],
+    [2, 3],
+    [3, 4],
+  ],
+};

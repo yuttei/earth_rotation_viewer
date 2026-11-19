@@ -1,5 +1,5 @@
 import React from "react";
-import { Pause, Play, RotateCcw, StepForward } from "lucide-react";
+import { CalendarClock, Pause, Play, RotateCcw, StepForward } from "lucide-react";
 import {
   getTimeSliderScale,
   SEASON_PRESETS,
@@ -29,6 +29,10 @@ interface TimeControlBarProps {
   onStepSeconds: (deltaSeconds: number) => void;
   /** 現在時刻（「今」）へリセットするハンドラ */
   onResetToNow: () => void;
+  /** 星の年周運動観察モード（毎日 21:00 JST 固定で日付のみ進行）が有効か */
+  isAnnualMotionMode: boolean;
+  /** 年周運動観察モードの ON/OFF トグル */
+  onToggleAnnualMotion: () => void;
 }
 
 const SPEED_OPTIONS: Array<{ value: number; label: string }> = [
@@ -57,6 +61,8 @@ export const TimeControlBar: React.FC<TimeControlBarProps> = ({
   transitioningSeasonId,
   onStepSeconds,
   onResetToNow,
+  isAnnualMotionMode,
+  onToggleAnnualMotion,
 }) => {
   // 現在の再生速度（時間/s）に応じてスライダーのレンジ（1日 / 1ヶ月 / 1年 / 50年）と刻み幅をスケーリングします。
   const sliderScale = getTimeSliderScale(currentDate, speedMultiplier);
@@ -118,6 +124,17 @@ export const TimeControlBar: React.FC<TimeControlBarProps> = ({
         >
           <StepForward size={12} />
           +1太陽日
+        </button>
+
+        <button
+          type="button"
+          className={`ctrl-btn ${isAnnualMotionMode ? "is-active" : ""}`}
+          onClick={onToggleAnnualMotion}
+          aria-pressed={isAnnualMotionMode}
+          title="毎日21:00 JSTに時刻を固定し、公転による星と星座の年周運動（1ヶ月で約30°）を滑らかに観察"
+        >
+          <CalendarClock size={12} />
+          年周(21時)
         </button>
       </div>
 

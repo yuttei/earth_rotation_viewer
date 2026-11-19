@@ -9,6 +9,7 @@ import {
   SOLAR_DAY_SECONDS,
   SYNODIC_MONTH_DAYS,
   VENUS_SIDEREAL_PERIOD_DAYS,
+  applyAnnualFixedHourLock,
   calculateGmstRad,
   calculateMoonState,
   calculateSolarPosition,
@@ -29,12 +30,14 @@ import {
   observeCity,
   raDecToVector3Tuple,
   radToDeg,
+  snapDateToJstHour,
 } from "../calculations";
 import {
   calculateFullSolarSystemState,
   calculateGalileanMoonsState,
 } from "../solarSystem";
 import {
+  CASSIOPEIA_CONSTELLATION,
   ZODIAC_CONSTELLATIONS,
   equatorialToEclipticDeg,
   getSunAndMidnightZodiac,
@@ -450,5 +453,44 @@ describe("天文計算エンジン (calculations)", () => {
     expect(decZodiac.sunConstellation.id).toBe("ophiuchus");
     expect(decZodiac.sunConstellation.isThirteenth).toBe(true);
     expect(decZodiac.midnightConstellation.id).toBe("taurus");
+
+    // カシオペア座（W字形5星・4辺）が北天高緯度に配置されている
+    expect(CASSIOPEIA_CONSTELLATION.stars).toHaveLength(5);
+    expect(CASSIOPEIA_CONSTELLATION.edges).toHaveLength(4);
+    for (const st of CASSIOPEIA_CONSTELLATION.stars) {
+      expect(st.latDeg).toBeGreaterThan(40);
+    }
+  });
+
+  it("年周運動モード（snapDateToJstHour / applyAnnualFixedHourLock）が毎日21時JSTを維持したまま1ヶ月約30°ずつ恒星を滑らかに進める", () => {
+    const base = snapDateToJstHour(new Date("2026-11-19T03:15:00Z"), 21);
+    expect(base.toISOString()).toBe("2026-11-19T12:00:00.000Z");
+
+    const halfDayLater = new Date(base.getTime() + 12 * 3_600_000);
+    const monthLater = new Date(base.getTime() + 30 * SOLAR_DAY_SECONDS * 1000);
+
+    const s0 = applyAnnualFixedHourLock(calculateSolarSystemState(base), base, 21);
+    const sHalf = applyAnnualFixedHourLock(
+      calculateSolarSystemState(halfDayLater),
+      halfDayLater,
+      21
+    );
+    const sMonth = applyAnnualFixedHourLock(
+      calculateSolarSystemState(monthLater),
+      monthLater,
+      21
+    );
+
+    // 12時間後でも自転の昼夜回転が相殺され、GMST の進みは半日分の年周移動（約 +0.49°）だけになる
+    const halfDriftDeg = normalizeLonDeg(radToDeg(sHalf.gmstRad - s0.gmstRad));
+    expect(halfDriftDeg).toBeCloseTo(0.493, 1);
+
+    // 30日後（同じ21:00 JST）には恒星が約 +29.57°（約30°）進む
+    const monthDriftDeg = normalizeLonDeg(radToDeg(sMonth.gmstRad - s0.gmstRad));
+    expect(monthDriftDeg).toBeCloseTo(29.57, 0);
+
+    // 東京は半日後も21時固定の夜（太陽高度が負）のまま安定する
+    const tokyo = OBSERVATION_CITIES.find((c) => c.id === "tokyo")!;
+    expect(observeCity(tokyo, sHalf).daylightPhase).toBe("night");
   });
 });

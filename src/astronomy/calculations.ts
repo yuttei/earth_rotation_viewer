@@ -838,3 +838,49 @@ export function getTimeSliderScale(
     ariaLabel: `50年タイムスライダー（${blockStartYear}年〜${blockStartYear + 50}年・約1ヶ月刻み）`,
   };
 }
+
+/**
+ * 指定された日時の日本時間（JST）のカレンダー日付を維持したまま、指定の時刻（既定 21:00 JST）へ合わせます。
+ * 星の年周運動を観察するときに、夜の同じ時刻へ揃えるために使用します。
+ */
+export function snapDateToJstHour(date: Date, jstHour = 21): Date {
+  const jstMs = date.getTime() + 9 * 3_600_000;
+  const jst = new Date(jstMs);
+  const utcMs =
+    Date.UTC(
+      jst.getUTCFullYear(),
+      jst.getUTCMonth(),
+      jst.getUTCDate(),
+      jstHour,
+      0,
+      0,
+      0
+    ) -
+    9 * 3_600_000;
+  return new Date(utcMs);
+}
+
+/**
+ * 年周運動観察モード用：通常の自転（24時間周期の昼夜点滅）だけを滑らかに相殺し、
+ * 毎日同じ時刻（既定 21:00 JST）で公転によって星座が1日あたり約0.9856°（1ヶ月約30°）ずつ
+ * 連続的に移動する地球姿勢（GMST・太陽直下点経度）を算出します。
+ */
+export function applyAnnualFixedHourLock(
+  state: SolarSystemState,
+  date: Date,
+  fixedJstHour = 21
+): SolarSystemState {
+  const MS_PER_DAY = 86_400_000;
+  const shiftMs = (9 - fixedJstHour) * 3_600_000;
+  const shifted = date.getTime() + shiftMs;
+  const fracDay = (((shifted % MS_PER_DAY) + MS_PER_DAY) % MS_PER_DAY) / MS_PER_DAY;
+  const lockedGmstRad = normalizeAngleRad(state.gmstRad - fracDay * Math.PI * 2);
+  const lockedSubsolarLonDeg = normalizeLonDeg(
+    radToDeg(state.sunRightAscensionRad - lockedGmstRad)
+  );
+  return {
+    ...state,
+    gmstRad: lockedGmstRad,
+    subsolarLonDeg: lockedSubsolarLonDeg,
+  };
+}

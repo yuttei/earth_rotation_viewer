@@ -46,7 +46,9 @@ export type GuideExperimentId =
   | "tokyo-ground-sky"
   | "real-solar-system"
   | "zodiac-ecliptic-follow"
-  | "zodiac-ecliptic-fixed";
+  | "zodiac-ecliptic-fixed"
+  | "annual-motion-north"
+  | "annual-motion-south";
 
 interface InspectorPanelProps {
   isOpen: boolean;
@@ -57,6 +59,9 @@ interface InspectorPanelProps {
   solarSystemBodies: SolarSystemBodyState[];
   galileanMoons: GalileanMoonState[];
   isRealSolarSystemMode: boolean;
+  isAnnualMotionMode: boolean;
+  onToggleAnnualMotion: () => void;
+  onStepMonth: () => void;
   cities: City[];
   selectedCityId: string;
   onSelectCity: (cityId: string) => void;
@@ -97,6 +102,9 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   solarSystemBodies,
   galileanMoons,
   isRealSolarSystemMode,
+  isAnnualMotionMode,
+  onToggleAnnualMotion,
+  onStepMonth,
   cities,
   selectedCityId,
   onSelectCity,
@@ -663,6 +671,27 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                     西
                   </button>
                 </div>
+                <div className="option-btn-group two-col" style={{ marginTop: 4 }}>
+                  <button
+                    type="button"
+                    className={`choice-btn tokyo-view-btn ${
+                      isAnnualMotionMode ? "is-active" : ""
+                    }`}
+                    onClick={onToggleAnnualMotion}
+                    aria-pressed={isAnnualMotionMode}
+                    title="毎日21:00 JSTに時刻を固定し、カシオペア座や季節の星座の年周運動（1ヶ月約30°）を観察"
+                  >
+                    年周運動 (21時固定)
+                  </button>
+                  <button
+                    type="button"
+                    className="choice-btn tokyo-view-btn"
+                    onClick={onStepMonth}
+                    title="同じ時刻のまま30日（約1ヶ月）進め、星が約30°動く様子を比較"
+                  >
+                    +1ヶ月 (同刻)
+                  </button>
+                </div>
               </div>
 
               <div className="view-group-block">
@@ -735,7 +764,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 地球：天の北極へゆっくり戻る
               </button>
               <p className="note-box" style={{ fontSize: 11 }}>
-                各視点ボタンでゆっくり連続的に移動します。ドラッグで自由回転・ホイールで拡大縮小もできます。
+                6DOF操作：左ドラッグ＝回転 ／ 右ドラッグ・Shift+ドラッグ・2本指移動＝平行移動 ／ Alt+ドラッグ・Q/E・2本指ひねり＝ロール ／ WASD・R/F＝自由飛行 ／ ホイール・ピンチ＝ズーム
               </p>
             </div>
 
@@ -796,6 +825,32 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
 
         {activeTab === "guide" && (
           <>
+            <div className="guide-card">
+              <h3 className="guide-title">★ 星の「年周運動」とカシオペア座（毎日21時の星空）</h3>
+              <p className="guide-text">
+                地球が1年かけて太陽のまわりを公転しているため、毎日同じ時刻（たとえば夜21時）に空を見上げると、星の位置は<strong>1ヶ月で約30°</strong>ずつズレて見えます。これを<strong>年周運動</strong>と呼びます。
+              </p>
+              <p className="guide-text">
+                東京の北の空ではW字形の<strong>カシオペア座</strong>が北極星を中心に反時計回りに1年で1周し、南の空では季節の星座が東から西へ少しずつ移り変わります。
+              </p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="guide-action-btn"
+                  onClick={() => onRunGuideExperiment("annual-motion-north")}
+                >
+                  北の空：カシオペア座の年周運動
+                </button>
+                <button
+                  type="button"
+                  className="guide-action-btn"
+                  onClick={() => onRunGuideExperiment("annual-motion-south")}
+                >
+                  南の空：季節の星座の年周運動
+                </button>
+              </div>
+            </div>
+
             <div className="guide-card">
               <h3 className="guide-title">★ 地球から見る「黄道」と黄道12星座（13星座）</h3>
               <p className="guide-text">

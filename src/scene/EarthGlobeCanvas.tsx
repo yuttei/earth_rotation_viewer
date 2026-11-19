@@ -27,6 +27,7 @@ import {
   sampleKeplerOrbitPointsAu,
 } from "../astronomy/solarSystem";
 import {
+  CASSIOPEIA_CONSTELLATION,
   ECLIPTIC_CARDINAL_POINTS,
   ZODIAC_CONSTELLATIONS,
   ZodiacConstellationId,
@@ -37,6 +38,7 @@ import { createEarthTextures, EarthTextures } from "./earthTexture";
 import { createMoonTexture } from "./moonTexture";
 import { createVenusTexture } from "./venusTexture";
 import { createSolarPlanetTextures } from "./planetTextures";
+import { createZodiacArtTextures } from "./zodiacArt";
 import {
   createAtmosphereMaterial,
   createEarthMaterial,
@@ -119,6 +121,10 @@ interface EarthGlobeCanvasProps {
 interface CameraSnapshot {
   yaw: number;
   pitch: number;
+  roll: number;
+  panX: number;
+  panY: number;
+  panZ: number;
   distance: number;
   eclipticBlend: number;
   sunCenterBlend: number;
@@ -172,6 +178,7 @@ const TOKYO_COMPASS_POINTS: Array<{
 
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
 
 /**
  * 動き始めと着地が滑らかな 3 次イージング関数（Ease-In-Out Cubic）です。
@@ -403,6 +410,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   const moonBadgeRef = useRef<HTMLSpanElement | null>(null);
   const venusBadgeRef = useRef<HTMLSpanElement | null>(null);
   const polarisBadgeRef = useRef<HTMLSpanElement | null>(null);
+  const cassiopeiaBadgeRef = useRef<HTMLSpanElement | null>(null);
   const equinoxBadgeRef = useRef<HTMLSpanElement | null>(null);
 
   const latestPropsRef = useRef({
@@ -442,6 +450,10 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     current: {
       yaw: cameraPoseTarget.yaw,
       pitch: cameraPoseTarget.pitch,
+      roll: 0,
+      panX: 0,
+      panY: 0,
+      panZ: 0,
       distance: cameraPoseTarget.distance,
       eclipticBlend: cameraPoseTarget.eclipticBlend,
       sunCenterBlend: cameraPoseTarget.sunCenterBlend,
@@ -463,6 +475,10 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     from: {
       yaw: cameraPoseTarget.yaw,
       pitch: cameraPoseTarget.pitch,
+      roll: 0,
+      panX: 0,
+      panY: 0,
+      panZ: 0,
       distance: cameraPoseTarget.distance,
       eclipticBlend: cameraPoseTarget.eclipticBlend,
       sunCenterBlend: cameraPoseTarget.sunCenterBlend,
@@ -832,15 +848,74 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     zodiacDisposableGeos.push(zodiacStarsGeo);
     zodiacDisposableMats.push(zodiacStarsMat);
 
-    // 太陽の真上視点用：外周の黄道13星座リングと「地球 → 太陽 → 今の星座」視線ガイド
-    const sunOverheadZodiacRing = createHorizontalRing(21.8, 0x94a3b8, 0.28, 128);
+    // 太陽の真上・公転面（やや上）視点用：外周の黄道13星座リング＋星座イラストメダリオン＋「地球 → 太陽 → 今の星座」視線ガイド
+    const zodiacArtBundle = createZodiacArtTextures();
+    const sunOverheadZodiacRing = createHorizontalRing(21.4, 0x94a3b8, 0.3, 128);
     scene.add(sunOverheadZodiacRing);
     zodiacDisposableGeos.push(sunOverheadZodiacRing.geometry);
     zodiacDisposableMats.push(sunOverheadZodiacRing.material as THREE.Material);
 
+    const sunOverheadZodiacArtGroup = new THREE.Group();
+    scene.add(sunOverheadZodiacArtGroup);
+    const sunOverheadZodiacArtMap = new Map<
+      ZodiacConstellationId,
+      { sprite: THREE.Sprite; mat: THREE.SpriteMaterial }
+    >();
+
+    const zodiacSkyArtGroup = new THREE.Group();
+    zodiacGroup.add(zodiacSkyArtGroup);
+    const zodiacSkyArtMap = new Map<
+      ZodiacConstellationId,
+      { sprite: THREE.Sprite; mat: THREE.SpriteMaterial }
+    >();
+
+    for (const c of ZODIAC_CONSTELLATIONS) {
+      const tex = zodiacArtBundle.textures.get(c.id);
+      if (!tex) continue;
+
+      // 太陽と地球の公転ビュー（太陽の真上・公転面やや上）の外周メダリオン（半径 24.8）
+      const [ox, , oz] = eclipticToWorldUnitVector(c.labelLonDeg, 0);
+      const orbitMat = new THREE.SpriteMaterial({
+        map: tex,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+      });
+      const orbitSprite = new THREE.Sprite(orbitMat);
+      orbitSprite.position.set(ox * 24.8, 0.3, oz * 24.8);
+      orbitSprite.scale.set(5.4, 5.4, 1);
+      orbitSprite.renderOrder = 4;
+      sunOverheadZodiacArtGroup.add(orbitSprite);
+      sunOverheadZodiacArtMap.set(c.id, { sprite: orbitSprite, mat: orbitMat });
+      zodiacDisposableMats.push(orbitMat);
+
+      // 地球から見る黄道ビューの天球背景イラスト（星図の背後に淡く配置）
+      const [sx, sy, sz] = eclipticToWorldUnitVector(
+        c.labelLonDeg,
+        c.labelLatDeg * 0.45
+      );
+      const skyMat = new THREE.SpriteMaterial({
+        map: tex,
+        transparent: true,
+        opacity: 0.24,
+        depthWrite: false,
+      });
+      const skySprite = new THREE.Sprite(skyMat);
+      skySprite.position.set(
+        sx * (ZODIAC_RADIUS + 2),
+        sy * (ZODIAC_RADIUS + 2),
+        sz * (ZODIAC_RADIUS + 2)
+      );
+      skySprite.scale.set(22, 22, 1);
+      skySprite.renderOrder = 0;
+      zodiacSkyArtGroup.add(skySprite);
+      zodiacSkyArtMap.set(c.id, { sprite: skySprite, mat: skyMat });
+      zodiacDisposableMats.push(skyMat);
+    }
+
     const earthSunZodiacSightGeo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 0.06, 0),
-      new THREE.Vector3(21.8, 0.06, 0),
+      new THREE.Vector3(21.4, 0.06, 0),
     ]);
     const earthSunZodiacSightMat = new THREE.LineDashedMaterial({
       color: 0xfbbf24,
@@ -856,6 +931,79 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     scene.add(earthSunZodiacSightLine);
     zodiacDisposableGeos.push(earthSunZodiacSightGeo);
     zodiacDisposableMats.push(earthSunZodiacSightMat);
+
+    // 2.6 東京の北の空で見える周極星座「カシオペア座」（W字形・J2000.0 実座標）
+    const cassiopeiaGroup = new THREE.Group();
+    scene.add(cassiopeiaGroup);
+    const cassiopeiaStarVecs: THREE.Vector3[] = [];
+    const cassiopeiaStarCoords: number[] = [];
+    const cassiopeiaStarCols: number[] = [];
+    for (const st of CASSIOPEIA_CONSTELLATION.stars) {
+      const [ux, uy, uz] = eclipticToWorldUnitVector(st.lonDeg, st.latDeg);
+      const v = new THREE.Vector3(
+        ux * ZODIAC_RADIUS,
+        uy * ZODIAC_RADIUS,
+        uz * ZODIAC_RADIUS
+      );
+      cassiopeiaStarVecs.push(v);
+      cassiopeiaStarCoords.push(v.x, v.y, v.z);
+      cassiopeiaStarCols.push(0.92, 0.97, 1.0);
+    }
+    const cassiopeiaEdgePts: THREE.Vector3[] = [];
+    for (const [a, b] of CASSIOPEIA_CONSTELLATION.edges) {
+      if (cassiopeiaStarVecs[a] && cassiopeiaStarVecs[b]) {
+        cassiopeiaEdgePts.push(cassiopeiaStarVecs[a], cassiopeiaStarVecs[b]);
+      }
+    }
+    const cassiopeiaLineGeo = new THREE.BufferGeometry().setFromPoints(
+      cassiopeiaEdgePts
+    );
+    const cassiopeiaLineMat = new THREE.LineBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.9,
+    });
+    const cassiopeiaLines = new THREE.LineSegments(
+      cassiopeiaLineGeo,
+      cassiopeiaLineMat
+    );
+    cassiopeiaLines.renderOrder = 2;
+    cassiopeiaGroup.add(cassiopeiaLines);
+    zodiacDisposableGeos.push(cassiopeiaLineGeo);
+    zodiacDisposableMats.push(cassiopeiaLineMat);
+
+    const cassiopeiaStarsGeo = new THREE.BufferGeometry();
+    cassiopeiaStarsGeo.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(cassiopeiaStarCoords, 3)
+    );
+    cassiopeiaStarsGeo.setAttribute(
+      "color",
+      new THREE.Float32BufferAttribute(cassiopeiaStarCols, 3)
+    );
+    const cassiopeiaStarsMat = new THREE.PointsMaterial({
+      size: 4.8,
+      map: starTexture,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.98,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const cassiopeiaStarsPoints = new THREE.Points(
+      cassiopeiaStarsGeo,
+      cassiopeiaStarsMat
+    );
+    cassiopeiaStarsPoints.renderOrder = 2;
+    cassiopeiaGroup.add(cassiopeiaStarsPoints);
+    zodiacDisposableGeos.push(cassiopeiaStarsGeo);
+    zodiacDisposableMats.push(cassiopeiaStarsMat);
+
+    const [clx, cly, clz] = eclipticToWorldUnitVector(
+      CASSIOPEIA_CONSTELLATION.labelPoint.lonDeg,
+      CASSIOPEIA_CONSTELLATION.labelPoint.latDeg
+    );
+    const cassiopeiaLabelUnitDir = new THREE.Vector3(clx, cly, clz).normalize();
 
     // 東京の地上視点で見上げる大気スカイドーム（星 115〜210 の手前・太陽 75 と月 55 の奥に配置）
     const tokyoSkyMesh = new THREE.Mesh(
@@ -1752,21 +1900,69 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       compassAnchorMap.set(cp.id, anchor);
     }
 
-    // 8. マウス・タッチドラッグおよびピンチ/ホイールズーム操作
-    const activePointers = new Map<number, { x: number; y: number }>();
+    // 8. 6DOF マウス・タッチ・キーボード操作（回転3軸：Yaw/Pitch/Roll ＋ 平行移動3軸：Pan X/Y・前後Z）
+    const activePointers = new Map<
+      number,
+      { x: number; y: number; button: number }
+    >();
     let lastPinchDist: number | null = null;
+    let lastTwoFingerMid: { x: number; y: number } | null = null;
+    let lastTwoFingerAngle: number | null = null;
     let groundFovOffset = 0;
     let eclipticFovOffset = 0;
+    const pressedKeys = new Set<string>();
+    const camRightVec = new THREE.Vector3();
+    const camUpVec = new THREE.Vector3();
+    const camForwardVec = new THREE.Vector3();
+    const panStepVec = new THREE.Vector3();
 
-    const getPinchDistance = (): number | null => {
+    const getTwoFingerMetrics = (): {
+      dist: number;
+      midX: number;
+      midY: number;
+      angle: number;
+    } | null => {
       if (activePointers.size < 2) return null;
       const pts = Array.from(activePointers.values());
-      return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      const dx = pts[1].x - pts[0].x;
+      const dy = pts[1].y - pts[0].y;
+      return {
+        dist: Math.hypot(dx, dy),
+        midX: (pts[0].x + pts[1].x) * 0.5,
+        midY: (pts[0].y + pts[1].y) * 0.5,
+        angle: Math.atan2(dy, dx),
+      };
+    };
+
+    const applyCameraSpacePan = (screenDx: number, screenDy: number) => {
+      const anim = cameraAnimRef.current;
+      // 現在のカメラ距離に比例した自然な平行移動スピードで左右・上下へ移動します。
+      const panScale = Math.max(0.0025, anim.current.distance * 0.0014);
+      camRightVec.set(1, 0, 0).applyQuaternion(camera.quaternion);
+      camUpVec.set(0, 1, 0).applyQuaternion(camera.quaternion);
+      panStepVec
+        .copy(camRightVec)
+        .multiplyScalar(-screenDx * panScale)
+        .addScaledVector(camUpVec, screenDy * panScale);
+      anim.current.panX += panStepVec.x;
+      anim.current.panY += panStepVec.y;
+      anim.current.panZ += panStepVec.z;
+    };
+
+    const onContextMenu = (ev: MouseEvent) => {
+      ev.preventDefault();
     };
 
     const onPointerDown = (ev: PointerEvent) => {
-      activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-      lastPinchDist = getPinchDistance();
+      activePointers.set(ev.pointerId, {
+        x: ev.clientX,
+        y: ev.clientY,
+        button: ev.button,
+      });
+      const m = getTwoFingerMetrics();
+      lastPinchDist = m ? m.dist : null;
+      lastTwoFingerMid = m ? { x: m.midX, y: m.midY } : null;
+      lastTwoFingerAngle = m ? m.angle : null;
       renderer.domElement.setPointerCapture(ev.pointerId);
     };
 
@@ -1781,38 +1977,90 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
 
       const anim = cameraAnimRef.current;
 
-      // スマホ等での2本指ピンチイン／ピンチアウトで滑らかにズームできるようにします。
+      // 2本指ジェスチャー：ピンチ（前後ズーム）＋ 2本指平行移動（Pan X/Y）＋ 2本指ひねり（Roll）の同時 6DOF 操作
       if (activePointers.size >= 2) {
-        const curPinchDist = getPinchDistance();
-        if (curPinchDist !== null && lastPinchDist !== null && lastPinchDist > 4) {
-          const ratio = lastPinchDist / Math.max(4, curPinchDist);
-          if (anim.current.eclipticViewBlend > 0.5) {
-            eclipticFovOffset = Math.max(
-              -30,
-              Math.min(28, eclipticFovOffset + (ratio - 1) * 45)
-            );
-          } else if (anim.current.groundBlend > 0.5) {
-            groundFovOffset = Math.max(
-              -36,
-              Math.min(12, groundFovOffset + (ratio - 1) * 45)
-            );
-          } else {
-            const maxZoomDist = anim.current.solarSystemBlend > 0.25 ? 2400 : 95;
-            const nextDist = Math.max(
-              1.85,
-              Math.min(maxZoomDist, anim.current.distance * ratio)
-            );
-            anim.current.distance = nextDist;
-            anim.to.distance = nextDist;
-            anim.from.distance = nextDist;
+        const m = getTwoFingerMetrics();
+        if (m) {
+          onCameraUserDrag();
+          anim.active = false;
+          // 1) ピンチズーム（前後Z / FOV）
+          if (lastPinchDist !== null && lastPinchDist > 4) {
+            const ratio = lastPinchDist / Math.max(4, m.dist);
+            if (anim.current.eclipticViewBlend > 0.5) {
+              eclipticFovOffset = Math.max(
+                -30,
+                Math.min(28, eclipticFovOffset + (ratio - 1) * 45)
+              );
+            } else if (anim.current.groundBlend > 0.5) {
+              groundFovOffset = Math.max(
+                -36,
+                Math.min(12, groundFovOffset + (ratio - 1) * 45)
+              );
+            } else {
+              const maxZoomDist =
+                anim.current.solarSystemBlend > 0.25 ? 2400 : 120;
+              const nextDist = Math.max(
+                1.5,
+                Math.min(maxZoomDist, anim.current.distance * ratio)
+              );
+              anim.current.distance = nextDist;
+              anim.to.distance = nextDist;
+              anim.from.distance = nextDist;
+            }
           }
+          // 2) 2本指平行移動（宇宙空間での X/Y パン）
+          if (
+            lastTwoFingerMid !== null &&
+            anim.current.groundBlend < 0.5 &&
+            anim.current.eclipticViewBlend < 0.5
+          ) {
+            applyCameraSpacePan(
+              m.midX - lastTwoFingerMid.x,
+              m.midY - lastTwoFingerMid.y
+            );
+          }
+          // 3) 2本指ひねり（ロール回転）
+          if (lastTwoFingerAngle !== null) {
+            const dAngle = shortestAngleDiff(lastTwoFingerAngle, m.angle);
+            if (Math.abs(dAngle) < 0.45) {
+              anim.current.roll += dAngle;
+            }
+          }
+          anim.from = { ...anim.current };
         }
-        lastPinchDist = curPinchDist;
+        lastPinchDist = m ? m.dist : null;
+        lastTwoFingerMid = m ? { x: m.midX, y: m.midY } : null;
+        lastTwoFingerAngle = m ? m.angle : null;
         return;
       }
 
       onCameraUserDrag();
       anim.active = false;
+
+      // Alt/Option + ドラッグでロール回転（カメラ光軸周りの傾き）
+      if (ev.altKey) {
+        anim.current.roll += dx * 0.0065;
+        anim.from = { ...anim.current };
+        return;
+      }
+
+      // 右ドラッグ・中ボタンドラッグ・Shift+ドラッグで 6DOF 平行移動（Pan X/Y）
+      const isPanGesture =
+        prevPt.button === 2 ||
+        prevPt.button === 1 ||
+        (ev.buttons & 2) !== 0 ||
+        (ev.buttons & 4) !== 0 ||
+        ev.shiftKey;
+      if (
+        isPanGesture &&
+        anim.current.groundBlend < 0.5 &&
+        anim.current.eclipticViewBlend < 0.5
+      ) {
+        applyCameraSpacePan(dx, dy);
+        anim.from = { ...anim.current };
+        return;
+      }
+
       if (anim.current.eclipticViewBlend > 0.5) {
         // 地球中心の黄道・13星座ビューでは、ドラッグで全周360°の黄道帯を自由に見渡せます。
         if (anim.current.eclipticFollowSun > 0.5) {
@@ -1843,7 +2091,10 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
 
     const onPointerUp = (ev: PointerEvent) => {
       activePointers.delete(ev.pointerId);
-      lastPinchDist = getPinchDistance();
+      const m = getTwoFingerMetrics();
+      lastPinchDist = m ? m.dist : null;
+      lastTwoFingerMid = m ? { x: m.midX, y: m.midY } : null;
+      lastTwoFingerAngle = m ? m.angle : null;
       if (renderer.domElement.hasPointerCapture(ev.pointerId)) {
         renderer.domElement.releasePointerCapture(ev.pointerId);
       }
@@ -1867,9 +2118,9 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         );
         return;
       }
-      const maxZoomDist = anim.current.solarSystemBlend > 0.25 ? 2400 : 95;
+      const maxZoomDist = anim.current.solarSystemBlend > 0.25 ? 2400 : 120;
       const nextDist = Math.max(
-        1.85,
+        1.5,
         Math.min(maxZoomDist, anim.current.distance * Math.exp(ev.deltaY * 0.001))
       );
       anim.current.distance = nextDist;
@@ -1877,11 +2128,50 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       anim.from.distance = nextDist;
     };
 
+    const isEditableElement = (target: EventTarget | null): boolean => {
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+    };
+
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.metaKey || ev.ctrlKey || isEditableElement(ev.target)) return;
+      const code = ev.code;
+      if (
+        code === "KeyW" ||
+        code === "KeyA" ||
+        code === "KeyS" ||
+        code === "KeyD" ||
+        code === "KeyQ" ||
+        code === "KeyE" ||
+        code === "KeyR" ||
+        code === "KeyF" ||
+        code === "ArrowUp" ||
+        code === "ArrowDown" ||
+        code === "ArrowLeft" ||
+        code === "ArrowRight"
+      ) {
+        pressedKeys.add(code);
+      }
+    };
+
+    const onKeyUp = (ev: KeyboardEvent) => {
+      pressedKeys.delete(ev.code);
+    };
+
+    const onWindowBlur = () => {
+      pressedKeys.clear();
+    };
+
+    renderer.domElement.addEventListener("contextmenu", onContextMenu);
     renderer.domElement.addEventListener("pointerdown", onPointerDown);
     renderer.domElement.addEventListener("pointermove", onPointerMove);
     renderer.domElement.addEventListener("pointerup", onPointerUp);
     renderer.domElement.addEventListener("pointercancel", onPointerUp);
     renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onWindowBlur);
 
     const onResize = () => {
       if (!host) return;
@@ -1946,6 +2236,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     const groundLookMat = new THREE.Matrix4();
     const spaceCamQuat = new THREE.Quaternion();
     const groundCamQuat = new THREE.Quaternion();
+    const rollQuat = new THREE.Quaternion();
     let lastMoonBadgeText = "";
 
     const renderFrame = (now: number) => {
@@ -1992,6 +2283,11 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           anim.from.yaw + shortestAngleDiff(anim.from.yaw, anim.to.yaw) * ease;
         anim.current.pitch =
           anim.from.pitch + (anim.to.pitch - anim.from.pitch) * ease;
+        anim.current.roll =
+          anim.from.roll + shortestAngleDiff(anim.from.roll, 0) * ease;
+        anim.current.panX = anim.from.panX * (1 - ease);
+        anim.current.panY = anim.from.panY * (1 - ease);
+        anim.current.panZ = anim.from.panZ * (1 - ease);
         anim.current.distance = Math.exp(
           Math.log(anim.from.distance) +
             (Math.log(anim.to.distance) - Math.log(anim.from.distance)) * ease
@@ -2061,6 +2357,90 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       const s = THREE.MathUtils.clamp(curPose.solarSystemBlend, 0, 1);
       const jFocus = THREE.MathUtils.clamp(curPose.jupiterFocusBlend, 0, 1);
       const eBlend = THREE.MathUtils.clamp(curPose.eclipticViewBlend, 0, 1);
+
+      // 6DOF キーボード連続移動（W/S: 前後, A/D: 左右, R/F: 上下, Q/E: ロール, 矢印: 回転）
+      if (pressedKeys.size > 0) {
+        onCameraUserDrag();
+        anim.active = false;
+        const rotSpeed = 1.15 * dt;
+        const moveSpeed = Math.max(1.2, curPose.distance * 0.55) * dt;
+
+        if (pressedKeys.has("KeyQ")) curPose.roll -= rotSpeed;
+        if (pressedKeys.has("KeyE")) curPose.roll += rotSpeed;
+
+        const yawKey =
+          (pressedKeys.has("ArrowRight") ? 1 : 0) -
+          (pressedKeys.has("ArrowLeft") ? 1 : 0);
+        const pitchKey =
+          (pressedKeys.has("ArrowUp") ? 1 : 0) -
+          (pressedKeys.has("ArrowDown") ? 1 : 0);
+
+        if (eBlend > 0.5) {
+          if (curPose.eclipticFollowSun > 0.5) {
+            curPose.eclipticYawOffset -= yawKey * rotSpeed;
+          } else {
+            curPose.eclipticFixedLon -= yawKey * rotSpeed;
+          }
+          curPose.eclipticViewLatRad = Math.max(
+            degToRad(-68),
+            Math.min(degToRad(68), curPose.eclipticViewLatRad + pitchKey * rotSpeed)
+          );
+          if (pressedKeys.has("KeyW")) {
+            eclipticFovOffset = Math.max(-30, eclipticFovOffset - 32 * dt);
+          }
+          if (pressedKeys.has("KeyS")) {
+            eclipticFovOffset = Math.min(28, eclipticFovOffset + 32 * dt);
+          }
+        } else if (g > 0.5) {
+          curPose.groundAzimuth += yawKey * rotSpeed;
+          curPose.groundElevation = Math.max(
+            degToRad(-2),
+            Math.min(degToRad(84), curPose.groundElevation + pitchKey * rotSpeed)
+          );
+          if (pressedKeys.has("KeyW")) {
+            groundFovOffset = Math.max(-36, groundFovOffset - 32 * dt);
+          }
+          if (pressedKeys.has("KeyS")) {
+            groundFovOffset = Math.min(12, groundFovOffset + 32 * dt);
+          }
+        } else {
+          curPose.yaw += yawKey * rotSpeed;
+          curPose.pitch = Math.max(
+            -Math.PI / 2 + 0.02,
+            Math.min(Math.PI / 2, curPose.pitch + pitchKey * rotSpeed)
+          );
+
+          camRightVec.set(1, 0, 0).applyQuaternion(camera.quaternion);
+          camUpVec.set(0, 1, 0).applyQuaternion(camera.quaternion);
+          camForwardVec.set(0, 0, -1).applyQuaternion(camera.quaternion);
+
+          const strafe =
+            (pressedKeys.has("KeyD") ? 1 : 0) - (pressedKeys.has("KeyA") ? 1 : 0);
+          const climb =
+            (pressedKeys.has("KeyR") ? 1 : 0) - (pressedKeys.has("KeyF") ? 1 : 0);
+          const thrust =
+            (pressedKeys.has("KeyW") ? 1 : 0) - (pressedKeys.has("KeyS") ? 1 : 0);
+
+          if (strafe !== 0 || climb !== 0 || thrust !== 0) {
+            curPose.panX +=
+              (camRightVec.x * strafe +
+                camUpVec.x * climb +
+                camForwardVec.x * thrust) *
+              moveSpeed;
+            curPose.panY +=
+              (camRightVec.y * strafe +
+                camUpVec.y * climb +
+                camForwardVec.y * thrust) *
+              moveSpeed;
+            curPose.panZ +=
+              (camRightVec.z * strafe +
+                camUpVec.z * climb +
+                camForwardVec.z * thrust) *
+              moveSpeed;
+          }
+        }
+        anim.from = { ...curPose };
+      }
 
       // 宇宙視点へ戻るときは地上用・黄道ビュー用の FOV ズームオフセットを滑らかにリセットします。
       if (g < 0.05 && Math.abs(groundFovOffset) > 0.01) {
@@ -2280,26 +2660,31 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       }
       realSolarSystemGroup.updateMatrixWorld(true);
 
-      // 遠方星空と黄道13星座天球の位置を更新します（地球中心ビュー・地上視点では視差ゼロの地球中心へ配置）。
+      // 遠方星空・黄道13星座天球・カシオペア座の位置を更新します（地球中心ビュー・地上視点では視差ゼロの地球中心へ配置）。
       const starExpansion = 1.0 + 21.0 * s;
       starsGroup.scale.setScalar(starExpansion);
       starMat.size = 1.55 * (1.0 + 20.0 * s);
       if (eBlend >= g) {
         starsGroup.position.copy(earthOrbitPos).multiplyScalar(eBlend);
         zodiacGroup.position.copy(earthOrbitPos).multiplyScalar(eBlend);
+        cassiopeiaGroup.position.copy(earthOrbitPos).multiplyScalar(eBlend);
       } else {
         starsGroup.position.copy(tokyoEyeWorldPos).multiplyScalar(g);
         zodiacGroup.position.copy(tokyoEyeWorldPos).multiplyScalar(g);
+        cassiopeiaGroup.position.copy(tokyoEyeWorldPos).multiplyScalar(g);
       }
       tokyoSkyMesh.position.copy(tokyoEyeWorldPos);
 
-      // 宇宙視点カメラの注視点（地球 ↔ 太陽 ↔ 木星）と位置・姿勢を計算
+      // 宇宙視点カメラの注視点（地球 ↔ 太陽 ↔ 木星）＋ 6DOF 平行移動オフセットを計算
       lookAtPos
         .copy(earthOrbitPos)
         .multiplyScalar(1 - curPose.sunCenterBlend);
       if (jFocus > 0.001) {
         lookAtPos.lerp(jupiterWorldPos, jFocus);
       }
+      lookAtPos.x += curPose.panX;
+      lookAtPos.y += curPose.panY;
+      lookAtPos.z += curPose.panZ;
 
       tmpUpAxis
         .copy(celestialNorthWorld)
@@ -2415,6 +2800,11 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         .copy(spaceCamQuat)
         .slerp(groundCamQuat, g)
         .slerp(eclipticCamQuat, eBlend);
+      // 6DOF ロール回転（光軸 Z 周り）を適用します。
+      if (Math.abs(curPose.roll) > 1e-4) {
+        rollQuat.setFromAxisAngle(Z_AXIS, curPose.roll);
+        camera.quaternion.multiply(rollQuat);
+      }
       camera.up.set(0, 1, 0).applyQuaternion(camera.quaternion);
       camForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
 
@@ -2596,12 +2986,36 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           }
           trailAttr.needsUpdate = true;
         }
+
+        // 黄道ビューの天球背景イラストを現在通過中の星座だけ少し明るくします。
+        zodiacSkyArtGroup.visible = eBlend > 0.25;
+        if (zodiacSkyArtGroup.visible) {
+          for (const [zId, art] of zodiacSkyArtMap.entries()) {
+            const isHost = zId === activeSunZodiac.id;
+            art.mat.opacity = (isHost ? 0.42 : 0.2) * eBlend;
+            const sSize = isHost ? 25 : 21;
+            art.sprite.scale.set(sSize, sSize, 1);
+          }
+        }
+      } else {
+        zodiacSkyArtGroup.visible = false;
       }
 
-      // 簡易版「太陽の真上」視点のとき、外周の黄道13星座リングと「地球 → 太陽 → 星座」視線ガイドを表示します。
+      // 東京の地上視点で見えるカシオペア座（W字形・夜空でくっきり表示、昼間も淡く星図確認可能）
+      const cassiopeiaNightFactor = isGroundView
+        ? THREE.MathUtils.clamp((-tokyoSunElev + 0.14) * 3.2, 0.12, 1.0)
+        : 0;
+      cassiopeiaGroup.visible = isGroundView && curLayers.starsAndEquinox;
+      if (cassiopeiaGroup.visible) {
+        cassiopeiaLineMat.opacity = 0.88 * cassiopeiaNightFactor;
+        cassiopeiaStarsMat.opacity = 0.98 * cassiopeiaNightFactor;
+      }
+
+      // 簡易版「太陽の真上・公転面やや上」視点のとき、外周の黄道13星座イラストメダリオンと「地球 → 太陽 → 星座」視線ガイドを表示します。
       const showSunOverheadZodiac =
         isSimpleOrbitOverview && curLayers.zodiacConstellations;
       sunOverheadZodiacRing.visible = showSunOverheadZodiac;
+      sunOverheadZodiacArtGroup.visible = showSunOverheadZodiac;
       earthSunZodiacSightLine.visible = showSunOverheadZodiac;
       if (showSunOverheadZodiac) {
         const sightAttr = earthSunZodiacSightGeo.getAttribute(
@@ -2610,12 +3024,19 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         sightAttr.setXYZ(0, earthOrbitPos.x, 0.06, earthOrbitPos.z);
         sightAttr.setXYZ(
           1,
-          sunDirWorld.x * 21.8,
+          sunDirWorld.x * 21.4,
           0.06,
-          sunDirWorld.z * 21.8
+          sunDirWorld.z * 21.4
         );
         sightAttr.needsUpdate = true;
         earthSunZodiacSightLine.computeLineDistances();
+
+        for (const [zId, art] of sunOverheadZodiacArtMap.entries()) {
+          const isHost = zId === activeSunZodiac.id;
+          art.mat.opacity = isHost ? 1.0 : 0.82;
+          const sz = isHost ? 6.6 : 5.2;
+          art.sprite.scale.set(sz, sz, 1);
+        }
       }
 
       // 簡易版「太陽の真上」視点のとき、月と金星に地球と平行な補助線を表示します。
@@ -3041,13 +3462,36 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         }
       }
 
-      // 黄道13星座（黄道12星座＋へびつかい座）ラベルを更新（地球から黄道ビュー＆太陽の真上リング）
+      // 東京地上視点時のカシオペア座（W字形）ラベル
+      tmpWorldPos
+        .copy(cassiopeiaGroup.position)
+        .addScaledVector(cassiopeiaLabelUnitDir, ZODIAC_RADIUS);
+      const casInFront = cassiopeiaLabelUnitDir.dot(camForward) > 0.16;
+      const casAboveHorizon = cassiopeiaLabelUnitDir.dot(tokyoUpWorld) > 0.02;
+      updateFloatingBadgeAtPosition(
+        cassiopeiaBadgeRef.current,
+        tmpWorldPos,
+        camera,
+        hostW,
+        hostH,
+        isGroundView &&
+          curLayers.starsAndEquinox &&
+          casInFront &&
+          casAboveHorizon,
+        curInspectorOpen,
+        false
+      );
+
+      // 黄道13星座（黄道12星座＋へびつかい座）ラベルを更新（地球から黄道ビュー＆東京の夜空・年周運動観察）
+      // ※ 太陽の真上・公転面やや上では外周にイラストメダリオン（星座名入り）を配置するためテキストバッジは重ねません。
+      const showGroundNightZodiacBadges =
+        isGroundView && curLayers.zodiacConstellations && tokyoSunElev < 0.04;
       for (const c of ZODIAC_CONSTELLATIONS) {
         const el = zodiacBadgeRefs.current.get(c.id) ?? null;
         const entry = zodiacConstellationEntries.get(c.id);
         if (!el || !entry) continue;
 
-        const isHost = c.id === activeSunZodiac.id;
+        const isHost = c.id === activeSunZodiac.id && !isGroundView;
         el.classList.toggle("is-sun-host", isHost);
 
         if (isEclipticSkyView && curLayers.zodiacConstellations) {
@@ -3065,17 +3509,19 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
             curInspectorOpen,
             false
           );
-        } else if (showSunOverheadZodiac) {
-          const [ux, , uz] = eclipticToWorldUnitVector(c.labelLonDeg, 0);
-          tmpWorldPos.set(ux * 22.8, 0.2, uz * 22.8);
-          tmpToCam.copy(tmpWorldPos).sub(camera.position).normalize();
+        } else if (showGroundNightZodiacBadges) {
+          tmpWorldPos
+            .copy(zodiacGroup.position)
+            .addScaledVector(entry.labelUnitDir, ZODIAC_RADIUS);
+          const inFront = entry.labelUnitDir.dot(camForward) > 0.18;
+          const aboveHorizon = entry.labelUnitDir.dot(tokyoUpWorld) > 0.04;
           updateFloatingBadgeAtPosition(
             el,
             tmpWorldPos,
             camera,
             hostW,
             hostH,
-            tmpToCam.dot(camForward) > 0.1,
+            inFront && aboveHorizon,
             curInspectorOpen,
             false
           );
@@ -3117,15 +3563,20 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     return () => {
       cancelAnimationFrame(animFrameId);
       resizeObserver.disconnect();
+      renderer.domElement.removeEventListener("contextmenu", onContextMenu);
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
       renderer.domElement.removeEventListener("pointermove", onPointerMove);
       renderer.domElement.removeEventListener("pointerup", onPointerUp);
       renderer.domElement.removeEventListener("pointercancel", onPointerUp);
       renderer.domElement.removeEventListener("wheel", onWheel);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onWindowBlur);
       textures.dispose();
       moonTexture.dispose();
       venusTexture.dispose();
       planetTextures.dispose();
+      zodiacArtBundle.dispose();
       starTexture.dispose();
       earthBundle.material.dispose();
       atmosphereBundle.material.dispose();
@@ -3265,6 +3716,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           style={{ display: "none" }}
         >
           ★ 北極星 (高度 35.7°)
+        </span>
+
+        <span
+          ref={cassiopeiaBadgeRef}
+          className="space-badge is-polaris"
+          style={{ display: "none" }}
+        >
+          ★ カシオペア座 (W字)
         </span>
 
         <span

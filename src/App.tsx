@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OBSERVATION_CITIES } from "./data/cities";
 import {
+  applyAnnualFixedHourLock,
   calculateMoonState,
   calculateSolarSystemState,
   calculateVenusState,
   degToRad,
   getNextSeasonDate,
   SeasonPreset,
+  snapDateToJstHour,
+  SOLAR_DAY_SECONDS,
 } from "./astronomy/calculations";
 import {
   calculateFullSolarSystemState,
@@ -117,7 +120,7 @@ const PRESET_POSES: Record<
   sunOverhead: {
     yaw: 0,
     pitch: Math.PI / 2,
-    distance: 56.0,
+    distance: 78.0,
     eclipticBlend: 1,
     sunCenterBlend: 1,
     groundBlend: 0,
@@ -132,7 +135,7 @@ const PRESET_POSES: Record<
   sunEclipticOblique: {
     yaw: 0,
     pitch: degToRad(20),
-    distance: 43.0,
+    distance: 56.0,
     eclipticBlend: 1,
     sunCenterBlend: 1,
     groundBlend: 0,
@@ -341,6 +344,9 @@ export function App() {
       : true
   );
   const [layers, setLayers] = useState<DisplayLayers>(DEFAULT_LAYERS);
+  const [isAnnualMotionMode, setIsAnnualMotionMode] = useState<boolean>(false);
+  const isAnnualMotionRef = useRef<boolean>(false);
+  isAnnualMotionRef.current = isAnnualMotionMode;
   const [transitioningSeasonId, setTransitioningSeasonId] = useState<
     SeasonPreset["id"] | null
   >(null);
@@ -447,9 +453,17 @@ export function App() {
     return () => cancelAnimationFrame(rafId);
   }, [isPlaying, speedMultiplier, isTimeTransitioning]);
 
-  const solarState = useMemo(
+  const rawSolarState = useMemo(
     () => calculateSolarSystemState(currentDate),
     [currentDate]
+  );
+
+  const solarState = useMemo(
+    () =>
+      isAnnualMotionMode
+        ? applyAnnualFixedHourLock(rawSolarState, currentDate, 21)
+        : rawSolarState,
+    [rawSolarState, currentDate, isAnnualMotionMode]
   );
 
   const moonState = useMemo(
@@ -480,7 +494,36 @@ export function App() {
     [applyNewDate]
   );
 
+  const handleStepMonth = useCallback(() => {
+    const next = new Date(
+      simTimeMsRef.current + 30 * SOLAR_DAY_SECONDS * 1000
+    );
+    applyNewDate(next);
+  }, [applyNewDate]);
+
+  const handleToggleAnnualMotion = useCallback(() => {
+    setIsAnnualMotionMode((prev) => {
+      const nextOn = !prev;
+      if (nextOn) {
+        // 毎日 21:00 JST へ揃えて、公転による星・カシオペア座・黄道星座の年周運動を滑らかに観察します。
+        const snapped = snapDateToJstHour(new Date(simTimeMsRef.current), 21);
+        applyNewDate(snapped);
+        setLayers((l) => ({
+          ...l,
+          starsAndEquinox: true,
+          zodiacConstellations: true,
+        }));
+        setSpeedMultiplier((sp) => (sp < 86400 ? 864000 : sp));
+        setIsPlaying(true);
+      } else {
+        setSpeedMultiplier((sp) => (sp >= 86400 ? 1800 : sp));
+      }
+      return nextOn;
+    });
+  }, [applyNewDate]);
+
   const handleResetToNow = useCallback(() => {
+    setIsAnnualMotionMode(false);
     applyNewDate(new Date());
   }, [applyNewDate]);
 
@@ -494,6 +537,8 @@ export function App() {
       if (isTargetGround) {
         // 東京の地上視点へ移動したら、右パネルの観測情報も自動で「東京」に合わせます。
         setSelectedCityId("tokyo");
+      } else {
+        setIsAnnualMotionMode(false);
       }
 
       const isTargetEclipticView =
@@ -587,6 +632,9 @@ export function App() {
             prev < 86400 || prev > 2592000 ? 86400 : prev
           );
           setIsPlaying(true);
+        } else if (isTargetGround && isAnnualMotionRef.current) {
+          // 年周運動モード中は東京の東西南北を切り替えても 10日/s〜30日/s を維持します。
+          setSpeedMultiplier((prev) => (prev < 86400 ? 864000 : prev));
         } else {
           setSpeedMultiplier((prev) => (prev >= 86400 ? 1800 : prev));
         }
@@ -677,6 +725,37 @@ export function App() {
   const handleRunGuideExperiment = useCallback(
     (id: GuideExperimentId) => {
       switch (id) {
+        case "annual-motion-north":
+          handleSelectCameraPreset("tokyoNorth", false);
+          setSelectedCityId("tokyo");
+          applyNewDate(snapDateToJstHour(new Date(simTimeMsRef.current), 21));
+          setIsAnnualMotionMode(true);
+          setLayers((prev) => ({
+            ...prev,
+            graticule: true,
+            starsAndEquinox: true,
+            zodiacConstellations: true,
+          }));
+          setSpeedMultiplier(864000);
+          setIsPlaying(true);
+          break;
+
+        case "annual-motion-south":
+          handleSelectCameraPreset("tokyoSouth", false);
+          setSelectedCityId("tokyo");
+          applyNewDate(snapDateToJstHour(new Date(simTimeMsRef.current), 21));
+          setIsAnnualMotionMode(true);
+          setLayers((prev) => ({
+            ...prev,
+            graticule: true,
+            starsAndEquinox: true,
+            zodiacConstellations: true,
+            moonAndOrbit: true,
+          }));
+          setSpeedMultiplier(864000);
+          setIsPlaying(true);
+          break;
+
         case "zodiac-ecliptic-follow":
           handleSelectCameraPreset("earthEclipticFollow", false);
           setLayers((prev) => ({
@@ -894,6 +973,9 @@ export function App() {
             solarSystemBodies={solarSystemBodies}
             galileanMoons={galileanMoons}
             isRealSolarSystemMode={isRealSolarSystemMode}
+            isAnnualMotionMode={isAnnualMotionMode}
+            onToggleAnnualMotion={handleToggleAnnualMotion}
+            onStepMonth={handleStepMonth}
             cities={OBSERVATION_CITIES}
             selectedCityId={selectedCityId}
             onSelectCity={setSelectedCityId}
@@ -921,6 +1003,8 @@ export function App() {
           transitioningSeasonId={transitioningSeasonId}
           onStepSeconds={handleStepSeconds}
           onResetToNow={handleResetToNow}
+          isAnnualMotionMode={isAnnualMotionMode}
+          onToggleAnnualMotion={handleToggleAnnualMotion}
         />
       </div>
     </div>

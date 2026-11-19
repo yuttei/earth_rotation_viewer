@@ -151,6 +151,8 @@ interface EarthGlobeCanvasProps {
   restoreImpactSeq: number;
   /** 衝突シミュレーターの状態（飛行中・爆発中・復活中など）が変わったときの通知 */
   onImpactStatusChange?: (status: ImpactStatus) => void;
+  /** 衝突シミュレーターで天体を置いた（発射した）ときの通知（実績の判定に使います） */
+  onImpactorLaunched?: (impactorId: ImpactorId) => void;
 }
 
 /**
@@ -459,6 +461,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   activeImpactorId,
   restoreImpactSeq,
   onImpactStatusChange,
+  onImpactorLaunched,
 }) => {
   const hostRef = useRef<HTMLDivElement | null>(null);
   // 衝突の瞬間に画面全体を光らせるフラッシュ用の要素（React の再描画なしで直接 style を更新します）
@@ -510,6 +513,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     onSelectCelestialBody,
     activeImpactorId,
     onImpactStatusChange,
+    onImpactorLaunched,
   });
   latestPropsRef.current = {
     solarState,
@@ -525,6 +529,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     onSelectCelestialBody,
     activeImpactorId,
     onImpactStatusChange,
+    onImpactorLaunched,
   };
 
   // 「すぐ復活」ボタンが押されたら、置いた天体をすべて消し、太陽系の全天体をぬるっと元通りにする演出を始めます。
@@ -3063,6 +3068,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           launchVel,
           solarBaselineList
         );
+        latestPropsRef.current.onImpactorLaunched?.(curImpactorId);
         return;
       }
       // 発射モード中は、左クリックのタップで天体の詳細カードを開かないようにします。

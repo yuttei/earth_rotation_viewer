@@ -73,16 +73,51 @@ describe("実績機能 (achievements)", () => {
     const staleTabA = createEmptyAchievementState();
 
     // タブB で「地上に降り立つ」を達成して保存
-    recordAchievementEventWithStorage(storage, createEmptyAchievementState(), { type: "unlock", id: "ground-sky" }, NOW);
+    recordAchievementEventWithStorage(storage, createEmptyAchievementState(), { type: "unlock", id: "ground-sky" }, NOW, true);
 
     // 古い状態のタブA で別の実績を達成しても、タブB の記録が残る
-    const tabA = recordAchievementEventWithStorage(storage, staleTabA, { type: "unlock", id: "annual-motion" }, LATER);
+    const tabA = recordAchievementEventWithStorage(storage, staleTabA, { type: "unlock", id: "annual-motion" }, LATER, true);
     expect(Object.keys(loadAchievementState(storage).unlocked).sort()).toEqual(["annual-motion", "ground-sky"]);
 
     // タブB で「記録を消す」をしたあと、古い状態のタブA が操作しても、消した記録は復活しない
     clearAchievementState(storage);
-    recordAchievementEventWithStorage(storage, tabA.state, { type: "unlock", id: "speed-up-time" }, LATER);
+    recordAchievementEventWithStorage(storage, tabA.state, { type: "unlock", id: "speed-up-time" }, LATER, true);
     expect(Object.keys(loadAchievementState(storage).unlocked)).toEqual(["speed-up-time"]);
+  });
+
+  it("読めるが書けない保存先でも、このタブで達成した分を失わず、通知も重複せず、消した記録も戻らない", () => {
+    // 古い記録（皆既日食）が残っていて、読めるが書き込み・削除はできない保存先（容量超過など）
+    const oldData = applyAchievementEvent(
+      createEmptyAchievementState(),
+      { type: "unlock", id: "total-solar-eclipse" },
+      NOW
+    ).state;
+    const readOnlyStorage: AchievementStorage = {
+      getItem: () => JSON.stringify(oldData),
+      setItem: () => {
+        throw new Error("QuotaExceededError");
+      },
+      removeItem: () => {
+        throw new Error("QuotaExceededError");
+      },
+    };
+
+    // 1件目：保存に失敗するので、以後は画面の状態を土台にする
+    const first = recordAchievementEventWithStorage(readOnlyStorage, oldData, { type: "unlock", id: "ground-sky" }, NOW, true);
+    expect(first.isStorageInSync).toBe(false);
+    // 2件目：1件目の達成が残り、新しく達成したのは2件目だけ
+    const second = recordAchievementEventWithStorage(readOnlyStorage, first.state, { type: "unlock", id: "annual-motion" }, NOW, first.isStorageInSync);
+    expect(Object.keys(second.state.unlocked).sort()).toEqual(["annual-motion", "ground-sky", "total-solar-eclipse"]);
+    expect(second.newlyUnlocked).toEqual(["annual-motion"]);
+    // 同じ実績をもう一度：通知しない
+    const again = recordAchievementEventWithStorage(readOnlyStorage, second.state, { type: "unlock", id: "ground-sky" }, NOW, second.isStorageInSync);
+    expect(again.newlyUnlocked).toEqual([]);
+
+    // 「記録を消す」が保存データに反映できなかった場合も、空の画面の状態を土台にするので古い記録は戻らない
+    const cleared = clearAchievementState(readOnlyStorage);
+    expect(cleared).toBe(false);
+    const afterReset = recordAchievementEventWithStorage(readOnlyStorage, createEmptyAchievementState(), { type: "unlock", id: "speed-up-time" }, NOW, cleared);
+    expect(Object.keys(afterReset.state.unlocked)).toEqual(["speed-up-time"]);
   });
 
   it("保存した状態を読み込め、壊れた保存データや未知の id は安全に無視する", () => {

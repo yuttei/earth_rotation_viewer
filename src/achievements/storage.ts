@@ -128,26 +128,45 @@ export function clearAchievementState(
   }
 }
 
+/** 記録処理の結果（AchievementUpdateResult に、保存データとの一致状況を加えたもの） */
+export interface AchievementRecordResult extends AchievementUpdateResult {
+  /**
+   * 保存データが、画面の状態と同じ内容になっているか。
+   * false のあいだは保存データを信用せず、次の記録でも画面の状態（このタブで達成した分）を土台にします。
+   */
+  isStorageInSync: boolean;
+}
+
 /**
  * 出来事を1つ記録します（保存データの読み直し → 反映 → 保存）。
  *
  * 同じアプリを複数のタブで開いていると、画面が持っている状態は古い可能性があります。
- * そこで反映の直前に保存データを読み直し、その最新の内容に出来事を加えてから保存します。
- * こうすると、ほかのタブで増えた実績を上書きして消したり、ほかのタブの「記録を消す」を取り消したりしません。
- * localStorage が使えないときだけ、画面が持っている状態（fallbackState）を土台にします。
+ * そこで、保存データが画面の状態と一致している（isStorageInSync が true）あいだは、反映の直前に保存データを読み直し、
+ * その最新の内容に出来事を加えてから保存します。こうすると、ほかのタブで増えた実績を上書きして消したり、
+ * ほかのタブの「記録を消す」を取り消したりしません。
+ *
+ * 一方、保存に失敗した（読めるが書けない：容量超過など）あとは、保存データが古いまま残っています。
+ * これを読み直すと、このタブで達成した分が消えたり、同じ通知が何度も出たりするため、
+ * isStorageInSync が false のあいだは画面の状態（fallbackState）を土台にします。保存に成功したら一致状態に戻ります。
  */
 export function recordAchievementEventWithStorage(
   storage: AchievementStorage | null,
   fallbackState: AchievementState,
   event: AchievementEvent,
-  nowIso: string
-): AchievementUpdateResult {
-  const latest = readStoredAchievementState(storage) ?? fallbackState;
-  const result = applyAchievementEvent(latest, event, nowIso);
-  if (result.state !== latest) {
-    saveAchievementState(storage, result.state);
+  nowIso: string,
+  isStorageInSync: boolean
+): AchievementRecordResult {
+  const stored = isStorageInSync ? readStoredAchievementState(storage) : null;
+  const base = stored ?? fallbackState;
+  const result = applyAchievementEvent(base, event, nowIso);
+
+  // 読み直せたなら一致、読めなかった・信用していないなら不一致のまま
+  let inSync = stored !== null;
+  if (result.state !== base) {
+    // 変化があれば保存し、保存できたかどうかで一致状態を決め直します
+    inSync = saveAchievementState(storage, result.state);
   }
-  return result;
+  return { ...result, isStorageInSync: inSync };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

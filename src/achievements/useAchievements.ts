@@ -34,6 +34,7 @@ export interface AchievementToastItem {
  * - record(出来事)：操作が起きたことを知らせ、新しく達成した実績があれば保存して通知の列に積みます
  *   （保存データを読み直してから反映するので、複数のタブで開いていても記録を上書きして消しません）
  * - ほかのタブで記録が増えたり消されたりしたら、storage イベントで受け取り、この画面の表示も合わせます
+ * - 保存や消去に失敗したあとは、保存データではなく画面の状態を正として記録を続けます（達成が消えたり通知が重複したりしないため）
  * - reset()：記録をすべて消します
  * - currentToast：いま表示する達成通知（なければ null）。3秒たつと次の通知に切り替わります
  */
@@ -45,6 +46,8 @@ export function useAchievements() {
   const stateRef = useRef<AchievementState>(state);
   const [toastQueue, setToastQueue] = useState<AchievementToastItem[]>([]);
   const toastKeyRef = useRef(0);
+  // 保存データが画面の状態と一致しているか（保存や消去に失敗したら false にして、以後は画面の状態を正とします）
+  const storageInSyncRef = useRef(true);
 
   /** 画面が持つ状態を更新します（中身が変わらないときは描き直しません） */
   const applyState = useCallback((next: AchievementState) => {
@@ -58,8 +61,10 @@ export function useAchievements() {
       getBrowserStorage(),
       stateRef.current,
       event,
-      new Date().toISOString()
+      new Date().toISOString(),
+      storageInSyncRef.current
     );
+    storageInSyncRef.current = result.isStorageInSync;
     applyState(result.state);
 
     if (result.newlyUnlocked.length > 0) {
@@ -79,7 +84,9 @@ export function useAchievements() {
   );
 
   const reset = useCallback(() => {
-    clearAchievementState(getBrowserStorage());
+    // 消去に失敗した（古い記録が保存データに残っている）場合は、保存データを信用しない状態にして、
+    // 次の記録で古い記録を読み直して画面に戻してしまうことを防ぎます
+    storageInSyncRef.current = clearAchievementState(getBrowserStorage());
     applyState(createEmptyAchievementState());
     setToastQueue([]);
   }, [applyState]);
@@ -90,6 +97,8 @@ export function useAchievements() {
     const handleStorage = (e: StorageEvent) => {
       // e.key が null なのは、ほかのタブで localStorage 全体が消されたとき
       if (e.key !== null && e.key !== ACHIEVEMENT_STORAGE_NAME) return;
+      // このタブの保存が失敗している間は、保存データより画面の状態のほうが新しいので反映しません
+      if (!storageInSyncRef.current) return;
       const latest = readStoredAchievementState(getBrowserStorage());
       if (latest) applyState(latest);
     };

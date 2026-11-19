@@ -26,6 +26,7 @@ import {
   observeCity,
   SEASON_PRESETS,
 } from "../astronomy/calculations";
+import { getSunAndMidnightZodiac } from "../astronomy/zodiac";
 import { CelestialPhaseDiagram } from "./CelestialPhaseDiagram";
 
 type InspectorTab = "city" | "display" | "guide";
@@ -41,7 +42,9 @@ export type GuideExperimentId =
   | "moon-orbit-observe"
   | "venus-orbit-observe"
   | "tokyo-ground-sky"
-  | "real-solar-system";
+  | "real-solar-system"
+  | "zodiac-ecliptic-follow"
+  | "zodiac-ecliptic-fixed";
 
 interface InspectorPanelProps {
   isOpen: boolean;
@@ -70,6 +73,7 @@ const LAYER_LABELS: Array<{ key: keyof DisplayLayers; label: string }> = [
   { key: "graticule", label: "経緯線・赤道・北極圏(66.6°N)" },
   { key: "celestialCompass", label: "天球目盛り・自転矢印(反時計回り)" },
   { key: "eclipticPlane", label: "黄道面（公転面）・公転軌道リング" },
+  { key: "zodiacConstellations", label: "黄道12星座（13星座）と黄道ライン" },
   { key: "moonAndOrbit", label: "月本体と白道（月の公転軌道）" },
   { key: "venusAndOrbit", label: "金星と金星の公転軌道（内惑星）" },
   { key: "terminatorGuide", label: "太陽光線・昼夜境界ハイライト" },
@@ -108,6 +112,58 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   const selectedCity =
     cities.find((c) => c.id === selectedCityId) ?? cities[0];
   const observation = observeCity(selectedCity, solarState);
+  const { sunConstellation, midnightConstellation } = getSunAndMidnightZodiac(
+    solarState.sunEclipticLongitudeDeg
+  );
+  const isEclipticSkyMode =
+    cameraPreset === "earthEclipticFollow" ||
+    cameraPreset === "earthEclipticFixed";
+
+  const zodiacStatusCard = (
+    <div className="section-card">
+      <h2 className="section-title">
+        <Sun size={13} />
+        太陽の黄道位置（黄道13星座）
+      </h2>
+      <div className="observation-metrics">
+        <div className="metric-box">
+          <div className="metric-label">太陽がある星座 (IAU)</div>
+          <div
+            className="metric-val"
+            style={{
+              fontSize: 13,
+              color: sunConstellation.isThirteenth ? "#e9d5ff" : "#fde68a",
+            }}
+          >
+            {sunConstellation.symbol} {sunConstellation.nameJa}
+            {sunConstellation.isThirteenth ? " (13)" : ""}
+          </div>
+        </div>
+        <div className="metric-box">
+          <div className="metric-label">太陽の視黄経</div>
+          <div className="metric-val">
+            {solarState.sunEclipticLongitudeDeg.toFixed(1)}°
+          </div>
+        </div>
+        <div className="metric-box">
+          <div className="metric-label">通過する時期 (目安)</div>
+          <div className="metric-val" style={{ fontSize: 12 }}>
+            {sunConstellation.dateRangeJa}
+          </div>
+        </div>
+        <div className="metric-box">
+          <div className="metric-label">真夜中に南中する星座</div>
+          <div className="metric-val" style={{ fontSize: 12, color: "#bae6fd" }}>
+            {midnightConstellation.symbol} {midnightConstellation.nameJa}
+          </div>
+        </div>
+      </div>
+      <p className="note-box" style={{ fontSize: 11 }}>
+        地球の公転により、太陽は黄道上を1年で360°（西→東）移動します。現在の太陽と180°反対側にある「
+        {midnightConstellation.nameJa}」が真夜中の南の空で見ごろです。
+      </p>
+    </div>
+  );
 
   const phaseTextMap = {
     day: "昼（太陽光が当たっています）",
@@ -199,6 +255,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
       <div className="inspector-body">
         {activeTab === "city" && (
           <>
+            {isEclipticSkyMode && zodiacStatusCard}
             {isRealSolarSystemMode && solarSystemOverviewCard}
             <div className="section-card">
               <h2 className="section-title">
@@ -285,6 +342,8 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 </p>
               )}
             </div>
+
+            {!isEclipticSkyMode && zodiacStatusCard}
 
             <div className="section-card">
               <h2 className="section-title">
@@ -499,6 +558,30 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               </div>
 
               <div className="view-group-block">
+                <span className="view-group-label">地球から見る黄道（13星座）</span>
+                <div className="option-btn-group two-col">
+                  <button
+                    type="button"
+                    className={`choice-btn zodiac-view-btn ${
+                      cameraPreset === "earthEclipticFollow" ? "is-active" : ""
+                    }`}
+                    onClick={() => onSelectCameraPreset("earthEclipticFollow")}
+                  >
+                    黄道・太陽追尾
+                  </button>
+                  <button
+                    type="button"
+                    className={`choice-btn zodiac-view-btn ${
+                      cameraPreset === "earthEclipticFixed" ? "is-active" : ""
+                    }`}
+                    onClick={() => onSelectCameraPreset("earthEclipticFixed")}
+                  >
+                    黄道・星座固定
+                  </button>
+                </div>
+              </div>
+
+              <div className="view-group-block">
                 <span className="view-group-label">東京の地上から見る空</span>
                 <div className="option-btn-group four-col">
                   <button
@@ -671,6 +754,32 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
 
         {activeTab === "guide" && (
           <>
+            <div className="guide-card">
+              <h3 className="guide-title">★ 地球から見る「黄道」と黄道12星座（13星座）</h3>
+              <p className="guide-text">
+                地球が1年かけて太陽のまわりを公転するため、地球から見ると太陽は背景の星座の中を少しずつ東（画面右→左）へ移動し、1年で1周する通り道を描きます。この通り道を<strong>黄道（こうどう）</strong>と呼びます。
+              </p>
+              <p className="guide-text">
+                占いで有名な<strong>黄道12星座</strong>に加え、国際天文学連合（IAU）の実際の星座の境界では、さそり座といて座の間で<strong>へびつかい座（13番目の星座）</strong>の上も太陽が約18日間通るため、天文学では<strong>黄道13星座</strong>として配置しています。
+              </p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="guide-action-btn"
+                  onClick={() => onRunGuideExperiment("zodiac-ecliptic-follow")}
+                >
+                  黄道・太陽追尾で見る
+                </button>
+                <button
+                  type="button"
+                  className="guide-action-btn"
+                  onClick={() => onRunGuideExperiment("zodiac-ecliptic-fixed")}
+                >
+                  黄道・星座固定で見る
+                </button>
+              </div>
+            </div>
+
             <div className="guide-card">
               <h3 className="guide-title">★ リアル太陽系（水金地火木土天海冥・衛星）</h3>
               <p className="guide-text">

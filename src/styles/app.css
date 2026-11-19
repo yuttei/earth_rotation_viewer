@@ -45,6 +45,7 @@ button,
 input {
   font-family: inherit;
   color: inherit;
+  touch-action: manipulation;
 }
 
 .app-shell {
@@ -264,12 +265,52 @@ input {
   margin-top: -22px;
 }
 
-/* オーバーレイ全体の重なりを防ぐ Flex コンテナ */
+.space-badge.is-zodiac {
+  background: rgba(8, 15, 34, 0.8);
+  border: 1px solid rgba(125, 211, 252, 0.42);
+  color: #bae6fd;
+  font-size: 10.5px;
+  padding: 2px 8px;
+  margin-left: -34px;
+  margin-top: -12px;
+  box-shadow: 0 0 12px rgba(15, 23, 42, 0.55);
+}
+
+.space-badge.is-zodiac.is-thirteenth {
+  background: rgba(26, 12, 42, 0.84);
+  border-color: rgba(216, 180, 254, 0.56);
+  color: #f3e8ff;
+}
+
+.space-badge.is-zodiac.is-sun-host {
+  background: rgba(42, 28, 6, 0.9);
+  border-color: rgba(251, 191, 36, 0.9);
+  color: #fef3c7;
+  font-weight: 700;
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.42);
+  z-index: 3;
+}
+
+.space-badge.is-ecliptic-cardinal {
+  background: rgba(34, 22, 6, 0.82);
+  border: 1px solid rgba(251, 191, 36, 0.48);
+  color: #fde68a;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  margin-left: -38px;
+  margin-top: -8px;
+}
+
+/* オーバーレイ全体の重なりを防ぐ Flex コンテナ（iPhone 17 / iPad のセーフエリア対応） */
 .ui-hud-layout {
   position: absolute;
   inset: 0;
   z-index: 10;
-  padding: 14px;
+  padding: max(14px, env(safe-area-inset-top))
+    max(14px, env(safe-area-inset-right))
+    max(14px, env(safe-area-inset-bottom))
+    max(14px, env(safe-area-inset-left));
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -508,6 +549,9 @@ input {
 .view-transition-card {
   pointer-events: auto;
   width: 288px;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -642,6 +686,31 @@ input {
   background: rgba(16, 185, 129, 0.24);
   color: #ecfdf5;
   box-shadow: 0 0 14px rgba(52, 211, 153, 0.24);
+}
+
+.zodiac-view-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-color: rgba(129, 140, 248, 0.38);
+  color: #e0e7ff;
+  background: rgba(18, 22, 54, 0.62);
+}
+
+.zodiac-view-btn:hover {
+  border-color: rgba(251, 191, 36, 0.65);
+  color: #fef3c7;
+}
+
+.zodiac-view-btn.is-active {
+  border-color: var(--accent-gold);
+  background: linear-gradient(
+    135deg,
+    rgba(99, 102, 241, 0.3),
+    rgba(251, 191, 36, 0.24)
+  );
+  color: #fef3c7;
+  box-shadow: 0 0 14px rgba(251, 191, 36, 0.26);
 }
 
 .solar-real-btn {
@@ -1332,15 +1401,171 @@ input {
   color: var(--text-secondary);
 }
 
-@media (max-height: 720px) {
+@media (max-height: 860px), (max-width: 1240px) {
   .hud-legend {
     display: none;
   }
 }
 
-@media (max-width: 860px) {
+/* タブレット横向き（iPad A16 横: 1180×820 等） */
+@media (max-width: 1280px) and (min-width: 1024px) {
   .ui-hud-layout {
-    padding: 8px;
+    padding: max(10px, env(safe-area-inset-top))
+      max(12px, env(safe-area-inset-right))
+      max(10px, env(safe-area-inset-bottom))
+      max(12px, env(safe-area-inset-left));
+    gap: 8px;
+  }
+
+  .header-bar {
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+
+  .header-card {
+    padding: 7px 11px;
+    gap: 8px;
+    flex-shrink: 1;
+    min-width: 0;
+  }
+
+  .brand-subtitle {
+    display: none;
+  }
+
+  .brand-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .brand-title {
+    font-size: 13px;
+  }
+
+  .telemetry-strip {
+    padding: 6px 11px;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+
+  .telemetry-value {
+    font-size: 11.5px;
+  }
+
+  .pole-badge {
+    font-size: 10.5px;
+    padding: 3px 8px;
+  }
+
+  .segmented-btn {
+    padding: 5px 8px;
+    font-size: 11.5px;
+  }
+
+  .icon-toggle-btn {
+    padding: 7px 10px;
+    font-size: 11.5px;
+  }
+
+  .view-transition-card {
+    width: 272px;
+    padding: 8px 10px;
+  }
+
+  .inspector-panel {
+    width: 304px;
+  }
+
+  .time-control-bar {
+    padding: 8px 12px;
+    gap: 6px 10px;
+  }
+}
+
+/* タブレット縦向き（iPad A16 縦: 820×1180 等） */
+@media (max-width: 1023px) and (min-width: 601px) {
+  .ui-hud-layout {
+    padding: max(12px, env(safe-area-inset-top))
+      max(12px, env(safe-area-inset-right))
+      max(12px, env(safe-area-inset-bottom))
+      max(12px, env(safe-area-inset-left));
+    gap: 10px;
+  }
+
+  .header-bar {
+    gap: 8px;
+  }
+
+  .header-card {
+    flex: 1 1 auto;
+    padding: 8px 12px;
+  }
+
+  .brand-subtitle {
+    display: none;
+  }
+
+  .telemetry-strip {
+    order: 3;
+    width: 100%;
+    justify-content: space-between;
+    padding: 7px 14px;
+    gap: 10px;
+  }
+
+  .header-actions {
+    order: 2;
+    flex-shrink: 0;
+  }
+
+  .hud-middle {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .hud-left-column {
+    height: auto;
+    max-height: 100%;
+    width: auto;
+  }
+
+  .view-transition-card {
+    width: 296px;
+    max-height: 62dvh;
+    overflow-y: auto;
+  }
+
+  .inspector-panel {
+    width: 340px;
+    max-height: 100%;
+    align-self: stretch;
+  }
+
+  .time-control-bar {
+    padding: 9px 12px;
+    gap: 8px 10px;
+  }
+
+  .scrub-group {
+    flex: 1 1 240px;
+  }
+
+  .play-btn,
+  .ctrl-btn {
+    padding: 7px 10px;
+    font-size: 11.5px;
+  }
+}
+
+/* スマートフォン縦向き（iPhone 17: 402×874 等） */
+@media (max-width: 600px) {
+  .ui-hud-layout {
+    padding: max(8px, env(safe-area-inset-top))
+      max(8px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom))
+      max(8px, env(safe-area-inset-left));
     gap: 6px;
   }
 
@@ -1407,10 +1632,6 @@ input {
   .icon-toggle-btn {
     padding: 6px 10px;
     font-size: 11px;
-  }
-
-  .hud-legend {
-    display: none;
   }
 
   .hud-middle {
@@ -1482,6 +1703,123 @@ input {
 
   .speed-group .ctrl-btn {
     padding: 5px 6px;
+    font-size: 10.5px;
+  }
+}
+
+/* スマートフォン横向き（iPhone 17 横: 874×402 等の極低ハイト画面） */
+@media (max-height: 539px) {
+  .ui-hud-layout {
+    padding: max(6px, env(safe-area-inset-top))
+      max(10px, env(safe-area-inset-right))
+      max(6px, env(safe-area-inset-bottom))
+      max(10px, env(safe-area-inset-left));
+    gap: 6px;
+  }
+
+  .header-bar {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .header-card {
+    flex: 0 1 auto;
+    padding: 4px 8px;
+    border-radius: 10px;
+  }
+
+  .brand-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .brand-title,
+  .brand-subtitle {
+    display: none;
+  }
+
+  .telemetry-strip {
+    order: 0;
+    width: auto;
+    flex: 1 1 auto;
+    padding: 4px 9px;
+    gap: 8px;
+    border-radius: 10px;
+  }
+
+  .telemetry-label,
+  .telemetry-divider,
+  .pole-badge {
+    display: none;
+  }
+
+  .telemetry-value {
+    font-size: 11px;
+  }
+
+  .header-actions {
+    order: 0;
+    width: auto;
+    gap: 6px;
+  }
+
+  .segmented-btn,
+  .icon-toggle-btn {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+
+  .hud-middle {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+
+  .view-transition-card {
+    width: 264px;
+    max-height: 58dvh;
+  }
+
+  .inspector-panel {
+    width: 316px;
+    max-height: 100%;
+    align-self: stretch;
+  }
+
+  .inspector-panel.is-collapsed {
+    width: 0;
+    height: 100%;
+    transform: translateX(18px);
+  }
+
+  .time-control-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 5px 8px;
+    gap: 6px;
+    border-radius: 10px;
+    scrollbar-width: none;
+  }
+
+  .time-control-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .playback-group,
+  .speed-group,
+  .season-group {
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+  }
+
+  .scrub-group {
+    flex: 0 0 160px;
+    min-width: 140px;
+  }
+
+  .play-btn,
+  .ctrl-btn {
+    padding: 4px 7px;
     font-size: 10.5px;
   }
 }

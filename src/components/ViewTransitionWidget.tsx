@@ -31,17 +31,19 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
   activePreset,
   onSelectPreset,
 }) => {
-  // スマホ等の狭い画面（< 860px）では初期状態で折り畳んで3D画面を広く見せ、タップで展開できるようにします。
+  // スマホ（iPhone 17）・タブレット縦（iPad A16 縦）では初期状態で折り畳んで3D画面を広く見せ、タップで展開できるようにします。
   const [isMobileViewport, setIsMobileViewport] = useState<boolean>(() =>
-    typeof window !== "undefined" ? window.innerWidth < 860 : false
+    typeof window !== "undefined"
+      ? window.innerWidth < 1024 || window.innerHeight < 540
+      : false
   );
   const [isMobileExpanded, setIsMobileExpanded] = useState<boolean>(false);
 
   useEffect(() => {
     const onResize = () => {
-      const mobile = window.innerWidth < 860;
-      setIsMobileViewport(mobile);
-      if (!mobile) {
+      const compact = window.innerWidth < 1024 || window.innerHeight < 540;
+      setIsMobileViewport(compact);
+      if (!compact) {
         setIsMobileExpanded(false);
       }
     };
@@ -59,6 +61,9 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
   const isBodyVisible = !isMobileViewport || isMobileExpanded;
 
   const percent = Math.round(transitionRatio * 100);
+  const isEclipticSkyView =
+    activePreset === "earthEclipticFollow" ||
+    activePreset === "earthEclipticFixed";
   const isTokyoGroundView =
     activePreset === "tokyoNorth" ||
     activePreset === "tokyoEast" ||
@@ -72,6 +77,7 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
   const isSliderDimmed =
     activePreset === "sunOverhead" ||
     activePreset === "sunEclipticOblique" ||
+    isEclipticSkyView ||
     isTokyoGroundView ||
     isRealSolarView;
 
@@ -88,6 +94,10 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
     statusLabel = "太陽の真上";
   } else if (activePreset === "sunEclipticOblique") {
     statusLabel = "公転面（やや上）";
+  } else if (activePreset === "earthEclipticFollow") {
+    statusLabel = "黄道：太陽追尾";
+  } else if (activePreset === "earthEclipticFixed") {
+    statusLabel = "黄道：星座固定";
   } else if (activePreset === "tokyoNorth") {
     statusLabel = "東京地上：北の空";
   } else if (activePreset === "tokyoEast") {
@@ -247,6 +257,37 @@ export const ViewTransitionWidget: React.FC<ViewTransitionWidgetProps> = ({
               >
                 <Sun size={11} style={{ marginRight: 3, verticalAlign: -1 }} />
                 公転面 (やや上)
+              </button>
+            </div>
+          </div>
+
+          <div className="view-group-block">
+            <span className="view-group-label">地球から見る黄道（13星座）</span>
+            <div className="view-preset-grid">
+              <button
+                type="button"
+                className={`choice-btn zodiac-view-btn ${
+                  activePreset === "earthEclipticFollow" ? "is-active" : ""
+                }`}
+                onClick={() =>
+                  handleSelectPresetAndCollapse("earthEclipticFollow")
+                }
+                title="地球から太陽を中央に追い続け、背景の黄道12星座（＋へびつかい座）が1年で1周する様子を観察"
+              >
+                <Sparkles size={11} style={{ marginRight: 3, verticalAlign: -1 }} />
+                黄道・太陽追尾
+              </button>
+              <button
+                type="button"
+                className={`choice-btn zodiac-view-btn ${
+                  activePreset === "earthEclipticFixed" ? "is-active" : ""
+                }`}
+                onClick={() =>
+                  handleSelectPresetAndCollapse("earthEclipticFixed")
+                }
+                title="地球から星座を固定して見渡し、太陽が黄道ライン上を右から左（西→東）へ移動する様子を観察"
+              >
+                黄道・星座固定
               </button>
             </div>
           </div>

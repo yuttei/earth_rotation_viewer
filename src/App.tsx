@@ -39,9 +39,18 @@ const DEFAULT_LAYERS: DisplayLayers = {
   starsAndEquinox: true,
   moonAndOrbit: true,
   venusAndOrbit: true,
+  zodiacConstellations: true,
 };
 
 const GROUND_DEFAULT_ELEVATION = degToRad(26);
+
+const ECLIPTIC_OFF_DEFAULTS = {
+  eclipticViewBlend: 0,
+  eclipticFollowSun: 1,
+  eclipticYawOffset: 0,
+  eclipticFixedLon: 0,
+  eclipticViewLatRad: 0,
+};
 
 const PRESET_POSES: Record<
   CameraPreset,
@@ -58,6 +67,7 @@ const PRESET_POSES: Record<
     groundElevation: GROUND_DEFAULT_ELEVATION,
     solarSystemBlend: 0,
     jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
     durationSec: 2.6,
     ratio: 0,
   },
@@ -72,6 +82,7 @@ const PRESET_POSES: Record<
     groundElevation: GROUND_DEFAULT_ELEVATION,
     solarSystemBlend: 0,
     jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
     durationSec: 2.6,
     ratio: 1,
   },
@@ -86,6 +97,7 @@ const PRESET_POSES: Record<
     groundElevation: GROUND_DEFAULT_ELEVATION,
     solarSystemBlend: 0,
     jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
     durationSec: 2.8,
     ratio: 0,
   },
@@ -100,6 +112,7 @@ const PRESET_POSES: Record<
     groundElevation: GROUND_DEFAULT_ELEVATION,
     solarSystemBlend: 0,
     jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
     durationSec: 2.8,
     ratio: 1,
   },
@@ -114,6 +127,7 @@ const PRESET_POSES: Record<
     groundElevation: GROUND_DEFAULT_ELEVATION,
     solarSystemBlend: 0,
     jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
     durationSec: 3.4,
     ratio: 1,
   },
@@ -128,7 +142,46 @@ const PRESET_POSES: Record<
     groundElevation: GROUND_DEFAULT_ELEVATION,
     solarSystemBlend: 0,
     jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
     durationSec: 3.2,
+    ratio: 1,
+  },
+  earthEclipticFollow: {
+    yaw: 0,
+    pitch: 0,
+    distance: 4.0,
+    eclipticBlend: 1,
+    sunCenterBlend: 0,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
+    eclipticViewBlend: 1,
+    eclipticFollowSun: 1,
+    eclipticYawOffset: 0,
+    eclipticFixedLon: 0,
+    eclipticViewLatRad: 0,
+    durationSec: 2.8,
+    ratio: 1,
+  },
+  earthEclipticFixed: {
+    yaw: 0,
+    pitch: 0,
+    distance: 4.0,
+    eclipticBlend: 1,
+    sunCenterBlend: 0,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
+    eclipticViewBlend: 1,
+    eclipticFollowSun: 0,
+    eclipticYawOffset: 0,
+    eclipticFixedLon: 0,
+    eclipticViewLatRad: 0,
+    durationSec: 2.2,
     ratio: 1,
   },
   tokyoNorth: {
@@ -142,6 +195,7 @@ const PRESET_POSES: Record<
     groundElevation: GROUND_DEFAULT_ELEVATION,
     solarSystemBlend: 0,
     jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
     durationSec: 1.8,
     ratio: 0,
   },
@@ -156,6 +210,7 @@ const PRESET_POSES: Record<
     groundElevation: GROUND_DEFAULT_ELEVATION,
     solarSystemBlend: 0,
     jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
     durationSec: 1.8,
     ratio: 0,
   },
@@ -170,6 +225,7 @@ const PRESET_POSES: Record<
     groundElevation: GROUND_DEFAULT_ELEVATION,
     solarSystemBlend: 0,
     jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
     durationSec: 1.8,
     ratio: 0,
   },
@@ -184,6 +240,7 @@ const PRESET_POSES: Record<
     groundElevation: GROUND_DEFAULT_ELEVATION,
     solarSystemBlend: 0,
     jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
     durationSec: 1.8,
     ratio: 0,
   },
@@ -198,6 +255,7 @@ const PRESET_POSES: Record<
     groundElevation: GROUND_DEFAULT_ELEVATION,
     solarSystemBlend: 1,
     jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
     durationSec: 3.4,
     ratio: 1,
   },
@@ -212,6 +270,7 @@ const PRESET_POSES: Record<
     groundElevation: GROUND_DEFAULT_ELEVATION,
     solarSystemBlend: 1,
     jupiterFocusBlend: 1,
+    ...ECLIPTIC_OFF_DEFAULTS,
     durationSec: 3.4,
     ratio: 1,
   },
@@ -226,6 +285,7 @@ const PRESET_POSES: Record<
     groundElevation: GROUND_DEFAULT_ELEVATION,
     solarSystemBlend: 1,
     jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
     durationSec: 3.8,
     ratio: 1,
   },
@@ -240,6 +300,7 @@ const PRESET_POSES: Record<
     groundElevation: GROUND_DEFAULT_ELEVATION,
     solarSystemBlend: 1,
     jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
     durationSec: 3.6,
     ratio: 1,
   },
@@ -271,12 +332,16 @@ export function App() {
     groundElevation: PRESET_POSES.northPole.groundElevation,
     solarSystemBlend: PRESET_POSES.northPole.solarSystemBlend,
     jupiterFocusBlend: PRESET_POSES.northPole.jupiterFocusBlend,
+    ...ECLIPTIC_OFF_DEFAULTS,
     durationSec: PRESET_POSES.northPole.durationSec,
     seq: 0,
   });
 
+  // iPhone 17 (402x874 / 横874x402)・iPad A16 縦 (820x1180) では初期格納し、iPad 横 (1180x820) とPCでは展開します。
   const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(() =>
-    typeof window !== "undefined" ? window.innerWidth >= 860 : true
+    typeof window !== "undefined"
+      ? window.innerWidth >= 1024 && window.innerHeight >= 540
+      : true
   );
   const [layers, setLayers] = useState<DisplayLayers>(DEFAULT_LAYERS);
   const [transitioningSeasonId, setTransitioningSeasonId] = useState<
@@ -434,17 +499,26 @@ export function App() {
         setSelectedCityId("tokyo");
       }
 
-      // 宇宙空間 ⇄ 東京地上、簡易版 ⇄ リアル太陽系、各距離帯を跨ぐ場合はゆっくり連続移動します。
+      const isTargetEclipticView =
+        preset === "earthEclipticFollow" || preset === "earthEclipticFixed";
+      const curSunLonRad = degToRad(
+        calculateSolarSystemState(new Date(simTimeMsRef.current))
+          .sunEclipticLongitudeDeg
+      );
+
+      // 宇宙空間 ⇄ 東京地上 ⇄ 地球から黄道 ⇄ リアル太陽系、各距離帯を跨ぐ場合はゆっくり連続移動します。
       setCameraPoseTarget((prev) => {
         const crossesGround = prev.groundBlend !== p.groundBlend;
+        const crossesEclipticSky =
+          prev.eclipticViewBlend !== p.eclipticViewBlend;
         const crossesSolarMode = prev.solarSystemBlend !== p.solarSystemBlend;
         const crossesJupiter = prev.jupiterFocusBlend !== p.jupiterFocusBlend;
         const crossesSunCenter = prev.sunCenterBlend !== p.sunCenterBlend;
         const crossesMoonBand = (prev.distance >= 7.5) !== (p.distance >= 7.5);
-        const durationSec = crossesGround
+        const durationSec = crossesGround || crossesEclipticSky
           ? prev.sunCenterBlend > 0.5 || p.sunCenterBlend > 0.5
-            ? 3.8
-            : 3.1
+            ? 3.4
+            : 2.9
           : crossesSolarMode || crossesJupiter
           ? 3.6
           : crossesSunCenter
@@ -452,6 +526,14 @@ export function App() {
           : crossesMoonBand
           ? 3.0
           : p.durationSec;
+
+        // 星座固定ビューに入るときは、現在の太陽位置の少し先（+14°）を正面にして太陽が画面を横切る様子を見やすくします。
+        const targetFixedLon =
+          preset === "earthEclipticFixed"
+            ? curSunLonRad + degToRad(14)
+            : isTargetEclipticView
+            ? curSunLonRad
+            : prev.eclipticFixedLon;
 
         return {
           yaw: p.yaw,
@@ -466,6 +548,13 @@ export function App() {
             : prev.groundElevation,
           solarSystemBlend: p.solarSystemBlend,
           jupiterFocusBlend: p.jupiterFocusBlend,
+          eclipticViewBlend: p.eclipticViewBlend,
+          eclipticFollowSun: p.eclipticFollowSun,
+          eclipticYawOffset: 0,
+          eclipticFixedLon: targetFixedLon,
+          eclipticViewLatRad: isTargetEclipticView
+            ? p.eclipticViewLatRad
+            : prev.eclipticViewLatRad,
           durationSec,
           seq: prev.seq + 1,
         };
@@ -482,7 +571,13 @@ export function App() {
           preset === "sunOverhead" ||
           preset === "sunEclipticOblique";
 
-        if (isOuterSolarView) {
+        if (isTargetEclipticView) {
+          // 地球から黄道上の太陽の移動を観察しやすい 10日/s を標準にします。
+          setSpeedMultiplier((prev) =>
+            prev < 864000 || prev > 2592000 ? 864000 : prev
+          );
+          setIsPlaying(true);
+        } else if (isOuterSolarView) {
           // 冥王星までの全体俯瞰では外惑星も滑らかに動く 30日/s を標準にします。
           setSpeedMultiplier((prev) => (prev < 2592000 ? 2592000 : prev));
           setIsPlaying(true);
@@ -505,6 +600,7 @@ export function App() {
 
   const isMoonDistanceMode =
     cameraPoseTarget.groundBlend < 0.5 &&
+    cameraPoseTarget.eclipticViewBlend < 0.5 &&
     cameraPoseTarget.sunCenterBlend < 0.5 &&
     cameraPoseTarget.solarSystemBlend < 0.5 &&
     cameraPoseTarget.distance >= 7.5;
@@ -546,9 +642,11 @@ export function App() {
         groundElevation: prev.groundElevation,
         solarSystemBlend: 0,
         jupiterFocusBlend: 0,
+        ...ECLIPTIC_OFF_DEFAULTS,
         durationSec:
           prev.sunCenterBlend > 0.5 ||
           prev.groundBlend > 0.5 ||
+          prev.eclipticViewBlend > 0.5 ||
           prev.solarSystemBlend > 0.5
             ? 2.8
             : 0.45,
@@ -573,6 +671,34 @@ export function App() {
   const handleRunGuideExperiment = useCallback(
     (id: GuideExperimentId) => {
       switch (id) {
+        case "zodiac-ecliptic-follow":
+          handleSelectCameraPreset("earthEclipticFollow", false);
+          setLayers((prev) => ({
+            ...prev,
+            zodiacConstellations: true,
+            eclipticPlane: true,
+            moonAndOrbit: true,
+            venusAndOrbit: true,
+            starsAndEquinox: true,
+          }));
+          setSpeedMultiplier(864000);
+          setIsPlaying(true);
+          break;
+
+        case "zodiac-ecliptic-fixed":
+          handleSelectCameraPreset("earthEclipticFixed", false);
+          setLayers((prev) => ({
+            ...prev,
+            zodiacConstellations: true,
+            eclipticPlane: true,
+            moonAndOrbit: true,
+            venusAndOrbit: true,
+            starsAndEquinox: true,
+          }));
+          setSpeedMultiplier(864000);
+          setIsPlaying(true);
+          break;
+
         case "real-solar-system":
           handleSelectCameraPreset("solarFullOblique", false);
           setLayers((prev) => ({
@@ -717,8 +843,11 @@ export function App() {
           break;
       }
 
-      // スマホ画面では学習ガイドの3D確認ボタンを押した直後にパネルを閉じ、3D遷移を見やすくします。
-      if (typeof window !== "undefined" && window.innerWidth < 860) {
+      // スマホ（iPhone 17）・タブレット縦（iPad A16 縦）では3D確認ボタンを押した直後にパネルを閉じて画面を広く見せます。
+      if (
+        typeof window !== "undefined" &&
+        (window.innerWidth < 1024 || window.innerHeight < 540)
+      ) {
         setIsInspectorOpen(false);
       }
     },

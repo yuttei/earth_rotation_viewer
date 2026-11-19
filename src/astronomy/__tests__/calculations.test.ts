@@ -34,6 +34,12 @@ import {
   calculateFullSolarSystemState,
   calculateGalileanMoonsState,
 } from "../solarSystem";
+import {
+  ZODIAC_CONSTELLATIONS,
+  equatorialToEclipticDeg,
+  getSunAndMidnightZodiac,
+  getZodiacConstellationAtLongitude,
+} from "../zodiac";
 
 /** 2つの角度（度）の符号付き最短差（-180° 〜 +180°）を計算するテスト用補助関数 */
 function signedAngleDiffDeg(targetDeg: number, baseDeg: number): number {
@@ -415,5 +421,34 @@ describe("天文計算エンジン (calculations)", () => {
     expect(longScale.mode).toBe("half-century");
     expect(longScale.rangeBadgeJa).toBe("50年");
     expect(longScale.label).toBe("2026年 11月");
+  });
+
+  it("黄道13星座（へびつかい座を含む）が全周360°をすき間なく覆い、春分点・夏至点・12月初旬の星座判定が正しい", () => {
+    expect(ZODIAC_CONSTELLATIONS).toHaveLength(13);
+
+    // 赤道座標 → 黄道座標変換の検算（春分点 0h,0° → λ=0°,β=0° / 夏至点 6h,+23.44° → λ=90°,β=0°）
+    const vernal = equatorialToEclipticDeg(0, 0);
+    expect(vernal.lonDeg).toBeCloseTo(0, 4);
+    expect(vernal.latDeg).toBeCloseTo(0, 4);
+    const summer = equatorialToEclipticDeg(6, EARTH_AXIAL_TILT_DEG);
+    expect(summer.lonDeg).toBeCloseTo(90, 2);
+    expect(Math.abs(summer.latDeg)).toBeLessThan(0.01);
+
+    // 0°〜359° の全黄経が必ず13星座のいずれかへ一意に属する
+    const seen = new Set<string>();
+    for (let deg = 0; deg < 360; deg++) {
+      seen.add(getZodiacConstellationAtLongitude(deg).id);
+    }
+    expect(seen.size).toBe(13);
+
+    // 現代（J2000）では春分点 0° はうお座、12月初旬（λ=255°）は13番目の「へびつかい座」
+    const equinoxZodiac = getSunAndMidnightZodiac(0);
+    expect(equinoxZodiac.sunConstellation.id).toBe("pisces");
+    expect(equinoxZodiac.midnightConstellation.id).toBe("virgo");
+
+    const decZodiac = getSunAndMidnightZodiac(255);
+    expect(decZodiac.sunConstellation.id).toBe("ophiuchus");
+    expect(decZodiac.sunConstellation.isThirteenth).toBe(true);
+    expect(decZodiac.midnightConstellation.id).toBe("taurus");
   });
 });

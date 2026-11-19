@@ -16,6 +16,8 @@ export type CameraPreset =
   | "moonEclipticPlane"
   | "sunOverhead"
   | "sunEclipticOblique"
+  | "earthEclipticFollow"
+  | "earthEclipticFixed"
   | "tokyoNorth"
   | "tokyoEast"
   | "tokyoSouth"
@@ -152,6 +154,8 @@ export interface DisplayLayers {
   moonAndOrbit: boolean;
   /** 金星本体と金星の公転軌道（内惑星）の表示 */
   venusAndOrbit: boolean;
+  /** 黄道12星座（へびつかい座を含む13星座）と黄道ラインの表示 */
+  zodiacConstellations: boolean;
 }
 
 /** ある瞬間における月の位置（黄道座標）と満ち欠けの状態 */

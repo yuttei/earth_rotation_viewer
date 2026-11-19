@@ -740,6 +740,21 @@ describe("天文計算エンジン (calculations)", () => {
     expect(lastWith.x).toBeGreaterThan(lastWithout.x + 0.5);
     expect(existingBlackHole.pos).toEqual({ x: 12, y: 30, z: 0 });
     expect(startBodies.earth.pos.x).toBeCloseTo(13.5);
+
+    // 6) 1ステップで地球を飛び越えるほど速い天体も、ステップの間の移動（線分）で判定して衝突を見逃さない
+    const sweepBodies = createSolarNBodyEntriesFromSnapshot(snapshot);
+    const ep = sweepBodies.earth.pos;
+    sweepBodies.earth.prevPos = { ...ep };
+    const fastAsteroid = makeImpactor(4, "asteroid", 0);
+    fastAsteroid.prevPos = { x: ep.x - 2, y: ep.y, z: ep.z };
+    fastAsteroid.pos = { x: ep.x + 2, y: ep.y, z: ep.z };
+    const sweepEvents = resolveSolarNBodyCollisions(sweepBodies, [fastAsteroid]);
+    expect(sweepEvents.some((e) => e.primaryId === "earth")).toBe(true);
+    // 衝突点は地球の表面（中心から地球の半径の位置）
+    expect(Math.abs(sweepEvents[0].contactPoint.x - ep.x)).toBeCloseTo(
+      sweepBodies.earth.radius,
+      6
+    );
   });
   it("リアル太陽系モードの惑星の表示半径が実際の半径の比を保ち、太陽は木星より大きく水星の近日点より内側に収まる", () => {
     // 惑星どうしの大きさの比は実際と同じ（例：木星 ÷ 地球 = 11.21）

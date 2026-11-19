@@ -35,6 +35,7 @@ import {
   getZodiacConstellationAtLongitude,
 } from "../astronomy/zodiac";
 import {
+  BODY_RADIUS_EARTH,
   REAL_SOLAR_PLANET_SCALE,
   REAL_SOLAR_SUN_RADIUS,
   SIMPLE_MODE_MOON_ORBIT_RADIUS,
@@ -220,8 +221,13 @@ const MOON_BADGE_MIN_GAP_PX = 30;
 const ORBIT_RADIUS = 13.5;
 /** 太陽の半径（地球半径 = 1.0 に対する観察用スケール） */
 const SUN_RADIUS = 1.85;
-/** 月の半径（実際の月/地球比 ≈ 0.273 に近い値） */
-const MOON_RADIUS = 0.27;
+/** 月の半径（実際の月/地球比 0.273。bodySizes.ts の BODY_RADIUS_EARTH から取り、衝突判定の半径と同じ値にそろえます） */
+const MOON_RADIUS = BODY_RADIUS_EARTH.moon;
+/**
+ * 地上視点で描く月の基準の半径です。太陽の地上での見かけの半径（3.9775 ÷ 距離75）と同じ角度に、
+ * 距離55の月が見えるように 3.9775 ÷ 75 × 55 ≒ 2.9168 としています（日食で太陽と月がぴったり重なる大きさ）。
+ */
+const GROUND_MOON_BASE_RADIUS = (3.9775 / 75) * 55;
 /** 地球中心からの月の公転軌道半径（白道半径。簡易モードの値） */
 const MOON_ORBIT_RADIUS = SIMPLE_MODE_MOON_ORBIT_RADIUS;
 /** 金星の半径（簡易モードの値。実際の金星/地球比 ≈ 0.95 だが地球を主役に見せるためやや控えめに設定。リアル太陽系モードでは実比率に切り替えます） */
@@ -2499,6 +2505,57 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     const badgeGapB = new THREE.Vector3();
     // 天体タップ判定用の作業ベクトル（毎回 new しないよう使い回します）
     const pickTmpWorld = new THREE.Vector3();
+    const pickTmpScale = new THREE.Vector3();
+
+    /**
+     * 押した画面上の位置から、いちばん近い天体を選ぶ共通の判定です（解説カードと「天体を狙う」の両方で使います）。
+     *
+     * 各天体を画面に投影し、画面上の中心までの距離（px）と、画面上での半径（px）を求めます。
+     * - 天体の円の内側を押した場合：その天体を選ぶ（重なっていればカメラに近いほう）
+     * - 円の外側でも、中心から PICK_MIN_SCREEN_RADIUS_PX（14px）以内なら選ぶ（遠景で点のように小さい天体のため）
+     * - 候補が複数あるときは、円のふちまでの距離がいちばん短い天体を選ぶ
+     * 3D 空間の固定の半径ではなく画面上の距離で判断するので、ズームしても押しやすさが変わりません。
+     */
+    const pickNearestBodyOnScreen = <T,>(
+      clientX: number,
+      clientY: number,
+      items: ReadonlyArray<{ id: T; worldPos: THREE.Vector3; worldRadius: number }>
+    ): T | null => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      // 1 シーン単位が、カメラから距離 1 の位置で画面上の何 px になるか（透視投影）
+      const pxPerUnitAtDist1 =
+        rect.height / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+
+      let bestInside: { id: T; camDist: number } | null = null;
+      let bestNear: { id: T; edgeDistPx: number } | null = null;
+      for (const item of items) {
+        const camDist = camera.position.distanceTo(item.worldPos);
+        if (camDist < 1e-6) continue;
+        pickTmpWorld.copy(item.worldPos).project(camera);
+        // カメラの後ろにある天体は除きます
+        if (pickTmpWorld.z < -1 || pickTmpWorld.z > 1) continue;
+        const sx = ((pickTmpWorld.x + 1) / 2) * rect.width + rect.left;
+        const sy = ((1 - pickTmpWorld.y) / 2) * rect.height + rect.top;
+        const distPx = Math.hypot(sx - clientX, sy - clientY);
+        const radiusPx = (item.worldRadius / camDist) * pxPerUnitAtDist1;
+
+        if (distPx <= radiusPx) {
+          if (!bestInside || camDist < bestInside.camDist) {
+            bestInside = { id: item.id, camDist };
+          }
+          continue;
+        }
+        if (distPx > Math.max(radiusPx, PICK_MIN_SCREEN_RADIUS_PX)) continue;
+        const edgeDistPx = distPx - radiusPx;
+        if (!bestNear || edgeDistPx < bestNear.edgeDistPx) {
+          bestNear = { id: item.id, edgeDistPx };
+        }
+      }
+      if (bestInside) return bestInside.id;
+      return bestNear ? bestNear.id : null;
+    };
+
     const pickCelestialBodyAtClientPos = (
       clientX: number,
       clientY: number
@@ -2549,43 +2606,30 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         }
       }
 
-      const meshes = candidates.map((c) => c.mesh);
-      const hits = raycaster.intersectObjects(meshes, false);
-      if (hits.length > 0) {
-        const hitObj = hits[0].object;
-        const matched = candidates.find((c) => c.mesh === hitObj);
-        return matched ? matched.id : null;
-      }
-
-      // 球に直接当たらなかった場合：冥王星やイオのように画面上でとても小さい天体でも押せるよう、
-      // 画面上で天体の中心から PICK_MIN_SCREEN_RADIUS_PX 以内を押したら、いちばん近い天体を選びます。
-      let nearestId: CelestialBodyId | null = null;
-      let nearestDistPx = PICK_MIN_SCREEN_RADIUS_PX;
+      // 画面に実際に描かれている天体だけを、画面上の距離で選びます（共通の判定）
+      const items: Array<{
+        id: CelestialBodyId;
+        worldPos: THREE.Vector3;
+        worldRadius: number;
+      }> = [];
       for (const c of candidates) {
-        // 衝突で消えた天体など、実際には描かれていない天体は選びません
-        let visibleNow = true;
-        let node: THREE.Object3D | null = c.mesh;
-        while (node) {
-          if (!node.visible) {
-            visibleNow = false;
-            break;
-          }
-          node = node.parent;
+        if (!isRenderedVisible(c.mesh)) continue;
+        const mesh = c.mesh as THREE.Mesh;
+        let localRadius = 1;
+        if (mesh.geometry) {
+          if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+          localRadius = mesh.geometry.boundingSphere?.radius ?? 1;
         }
-        if (!visibleNow) continue;
-        c.mesh.getWorldPosition(pickTmpWorld);
-        pickTmpWorld.project(camera);
-        // カメラの後ろにある天体は除きます
-        if (pickTmpWorld.z < -1 || pickTmpWorld.z > 1) continue;
-        const sx = ((pickTmpWorld.x + 1) / 2) * rect.width + rect.left;
-        const sy = ((1 - pickTmpWorld.y) / 2) * rect.height + rect.top;
-        const distPx = Math.hypot(sx - clientX, sy - clientY);
-        if (distPx <= nearestDistPx) {
-          nearestDistPx = distPx;
-          nearestId = c.id;
-        }
+        c.mesh.getWorldScale(pickTmpScale);
+        items.push({
+          id: c.id,
+          worldPos: c.mesh.getWorldPosition(new THREE.Vector3()),
+          worldRadius:
+            localRadius *
+            Math.max(pickTmpScale.x, pickTmpScale.y, pickTmpScale.z),
+        });
       }
-      return nearestId;
+      return pickNearestBodyOnScreen(clientX, clientY, items);
     };
 
     // ---------------------------------------------------------------------
@@ -2682,26 +2726,30 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     };
 
     /**
-     * 画面レイが太陽系全15天体のいずれかを指しているか（またはすぐ近くを通っているか）を判定します。
+     * 押した画面上の位置にある（またはすぐ近くの）太陽系の天体を返します。
+     * 解説カードと同じ共通の判定（pickNearestBodyOnScreen）で、画面上の距離をもとに選びます。
      */
-    const findClosestSolarTargetAtRay = (): SolarBaselineBodyInput | null => {
-      let best: SolarBaselineBodyInput | null = null;
-      let bestDistAlongRay = Infinity;
-      const ray = raycaster.ray;
+    const findSolarTargetAtClient = (
+      clientX: number,
+      clientY: number
+    ): SolarBaselineBodyInput | null => {
+      const worldScale = solarWorldGroup.scale.x;
+      const items: Array<{
+        id: SolarBaselineBodyInput;
+        worldPos: THREE.Vector3;
+        worldRadius: number;
+      }> = [];
       for (const b of displayedSolarTargets) {
         // 画面に描かれていない天体（衝突で消えた天体、遠景で隠した衛星など）は狙えません
         if (!isRenderedVisible(solarTargetRenderObjects.get(b.id))) continue;
-        const toBody = aimTmpWorld.copy(b.pos).sub(ray.origin);
-        const proj = toBody.dot(ray.direction);
-        if (proj <= 0.1) continue;
-        const perpSq = Math.max(0, toBody.lengthSq() - proj * proj);
-        const pickR = Math.max(1.15, b.radius * 1.75);
-        if (perpSq <= pickR * pickR && proj < bestDistAlongRay) {
-          bestDistAlongRay = proj;
-          best = b;
-        }
+        items.push({
+          id: b,
+          // displayedSolarTargets は太陽中心の座標（solarWorldGroup の中）なので、画面に投影できる座標に直します
+          worldPos: solarWorldGroup.localToWorld(b.pos.clone()),
+          worldRadius: b.radius * worldScale,
+        });
       }
-      return best;
+      return pickNearestBodyOnScreen(clientX, clientY, items);
     };
 
     /**
@@ -2754,7 +2802,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       const spec = IMPACTOR_MAP[impactorId];
       if (!setRayFromClient(clientX, clientY)) return false;
 
-      const hitBody = findClosestSolarTargetAtRay();
+      const hitBody = findSolarTargetAtClient(clientX, clientY);
       if (hitBody) {
         impactAim.targetBodyId = hitBody.id;
         impactAim.targetBodyPos.copy(hitBody.pos);
@@ -2816,7 +2864,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     ) => {
       if (!setRayFromClient(clientX, clientY)) return;
       const spec = IMPACTOR_MAP[impactorId];
-      const hoverBody = findClosestSolarTargetAtRay();
+      const hoverBody = findSolarTargetAtClient(clientX, clientY);
 
       if (!projectToAimPlaneWorld(clientX, clientY, impactAim.planeY, aimTmpWorld)) {
         return;
@@ -3930,12 +3978,13 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         .addScaledVector(tmpWorldNormal, 55);
       moonMesh.position.copy(moonSpaceLocalPos).lerp(moonGroundLocalPos, g);
       const orbitMoonBoost = 1.0 + 0.85 * curPose.sunCenterBlend * (1 - s);
-      // 太陽の地上視半径（3.9775 / 75）と距離 55 で一致する基準スケール 10.803 に、近地点（皆既: >1）・遠地点（金環: <1）比を掛けます。
+      // 地上視点の月の基準の半径（GROUND_MOON_BASE_RADIUS）になる倍率に、近地点（皆既: >1）・遠地点（金環: <1）比を掛けます。
       const groundApparentFactor =
         curMoon.apparentSizeRatio >= 1.0
           ? 1.07
           : 0.86;
-      const groundMoonScale = 10.803 * groundApparentFactor;
+      const groundMoonScale =
+        (GROUND_MOON_BASE_RADIUS / MOON_RADIUS) * groundApparentFactor;
       const baseMoonScale = THREE.MathUtils.lerp(
         orbitMoonBoost,
         groundMoonScale,

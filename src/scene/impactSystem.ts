@@ -4,6 +4,7 @@ import {
   ImpactorId,
   ImpactorSpec,
   SATELLITE_DISPLAY_SYSTEMS,
+  HUGE_STAR_DISPLAY_RADIUS,
   SOLAR_TARGET_MAP,
   SOLAR_TARGET_SPECS,
   SatelliteHostId,
@@ -18,6 +19,7 @@ import {
   buildDisplayWarpHosts,
   createSolarNBodyEntriesFromSnapshot,
   displaySnapshotToPhysics,
+  nearBodySpawnClearance,
   snapshotSatelliteHosts,
 } from "../astronomy/impactPhysics";
 import {
@@ -305,8 +307,6 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 /** 同時に置いておける投入天体の最大数（これを超えると、いちばん古い天体から消えます） */
 export const MAX_LIVE_IMPACTORS = 16;
-/** 描く半径がこれより大きい恒星（リゲル）は、画面を覆わないよう半透明で描きます */
-const HUGE_STAR_DISPLAY_RADIUS = 20;
 /**
  * 先読み予測に1フレームで使ってよい時間（ミリ秒）。
  * 予測を最後まで計算し終えるまで、毎フレームこの時間だけ続きを計算します（画面の動きを止めないため）。
@@ -1718,7 +1718,8 @@ export function createImpactSystemRig(
     if (!nBodyInitialized || isRestoring) return;
     isRestoring = true;
     restoreTimer = 0;
-    hideAllPreviewGuides();
+    // 計算途中の予測を止めて消します（古い予測線が復活中に描かれないように）
+    stopPrediction();
     removeAimPreview();
     for (const visual of liveImpactors) {
       visual.trailPoints.visible = false;
@@ -1734,6 +1735,8 @@ export function createImpactSystemRig(
   };
 
   const resetAll = () => {
+    // 計算途中の予測を止めて消します（リセット後に古い予測線が描かれないように）
+    stopPrediction();
     isRestoring = false;
     restoreTimer = 0;
     nBodyInitialized = false;
@@ -1966,8 +1969,6 @@ export function createImpactSystemRig(
       baselineBodies: ReadonlyArray<SolarBaselineBodyInput>,
       out: THREE.Vector3
     ): number {
-      const spec = IMPACTOR_MAP[impactorId];
-      const target = SOLAR_TARGET_MAP[targetId];
       if (!nBodyInitialized) refreshWarpHostsFromBaseline(baselineBodies);
       // 天体を今描いている位置
       const baseline = baselineBodies.find((b) => b.id === targetId);
@@ -1976,26 +1977,20 @@ export function createImpactSystemRig(
         : baseline
           ? baseline.pos.clone()
           : new THREE.Vector3();
-      // (a) 描いた絵の外側：天体の描く半径の 1.9 倍＋1.4。投入天体の描く大きさは入れません
-      //     （リゲルの描く半径 268 などを足すと、「すぐ近く」のはずが何百も離れた位置になるため）
-      const drawnClearance = target.displayRadius * 1.9 + 1.4;
-      // (b) 実際の大きさで「すぐ近く」：2天体の実際の半径の和の 1.5 倍だけ離れた物理上の点を、描く位置に直した距離
+      // 「絵が重ならない距離」と「実際の大きさで触れない距離」のうち遠いほう（impactPhysics.ts の nearBodySpawnClearance）
       const targetPhys =
         nBodyInitialized && liveBodies[targetId]
           ? liveBodies[targetId].pos
           : displayToPhysics(targetDrawn);
-      const gap = (target.physicalRadius + spec.physicalRadius) * 1.5;
       const dir = directionDisplay.clone().normalize();
-      const physPoint = {
-        x: targetPhys.x + dir.x * gap,
-        y: targetPhys.y + dir.y * gap,
-        z: targetPhys.z + dir.z * gap,
-      };
-      const physClearance = physicsToDisplay(physPoint, new THREE.Vector3()).distanceTo(
-        targetDrawn
+      const clearance = nearBodySpawnClearance(
+        impactorId,
+        targetId,
+        targetPhys,
+        targetDrawn,
+        dir,
+        currentWarpHosts
       );
-      // 2つのうち遠いほうに置きます。リゲル（実際の半径 約4.95）なら (b) が選ばれ、地球に触れない位置に置かれます
-      const clearance = Math.max(drawnClearance, physClearance);
       out.copy(targetDrawn).addScaledVector(dir, clearance);
       return clearance;
     },

@@ -2801,10 +2801,10 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       return true;
     };
 
-    /** ドラッグ距離 d から初速度の大きさを滑らかに算出します。 */
     /** 天体から引っ張って投げる操作になる距離の余白（描く空間）。投入天体の描く大きさには左右されません */
     const SLINGSHOT_DRAG_MARGIN = 0.3;
 
+    /** ドラッグ距離 d から初速度の大きさを滑らかに算出します。 */
     const computeThrowSpeedFromDragDist = (dragDist: number): number => {
       return Math.min(
         48.0,

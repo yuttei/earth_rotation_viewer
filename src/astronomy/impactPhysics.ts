@@ -20,7 +20,7 @@ import {
   starScaleDisplayRadiusFromKm,
 } from "./bodySizes";
 import type { DisplayWarpHost, Vec3Like } from "./displayWarp";
-import { warpDisplayToPhysics } from "./displayWarp";
+import { warpDisplayToPhysics, warpPhysicsToDisplay } from "./displayWarp";
 import {
   BODY_MASS_KG,
   BODY_RADIUS_KM,
@@ -100,6 +100,8 @@ export interface ImpactorModel {
   radiusLabelJa: string;
   /** 推定値（「約」を付けて表示する）か */
   isEstimate: boolean;
+  /** 質量についての補足（例：リゲルは「生まれたときの質量」）。画面の質量の表示の後ろに付けます */
+  massNoteJa?: string;
 }
 
 export interface ImpactorSpec {
@@ -149,6 +151,12 @@ export interface ImpactorSpec {
   /** 氷彗星型の青白い蒸気・氷プラズマ爆発を使うか */
   isIcyComet: boolean;
 }
+
+/**
+ * 描く半径がこれより大きい投入天体（リゲル）は、画面を覆わないよう半透明で描きます。
+ * 天体の上を押して置く距離の計算でも、この大きさを超える描く半径は使いません。
+ */
+export const HUGE_STAR_DISPLAY_RADIUS = 20;
 
 /** 小惑星・彗星を描く最小の半径（シーン単位）。実際の大きさ（半径 約5 km）では画面に映らないため */
 export const MIN_IMPACTOR_DISPLAY_RADIUS = 0.05;
@@ -250,9 +258,10 @@ const IMPACTOR_DEFINITIONS: ImpactorDefinition[] = [
     accentColor: "#38bdf8",
     model: {
       nameJa: "ハレー彗星",
-      // 核の大きさ 約15 × 8 × 8 km（探査機ジオットの観測）の楕円体と同じ体積の球の半径：
-      // (15 × 8 × 8)^(1/3) ÷ 2 ≒ 4.9 km。質量 約2.2 × 10¹⁴ kg は推定値（文献により幅あり）
-      radiusKm: Math.cbrt(15 * 8 * 8) / 2,
+      // 核の大きさ 約16 × 8 × 8 km（NASA NSSDC の探査機ジオットのページ）の楕円体と同じ体積の球の半径：
+      // (16 × 8 × 8)^(1/3) ÷ 2 ≒ 5.0 km。
+      // 質量 約2.2 × 10¹⁴ kg は Hughes（1985, MNRAS 213, 103）の推定（密度 0.5 g/cm³ を仮定）
+      radiusKm: Math.cbrt(16 * 8 * 8) / 2,
       massKg: 2.2e14,
       radiusUnit: "km",
       massUnit: "kg",
@@ -421,14 +430,16 @@ const IMPACTOR_DEFINITIONS: ImpactorDefinition[] = [
     accentColor: "#60a5fa",
     model: {
       nameJa: "リゲル",
-      // 半径 78.9 R☉（Moravveji ほか 2012, ApJ 747, 108）、
-      // 質量 23 M☉（Przybilla ほか 2010, A&A 517, A38 の推定。Moravveji ほか 2012 が引用している値）
+      // 半径 78.9 R☉（Moravveji ほか 2012, ApJ 747, 108 の Table 1）。
+      // 質量 23 M☉ は Przybilla ほか（2010, A&A 517, A38）の Table 1 の値で、生まれたとき（ゼロ歳主系列）の質量です。
+      // 今の質量は、恒星風で失ったぶんこれより少し小さいと考えられますが、確かめられる推定値がないためこの値を使います。
       radiusKm: 78.9 * SUN_RADIUS_KM,
       massKg: 23 * SUN_MASS_KG,
       radiusUnit: "solarRadius",
       massUnit: "solarMass",
       radiusLabelJa: "半径",
       isEstimate: true,
+      massNoteJa: "生まれたときの質量",
     },
     displayScale: "star",
     explosionColorHex: "#38bdf8",
@@ -561,13 +572,14 @@ export function formatImpactorRadiusJa(spec: ImpactorSpec): string {
 export function formatImpactorMassJa(spec: ImpactorSpec): string {
   const m = spec.model;
   const approx = m.isEstimate ? "約" : "";
+  const note = m.massNoteJa ? `（${m.massNoteJa}）` : "";
   if (m.massUnit === "solarMass") {
-    return `質量 ${approx}${formatNumberJa(m.massKg / SUN_MASS_KG)} M☉`;
+    return `質量 ${approx}${formatNumberJa(m.massKg / SUN_MASS_KG)} M☉${note}`;
   }
   if (m.massUnit === "earthMass") {
-    return `質量 ${approx}${formatNumberJa(m.massKg / EARTH_MASS_KG)} M⊕`;
+    return `質量 ${approx}${formatNumberJa(m.massKg / EARTH_MASS_KG)} M⊕${note}`;
   }
-  return `質量 ${approx}${formatScientificJa(m.massKg)} kg`;
+  return `質量 ${approx}${formatScientificJa(m.massKg)} kg${note}`;
 }
 
 /** 投入天体の説明文（例：「赤色矮星（プロキシマ・ケンタウリ）半径 0.154 R☉・質量 0.122 M☉」） */
@@ -780,6 +792,49 @@ export function buildDisplayWarpHosts(
     });
   }
   return result;
+}
+
+/**
+ * 太陽系天体の上を押して投入天体を置くとき、「すぐ近く」としてその天体の中心から離す距離（描く空間）を求めます。
+ * 次の2つのうち遠いほうです。
+ * (a) 描いた絵が重ならない距離：天体の描く半径 × 1.9 ＋ 投入天体の描く半径 × 1.45 ＋ 1.4。
+ *     ただし半透明で描く巨大な恒星（リゲル、描く半径 268）の描く半径は足しません（足すと数百も離れてしまうため）
+ * (b) 実際の大きさで触れない距離：2天体の実際の半径の和 × 1.5 だけ離れた物理上の点を、描く位置に直した距離
+ *
+ * @param targetPhys 天体の物理上の中心
+ * @param targetDrawn 天体を描いている中心
+ * @param direction 置く向き（長さ1）
+ * @param warpHosts 物理上の位置を描く位置に直す変換の設定
+ */
+export function nearBodySpawnClearance(
+  impactorId: ImpactorId,
+  targetId: SolarImpactTargetId,
+  targetPhys: Vec3Like,
+  targetDrawn: Vec3Like,
+  direction: Vec3Like,
+  warpHosts: ReadonlyArray<DisplayWarpHost>
+): number {
+  const spec = IMPACTOR_MAP[impactorId];
+  const target = SOLAR_TARGET_MAP[targetId];
+  const impactorDrawn =
+    spec.visualRadius <= HUGE_STAR_DISPLAY_RADIUS ? spec.visualRadius : 0;
+  const drawnClearance = target.displayRadius * 1.9 + impactorDrawn * 1.45 + 1.4;
+  const gap = (target.physicalRadius + spec.physicalRadius) * 1.5;
+  const drawnPoint = warpPhysicsToDisplay(
+    {
+      x: targetPhys.x + direction.x * gap,
+      y: targetPhys.y + direction.y * gap,
+      z: targetPhys.z + direction.z * gap,
+    },
+    warpHosts,
+    { x: 0, y: 0, z: 0 }
+  );
+  const physClearance = Math.hypot(
+    drawnPoint.x - targetDrawn.x,
+    drawnPoint.y - targetDrawn.y,
+    drawnPoint.z - targetDrawn.z
+  );
+  return Math.max(drawnClearance, physClearance);
 }
 
 // ---------------------------------------------------------------------------

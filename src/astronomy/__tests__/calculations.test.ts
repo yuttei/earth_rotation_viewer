@@ -22,6 +22,7 @@ import {
   getMoonPhaseLabelJa,
   getNextSeasonDate,
   getSeasonLabelJa,
+  getTimeSliderScale,
   latLonToVector3Tuple,
   normalizeAngleRad,
   normalizeLonDeg,
@@ -390,5 +391,29 @@ describe("天文計算エンジン (calculations)", () => {
     expect(Math.abs(signedAngleDiffDeg(io1.angleDeg, io0.angleDeg))).toBeLessThan(
       0.01
     );
+  });
+
+  it("getTimeSliderScale が再生速度に応じて 1日 / 1ヶ月 / 1年 / 50年 レンジへ自動スケーリングする", () => {
+    const d = new Date("2026-11-19T03:30:00Z");
+
+    const dayScale = getTimeSliderScale(d, 1800);
+    expect(dayScale.mode).toBe("day");
+    expect(dayScale.rangeBadgeJa).toBe("1日");
+    expect(dayScale.label).toBe("UTC 03:30");
+
+    const monthScale = getTimeSliderScale(d, 86400);
+    expect(monthScale.mode).toBe("month");
+    expect(monthScale.rangeBadgeJa).toBe("1ヶ月");
+    expect(monthScale.label).toBe("11月 19日");
+
+    const yearScale = getTimeSliderScale(d, 2592000);
+    expect(yearScale.mode).toBe("year");
+    expect(yearScale.rangeBadgeJa).toBe("1年");
+    expect(yearScale.label).toBe("2026/11/19");
+
+    const longScale = getTimeSliderScale(d, 31557600);
+    expect(longScale.mode).toBe("half-century");
+    expect(longScale.rangeBadgeJa).toBe("50年");
+    expect(longScale.label).toBe("2026年 11月");
   });
 });

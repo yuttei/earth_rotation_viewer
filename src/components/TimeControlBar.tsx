@@ -1,6 +1,7 @@
 import React from "react";
 import { Pause, Play, RotateCcw, StepForward } from "lucide-react";
 import {
+  getTimeSliderScale,
   SEASON_PRESETS,
   SeasonPreset,
   SIDEREAL_DAY_SECONDS,
@@ -57,20 +58,24 @@ export const TimeControlBar: React.FC<TimeControlBarProps> = ({
   onStepSeconds,
   onResetToNow,
 }) => {
-  // 現在の UTC 日付内での経過分数（0〜1439分）をスライダー値として扱います。
-  const utcMinutes =
-    currentDate.getUTCHours() * 60 + currentDate.getUTCMinutes();
+  // 現在の再生速度（時間/s）に応じてスライダーのレンジ（1日 / 1ヶ月 / 1年 / 50年）と刻み幅をスケーリングします。
+  const sliderScale = getTimeSliderScale(currentDate, speedMultiplier);
 
-  const handleScrubUtcMinutes = (minutes: number) => {
-    const updated = new Date(currentDate.getTime());
-    const hh = Math.floor(minutes / 60);
-    const mm = minutes % 60;
-    updated.setUTCHours(hh, mm, 0, 0);
-    onSetDate(updated);
+  const handleScrubSlider = (stepValue: number) => {
+    const clamped = Math.max(0, Math.min(sliderScale.max, stepValue));
+    let nextMs = sliderScale.startMs + clamped * sliderScale.stepMs;
+    // 1年レンジ（1日刻み）でドラッグするときは、現在の時刻（時・分）を保ったまま日付だけ動かします。
+    if (sliderScale.mode === "year") {
+      const dayStartMs = Date.UTC(
+        currentDate.getUTCFullYear(),
+        currentDate.getUTCMonth(),
+        currentDate.getUTCDate()
+      );
+      const timeOfDayMs = currentDate.getTime() - dayStartMs;
+      nextMs += timeOfDayMs;
+    }
+    onSetDate(new Date(nextMs));
   };
-
-  const hhStr = String(Math.floor(utcMinutes / 60)).padStart(2, "0");
-  const mmStr = String(utcMinutes % 60).padStart(2, "0");
 
   return (
     <section className="time-control-bar" aria-label="時間と季節の操作">
@@ -129,18 +134,19 @@ export const TimeControlBar: React.FC<TimeControlBarProps> = ({
         ))}
       </div>
 
-      <div className="scrub-group">
+      <div className="scrub-group" title={sliderScale.ariaLabel}>
+        <span className="scrub-scale-badge">{sliderScale.rangeBadgeJa}</span>
         <input
           type="range"
           className="scrub-slider"
           min={0}
-          max={1439}
+          max={sliderScale.max}
           step={1}
-          value={utcMinutes}
-          onChange={(e) => handleScrubUtcMinutes(Number(e.target.value))}
-          aria-label="1日の時刻スクラブ（UTC）"
+          value={sliderScale.value}
+          onChange={(e) => handleScrubSlider(Number(e.target.value))}
+          aria-label={sliderScale.ariaLabel}
         />
-        <span className="scrub-label">UTC {hhStr}:{mmStr}</span>
+        <span className="scrub-label">{sliderScale.label}</span>
       </div>
 
       <div className="season-group" role="group" aria-label="季節プリセット">

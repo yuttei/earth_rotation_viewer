@@ -720,3 +720,121 @@ export function calculateVenusState(
     visibilityLabelJa,
   };
 }
+
+/** 再生倍率（時間/s）に応じてスケーリングされた下部タイムスライダーの設定 */
+export interface TimeSliderScale {
+  /** スライダーのレンジ種別（1日 / 1ヶ月 / 1年 / 50年） */
+  mode: "day" | "month" | "year" | "half-century";
+  /** スライダー横に表示する短いレンジ名（例: 1日 / 1ヶ月 / 1年 / 50年） */
+  rangeBadgeJa: string;
+  /** レンジ開始時刻（UTC ミリ秒） */
+  startMs: number;
+  /** レンジ終了時刻（UTC ミリ秒） */
+  endMs: number;
+  /** スライダー最大値（min は常に 0） */
+  max: number;
+  /** 現在のスライダー値（0 〜 max） */
+  value: number;
+  /** 1ステップあたりのミリ秒数 */
+  stepMs: number;
+  /** スライダー右端に表示する現在位置ラベル */
+  label: string;
+  /** アクセシビリティ・ツールチップ用の説明 */
+  ariaLabel: string;
+}
+
+/**
+ * 現在の再生倍率（speedMultiplier：秒/秒）に応じて、下部タイムスライダーの
+ * 「間隔（レンジ＆刻み幅）」と「つまみの進む速さ」を自動でスケーリングします。
+ * どの速度でもつまみが約 12〜50 秒で1周する落ち着いた進行速度になります。
+ */
+export function getTimeSliderScale(
+  date: Date,
+  speedMultiplier: number
+): TimeSliderScale {
+  const curMs = date.getTime();
+  const y = date.getUTCFullYear();
+  const m = date.getUTCMonth();
+  const d = date.getUTCDate();
+  const hh = date.getUTCHours();
+  const mm = date.getUTCMinutes();
+
+  // 1. 自転観察帯域（1× / 30分/s / 2時間/s）：1日（24時間・1分刻み）
+  if (speedMultiplier < SOLAR_DAY_SECONDS) {
+    const startMs = Date.UTC(y, m, d, 0, 0, 0, 0);
+    const endMs = startMs + MS_PER_DAY;
+    const stepMs = 60 * 1000;
+    const max = 1439;
+    const value = Math.max(0, Math.min(max, hh * 60 + mm));
+    return {
+      mode: "day",
+      rangeBadgeJa: "1日",
+      startMs,
+      endMs,
+      max,
+      value,
+      stepMs,
+      label: `UTC ${pad2(hh)}:${pad2(mm)}`,
+      ariaLabel: "1日の時刻スライダー（24時間・1分刻み）",
+    };
+  }
+
+  // 2. 1日/s 帯域（月・内惑星公転）：1ヶ月（当月1日〜月末・2時間刻み、約30秒で1周）
+  if (speedMultiplier < SOLAR_DAY_SECONDS * 10) {
+    const startMs = Date.UTC(y, m, 1, 0, 0, 0, 0);
+    const endMs = Date.UTC(y, m + 1, 1, 0, 0, 0, 0);
+    const stepMs = 2 * 3600 * 1000;
+    const max = Math.max(1, Math.floor((endMs - startMs) / stepMs) - 1);
+    const value = Math.max(0, Math.min(max, Math.floor((curMs - startMs) / stepMs)));
+    return {
+      mode: "month",
+      rangeBadgeJa: "1ヶ月",
+      startMs,
+      endMs,
+      max,
+      value,
+      stepMs,
+      label: `${pad2(m + 1)}月 ${pad2(d)}日`,
+      ariaLabel: "1ヶ月の日付スライダー（当月1日〜月末・2時間刻み）",
+    };
+  }
+
+  // 3. 10日/s・30日/s 帯域（地球・木星公転）：1年（当年1月1日〜12月31日・1日刻み、約12〜36秒で1周）
+  if (speedMultiplier < 31557600) {
+    const startMs = Date.UTC(y, 0, 1, 0, 0, 0, 0);
+    const endMs = Date.UTC(y + 1, 0, 1, 0, 0, 0, 0);
+    const stepMs = MS_PER_DAY;
+    const max = Math.max(1, Math.floor((endMs - startMs) / stepMs) - 1);
+    const value = Math.max(0, Math.min(max, Math.floor((curMs - startMs) / stepMs)));
+    return {
+      mode: "year",
+      rangeBadgeJa: "1年",
+      startMs,
+      endMs,
+      max,
+      value,
+      stepMs,
+      label: `${y}/${pad2(m + 1)}/${pad2(d)}`,
+      ariaLabel: "1年の日付スライダー（1月1日〜12月31日・1日刻み）",
+    };
+  }
+
+  // 4. 1年/s 帯域（外惑星・冥王星）：50年レンジ（1ヶ月刻み、50秒で1周）
+  const blockStartYear = Math.floor(y / 50) * 50;
+  const startMs = Date.UTC(blockStartYear, 0, 1, 0, 0, 0, 0);
+  const endMs = Date.UTC(blockStartYear + 50, 0, 1, 0, 0, 0, 0);
+  const max = 600;
+  const stepMs = (endMs - startMs) / max;
+  const value = Math.max(0, Math.min(max, Math.floor((curMs - startMs) / stepMs)));
+  return {
+    mode: "half-century",
+    rangeBadgeJa: "50年",
+    startMs,
+    endMs,
+    max,
+    value,
+    stepMs,
+    label: `${y}年 ${pad2(m + 1)}月`,
+    ariaLabel: `50年タイムスライダー（${blockStartYear}年〜${blockStartYear + 50}年・約1ヶ月刻み）`,
+  };
+}

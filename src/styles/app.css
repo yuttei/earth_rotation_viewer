@@ -1212,11 +1212,24 @@ input {
 }
 
 .scrub-group {
-  flex: 1 1 160px;
-  min-width: 150px;
+  flex: 1 1 180px;
+  min-width: 170px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+}
+
+.scrub-scale-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.14);
+  border: 1px solid rgba(56, 189, 248, 0.34);
+  color: #bae6fd;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .scrub-slider {
@@ -1228,6 +1241,9 @@ input {
 .scrub-label {
   font-family: var(--font-mono);
   font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
   color: var(--text-secondary);
   white-space: nowrap;
 }

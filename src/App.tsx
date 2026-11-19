@@ -275,7 +275,9 @@ export function App() {
     seq: 0,
   });
 
-  const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(true);
+  const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 860 : true
+  );
   const [layers, setLayers] = useState<DisplayLayers>(DEFAULT_LAYERS);
   const [transitioningSeasonId, setTransitioningSeasonId] = useState<
     SeasonPreset["id"] | null
@@ -713,6 +715,11 @@ export function App() {
           }));
           setIsPlaying(false);
           break;
+      }
+
+      // スマホ画面では学習ガイドの3D確認ボタンを押した直後にパネルを閉じ、3D遷移を見やすくします。
+      if (typeof window !== "undefined" && window.innerWidth < 860) {
+        setIsInspectorOpen(false);
       }
     },
     [applyNewDate, handleSelectCameraPreset, handleSelectSeason]

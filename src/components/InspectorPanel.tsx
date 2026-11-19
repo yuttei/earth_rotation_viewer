@@ -686,6 +686,49 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             <div className="guide-card">
+              <h3 className="guide-title">★ なぜ冥王星は「惑星」ではなく「準惑星」なの？</h3>
+              <p className="guide-text">
+                かつて冥王星は9番目の惑星とされていましたが、2006年に国際天文学連合（IAU）が「惑星」の3つの条件を決めたことで、<strong>準惑星</strong>に分類されるようになりました。3つの条件と冥王星を比べてみましょう。
+              </p>
+              <ul className="guide-checklist">
+                <li className="guide-check-item is-pass">
+                  <span className="guide-check-mark" aria-label="満たす">○</span>
+                  <span>
+                    <strong>条件① 太陽のまわりを回っていること（公転）</strong>
+                    <br />
+                    冥王星も約248年かけて太陽のまわりを公転しています。
+                  </span>
+                </li>
+                <li className="guide-check-item is-pass">
+                  <span className="guide-check-mark" aria-label="満たす">○</span>
+                  <span>
+                    <strong>条件② 自分の重力でほぼ丸い球の形になれること</strong>
+                    <br />
+                    冥王星も自分の重さで丸い球の形になっています。
+                  </span>
+                </li>
+                <li className="guide-check-item is-fail">
+                  <span className="guide-check-mark" aria-label="満たさない">✕</span>
+                  <span>
+                    <strong>条件③ 自分の通り道（軌道）の近くから、ほかの小さな天体をはじき飛ばしたり吸収したりして、ひとりじめできていること</strong>
+                    <br />
+                    冥王星は地球の月より小さく重力が弱いため、通り道のまわりにある似た大きさの氷の天体（エリスなど）を追い払えていません。
+                  </span>
+                </li>
+              </ul>
+              <p className="guide-text">
+                さらに、ほかの8つの惑星がほぼ同じ平らな面を回っているのに対し、冥王星は通り道が約17.2°も大きく傾き、細長いだ円になっていて、上から見ると海王星の軌道と交差し、一時は海王星より太陽に近づきます。①と②は満たすけれど③だけ満たさないため、冥王星は「準惑星」と呼ばれます。
+              </p>
+              <button
+                type="button"
+                className="guide-action-btn"
+                onClick={() => onRunGuideExperiment("real-solar-system")}
+              >
+                冥王星の傾いた軌道を3Dで確認する
+              </button>
+            </div>
+
+            <div className="guide-card">
               <h3 className="guide-title">1. 東京の地上から見る空（日周運動と北極星）</h3>
               <p className="guide-text">
                 東京（北緯35.7°）の地上へ降りると、北の空では高度35.7°の北極星を中心に星々が反時計回りに回り、東から昇った太陽や月が南を通って西へ沈む様子を連続視点で観察できます。

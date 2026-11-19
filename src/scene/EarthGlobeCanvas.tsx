@@ -1479,29 +1479,60 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       compassAnchorMap.set(cp.id, anchor);
     }
 
-    // 8. マウス・タッチドラッグおよびホイールズーム操作
-    let isDragging = false;
-    let lastPointerX = 0;
-    let lastPointerY = 0;
+    // 8. マウス・タッチドラッグおよびピンチ/ホイールズーム操作
+    const activePointers = new Map<number, { x: number; y: number }>();
+    let lastPinchDist: number | null = null;
     let groundFovOffset = 0;
 
+    const getPinchDistance = (): number | null => {
+      if (activePointers.size < 2) return null;
+      const pts = Array.from(activePointers.values());
+      return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    };
+
     const onPointerDown = (ev: PointerEvent) => {
-      isDragging = true;
-      lastPointerX = ev.clientX;
-      lastPointerY = ev.clientY;
+      activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      lastPinchDist = getPinchDistance();
       renderer.domElement.setPointerCapture(ev.pointerId);
     };
 
     const onPointerMove = (ev: PointerEvent) => {
-      if (!isDragging) return;
-      const dx = ev.clientX - lastPointerX;
-      const dy = ev.clientY - lastPointerY;
-      lastPointerX = ev.clientX;
-      lastPointerY = ev.clientY;
+      const prevPt = activePointers.get(ev.pointerId);
+      if (!prevPt) return;
 
-      onCameraUserDrag();
+      const dx = ev.clientX - prevPt.x;
+      const dy = ev.clientY - prevPt.y;
+      prevPt.x = ev.clientX;
+      prevPt.y = ev.clientY;
 
       const anim = cameraAnimRef.current;
+
+      // スマホ等での2本指ピンチイン／ピンチアウトで滑らかにズームできるようにします。
+      if (activePointers.size >= 2) {
+        const curPinchDist = getPinchDistance();
+        if (curPinchDist !== null && lastPinchDist !== null && lastPinchDist > 4) {
+          const ratio = lastPinchDist / Math.max(4, curPinchDist);
+          if (anim.current.groundBlend > 0.5) {
+            groundFovOffset = Math.max(
+              -36,
+              Math.min(12, groundFovOffset + (ratio - 1) * 45)
+            );
+          } else {
+            const maxZoomDist = anim.current.solarSystemBlend > 0.25 ? 2400 : 95;
+            const nextDist = Math.max(
+              1.85,
+              Math.min(maxZoomDist, anim.current.distance * ratio)
+            );
+            anim.current.distance = nextDist;
+            anim.to.distance = nextDist;
+            anim.from.distance = nextDist;
+          }
+        }
+        lastPinchDist = curPinchDist;
+        return;
+      }
+
+      onCameraUserDrag();
       anim.active = false;
       if (anim.current.groundBlend > 0.5) {
         // 東京の地上視点では、ドラッグで360°の空と天頂方向を自由に見渡せます。
@@ -1521,7 +1552,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     };
 
     const onPointerUp = (ev: PointerEvent) => {
-      isDragging = false;
+      activePointers.delete(ev.pointerId);
+      lastPinchDist = getPinchDistance();
       if (renderer.domElement.hasPointerCapture(ev.pointerId)) {
         renderer.domElement.releasePointerCapture(ev.pointerId);
       }

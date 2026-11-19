@@ -24,6 +24,7 @@ import {
   CameraPoseTarget,
   EarthGlobeCanvas,
   ImpactStatus,
+  isRealSolarSystemPose,
 } from "./scene/EarthGlobeCanvas";
 import { IMPACTOR_MAP, ImpactorId } from "./astronomy/impactPhysics";
 import { HeaderBar } from "./components/HeaderBar";
@@ -677,15 +678,6 @@ export function App() {
     (preset: CameraPreset, adjustSpeedAutomatically = true) => {
       setFocusedBodyId(null);
       const p = PRESET_POSES[preset];
-      // 衝突シミュレーションはリアル太陽系モード専用のため、リアル太陽系以外の視点へ移るときは「視点移動」へ戻します。
-      if (
-        p.solarSystemBlend < 0.5 ||
-        p.groundBlend > 0.5 ||
-        p.eclipticViewBlend > 0.5 ||
-        p.cosmicLevel > 0.5
-      ) {
-        setIsImpactAimMode(false);
-      }
       const isTargetGround = p.groundBlend > 0.5;
       setActivePresetButton(preset);
       setViewTransitionRatio(p.ratio);
@@ -888,7 +880,6 @@ export function App() {
   const handleRunGuideExperiment = useCallback(
     (id: GuideExperimentId) => {
       setFocusedBodyId(null);
-      setIsImpactAimMode(false);
       const glideToGroundSky = (
         cityId: string,
         preset: CameraPreset,
@@ -1347,12 +1338,7 @@ export function App() {
   const ensureSunEarthOrbitViewForImpact = useCallback(() => {
     setIsAnnualMotionMode(false);
     setCameraPoseTarget((prev) => {
-      const alreadyInRealSolarSystem =
-        prev.solarSystemBlend > 0.5 &&
-        prev.cosmicLevel < 0.5 &&
-        prev.groundBlend < 0.5 &&
-        prev.eclipticViewBlend < 0.5;
-      if (alreadyInRealSolarSystem) {
+      if (isRealSolarSystemPose(prev)) {
         return prev;
       }
       return {
@@ -1432,9 +1418,17 @@ export function App() {
     setIsInspectorOpen((prev) => !prev);
   }, [focusedBodyId]);
 
-  const activeImpactorId: ImpactorId | null = isImpactAimMode
-    ? selectedImpactorId
-    : null;
+  // 天体衝突シミュレーターはリアル太陽系モード専用です。
+  // プリセット・視点スライダー・学習ガイドなど、どの操作で移動先がリアル太陽系の外になっても、ここ1か所で狙うモードを切ります。
+  const isTargetRealSolarSystem = isRealSolarSystemPose(cameraPoseTarget);
+  useEffect(() => {
+    if (isImpactAimMode && !isTargetRealSolarSystem) {
+      setIsImpactAimMode(false);
+    }
+  }, [isImpactAimMode, isTargetRealSolarSystem]);
+
+  const activeImpactorId: ImpactorId | null =
+    isImpactAimMode && isTargetRealSolarSystem ? selectedImpactorId : null;
   const selectedImpactorSpec = IMPACTOR_MAP[selectedImpactorId];
 
   return (

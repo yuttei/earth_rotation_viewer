@@ -153,6 +153,24 @@ interface EarthGlobeCanvasProps {
   onImpactStatusChange?: (status: ImpactStatus) => void;
 }
 
+/**
+ * カメラの視点がリアル太陽系モード（太陽系の俯瞰。地上・地球中心の黄道ビュー・宇宙スケールではない）かを判定します。
+ * 天体衝突シミュレーターはこのモード専用なので、App（狙うモードの ON/OFF）とキャンバス（狙いの開始・リセット）の両方がこの1つの判定を使います。
+ */
+export function isRealSolarSystemPose(pose: {
+  solarSystemBlend: number;
+  groundBlend: number;
+  eclipticViewBlend: number;
+  cosmicLevel: number;
+}): boolean {
+  return (
+    pose.solarSystemBlend > 0.5 &&
+    pose.groundBlend < 0.5 &&
+    pose.eclipticViewBlend < 0.5 &&
+    pose.cosmicLevel < 0.5
+  );
+}
+
 /** 画面上部の発射モード表示に使う、衝突シミュレーターの現在状態 */
 export interface ImpactStatus {
   phase: ImpactSimPhase;
@@ -2572,6 +2590,16 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       return true;
     };
 
+    /**
+     * 今、1本指の操作で天体を狙ってよいなら選択中の天体の種類を、そうでなければ null を返します。
+     * 移動先の視点がリアル太陽系の外なら、App 側の状態にかかわらず通常のカメラ操作にします。
+     */
+    const getAimableImpactorId = (): ImpactorId | null => {
+      const id = latestPropsRef.current.activeImpactorId;
+      if (id === null) return null;
+      return isRealSolarSystemPose(cameraAnimRef.current.to) ? id : null;
+    };
+
     // 狙いの状態をまとめて保持します（すべて solarWorldGroup 太陽中心のワールド座標）。
     const impactAim = {
       active: false,
@@ -2824,7 +2852,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       renderer.domElement.setPointerCapture(ev.pointerId);
 
       // 発射モード中：1本指（左クリック）で押したら狙いを開始し、2本目の指が来たら取り消します。
-      const curImpactorId = latestPropsRef.current.activeImpactorId;
+      const curImpactorId = getAimableImpactorId();
       if (curImpactorId !== null) {
         if (activePointers.size >= 2) {
           cancelImpactAim();
@@ -2851,7 +2879,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
 
       // 発射モードで狙い中のドラッグは、カメラを回さずに投げる向きと強さを決めます。
       if (impactAim.active) {
-        const curImpactorId = latestPropsRef.current.activeImpactorId;
+        const curImpactorId = getAimableImpactorId();
         if (curImpactorId === null) {
           cancelImpactAim();
         } else if (pointerMovedDist >= 8) {
@@ -3015,7 +3043,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
 
       // 発射モードで狙い中に指を離したら、天体を発射します。
       if (impactAim.active) {
-        const curImpactorId = latestPropsRef.current.activeImpactorId;
+        const curImpactorId = getAimableImpactorId();
         const canLaunch =
           ev.type === "pointerup" &&
           activePointers.size === 0 &&
@@ -3038,7 +3066,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         return;
       }
       // 発射モード中は、左クリックのタップで天体の詳細カードを開かないようにします。
-      if (latestPropsRef.current.activeImpactorId !== null) {
+      if (getAimableImpactorId() !== null) {
         return;
       }
       // ドラッグせずに天体を短くタップ／クリックした場合は、その天体にズームして詳細カードを開きます。
@@ -4002,12 +4030,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       // 天体衝突シミュレーターはリアル太陽系モード専用です。
       // 移動先の視点（anim.to）がリアル太陽系の外なら、置いた天体と軌道の乱れをすべて消して元に戻します。
       // こうしないと、簡易視点や地上視点でも N体計算の結果で地球・月・金星の位置や消滅が上書きされ続けます。
-      const isTargetRealSolarSystem =
-        anim.to.solarSystemBlend > 0.5 &&
-        anim.to.groundBlend < 0.5 &&
-        anim.to.eclipticViewBlend < 0.5 &&
-        anim.to.cosmicLevel < 0.5;
-      if (!isTargetRealSolarSystem && lastImpactPhase !== "idle") {
+      if (!isRealSolarSystemPose(anim.to) && lastImpactPhase !== "idle") {
         impactRig.resetImmediate();
       }
 

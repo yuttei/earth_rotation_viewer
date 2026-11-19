@@ -258,9 +258,9 @@ const IMPACTOR_DEFINITIONS: ImpactorDefinition[] = [
     accentColor: "#38bdf8",
     model: {
       nameJa: "ハレー彗星",
-      // 核の大きさ 約16 × 8 × 8 km（NASA NSSDC の探査機ジオットのページ）の楕円体と同じ体積の球の半径：
+      // 核の大きさ 約16 × 8 × 8 km（NASA NSSDC Photo Gallery「Halley - Giotto」）の楕円体と同じ体積の球の半径：
       // (16 × 8 × 8)^(1/3) ÷ 2 ≒ 5.0 km。
-      // 質量 約2.2 × 10¹⁴ kg は Hughes（1985, MNRAS 213, 103）の推定（密度 0.5 g/cm³ を仮定）
+      // 質量 約2.2 × 10¹⁴ kg は Hughes（1985, MNRAS 213, 103–109）の探査前の推定（密度 0.5 g/cm³・直径 9.4 km を仮定）
       radiusKm: Math.cbrt(16 * 8 * 8) / 2,
       massKg: 2.2e14,
       radiusUnit: "km",
@@ -797,12 +797,14 @@ export function buildDisplayWarpHosts(
 /**
  * 太陽系天体の上を押して投入天体を置くとき、「すぐ近く」としてその天体の中心から離す距離（描く空間）を求めます。
  * 次の2つのうち遠いほうです。
- * (a) 描いた絵が重ならない距離：天体の描く半径 × 1.9 ＋ 投入天体の描く半径 × 1.45 ＋ 1.4。
+ * (a) 描いた絵が重ならない距離：天体の今の描く半径 × 1.9 ＋ 投入天体の描く半径 × 1.45 ＋ 1.4。
+ *     天体の描く半径は、画面で今描いている値を使います（太陽は遠景で拡大して描くため、近景の 3.4 とは限りません）。
  *     ただし半透明で描く巨大な恒星（リゲル、描く半径 268）の描く半径は足しません（足すと数百も離れてしまうため）
  * (b) 実際の大きさで触れない距離：2天体の実際の半径の和 × 1.5 だけ離れた物理上の点を、描く位置に直した距離
  *
  * @param targetPhys 天体の物理上の中心
  * @param targetDrawn 天体を描いている中心
+ * @param targetDrawnRadius 天体を今描いている半径（シーン単位）
  * @param direction 置く向き（長さ1）
  * @param warpHosts 物理上の位置を描く位置に直す変換の設定
  */
@@ -811,6 +813,7 @@ export function nearBodySpawnClearance(
   targetId: SolarImpactTargetId,
   targetPhys: Vec3Like,
   targetDrawn: Vec3Like,
+  targetDrawnRadius: number,
   direction: Vec3Like,
   warpHosts: ReadonlyArray<DisplayWarpHost>
 ): number {
@@ -818,7 +821,7 @@ export function nearBodySpawnClearance(
   const target = SOLAR_TARGET_MAP[targetId];
   const impactorDrawn =
     spec.visualRadius <= HUGE_STAR_DISPLAY_RADIUS ? spec.visualRadius : 0;
-  const drawnClearance = target.displayRadius * 1.9 + impactorDrawn * 1.45 + 1.4;
+  const drawnClearance = targetDrawnRadius * 1.9 + impactorDrawn * 1.45 + 1.4;
   const gap = (target.physicalRadius + spec.physicalRadius) * 1.5;
   const drawnPoint = warpPhysicsToDisplay(
     {

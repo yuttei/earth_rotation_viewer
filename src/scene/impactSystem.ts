@@ -1201,6 +1201,21 @@ export function createImpactSystemRig(
       )
     );
 
+  /**
+   * 太陽系天体を画面で今描いている半径（シーン単位）。毎フレーム、画面の本来の天体の値（baselineBodies の radius）で更新します。
+   * 太陽は遠景で拡大して描く（全体を見渡す視点で半径 約14）ため、近景の値 3.4 で固定せず、今の値を使います。
+   */
+  const currentDrawnRadius = {} as Record<SolarImpactTargetId, number>;
+  for (const spec of SOLAR_TARGET_SPECS) currentDrawnRadius[spec.id] = spec.displayRadius;
+  const drawnRadiusOf = (id: SolarImpactTargetId): number =>
+    currentDrawnRadius[id] ?? SOLAR_TARGET_MAP[id].displayRadius;
+  /** 画面の本来の天体の値から、今描いている半径を記録します */
+  const refreshDrawnRadii = (baselineBodies: ReadonlyArray<SolarBaselineBodyInput>) => {
+    for (const b of baselineBodies) {
+      if (b.radius > 0) currentDrawnRadius[b.id] = b.radius;
+    }
+  };
+
   /** 衝突の当事者を画面に描く半径（シーン単位） */
   const displayRadiusOf = (
     id: SolarCollisionEvent["primaryId"],
@@ -1212,7 +1227,7 @@ export function createImpactSystemRig(
       }
       return 0.2;
     }
-    return SOLAR_TARGET_MAP[id].displayRadius;
+    return drawnRadiusOf(id);
   };
 
   /** 現在置かれている投入天体（古い順）。何個でも追加でき、MAX_LIVE_IMPACTORS を超えると古いものから消えます。 */
@@ -1865,7 +1880,7 @@ export function createImpactSystemRig(
       const rEntry = targetReticles.get(hit.id);
       if (!rEntry) continue;
       // 当たる天体の「描く位置」の表面のすぐ外に、描く半径に合わせた大きさのリングを置きます
-      const displayRadius = SOLAR_TARGET_MAP[hit.id].displayRadius;
+      const displayRadius = drawnRadiusOf(hit.id);
       tmpVec.set(hit.normal.x, hit.normal.y, hit.normal.z).normalize();
       if (tmpVec.lengthSq() < 1e-4) tmpVec.set(0, 1, 0);
       predictedToDisplay(hit.center, hit.hosts, rEntry.mesh.position);
@@ -1983,11 +1998,13 @@ export function createImpactSystemRig(
           ? liveBodies[targetId].pos
           : displayToPhysics(targetDrawn);
       const dir = directionDisplay.clone().normalize();
+      refreshDrawnRadii(baselineBodies);
       const clearance = nearBodySpawnClearance(
         impactorId,
         targetId,
         targetPhys,
         targetDrawn,
+        drawnRadiusOf(targetId),
         dir,
         currentWarpHosts
       );
@@ -2063,6 +2080,8 @@ export function createImpactSystemRig(
       astroSecondsPerSecond: number
     ): ImpactFrameOutput {
       const safeDt = Math.min(0.05, Math.max(0.001, dt));
+      // 天体を今描いている半径（太陽は遠景で拡大）を記録し、リング・爆発・置く距離に使います
+      refreshDrawnRadii(baselineBodies);
       bhAccretionUniforms.uTime.value = totalTimeSec;
       for (const slot of explosionSlots) {
         slot.fireballUniforms.uTime.value = totalTimeSec;

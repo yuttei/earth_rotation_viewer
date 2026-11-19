@@ -1,11 +1,9 @@
 import React from "react";
-import { CalendarClock, Pause, Play, RotateCcw, StepForward } from "lucide-react";
+import { CalendarClock, Pause, Play, RotateCcw } from "lucide-react";
 import {
   getTimeSliderScale,
   SEASON_PRESETS,
   SeasonPreset,
-  SIDEREAL_DAY_SECONDS,
-  SOLAR_DAY_SECONDS,
 } from "../astronomy/calculations";
 
 interface TimeControlBarProps {
@@ -25,8 +23,6 @@ interface TimeControlBarProps {
   onSelectSeason: (seasonId: SeasonPreset["id"]) => void;
   /** 現在、滑らかな時間移動で向かっている季節ID（移動中でなければ null） */
   transitioningSeasonId: SeasonPreset["id"] | null;
-  /** 指定秒数だけ時間を進める（または戻す）ハンドラ */
-  onStepSeconds: (deltaSeconds: number) => void;
   /** 現在時刻（「今」）へリセットするハンドラ */
   onResetToNow: () => void;
   /** 星の年周運動観察モード（毎日 21:00 JST 固定で日付のみ進行）が有効か */
@@ -59,7 +55,6 @@ export const TimeControlBar: React.FC<TimeControlBarProps> = ({
   onSetDate,
   onSelectSeason,
   transitioningSeasonId,
-  onStepSeconds,
   onResetToNow,
   isAnnualMotionMode,
   onToggleAnnualMotion,
@@ -104,26 +99,6 @@ export const TimeControlBar: React.FC<TimeControlBarProps> = ({
         >
           <RotateCcw size={12} />
           今
-        </button>
-
-        <button
-          type="button"
-          className="ctrl-btn"
-          onClick={() => onStepSeconds(SIDEREAL_DAY_SECONDS)}
-          title="1恒星日（23時間56分04秒）だけ進める：恒星に対して地球がちょうど1周します"
-        >
-          <StepForward size={12} />
-          +1恒星日
-        </button>
-
-        <button
-          type="button"
-          className="ctrl-btn"
-          onClick={() => onStepSeconds(SOLAR_DAY_SECONDS)}
-          title="1太陽日（24時間ちょうど）だけ進める：太陽に対して地球が1周します"
-        >
-          <StepForward size={12} />
-          +1太陽日
         </button>
 
         <button

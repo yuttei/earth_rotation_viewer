@@ -5,7 +5,6 @@ import {
   DisplayLayers,
   GalileanMoonState,
   MoonState,
-  ReferenceFrame,
   SolarBodyId,
   SolarSystemBodyState,
   SolarSystemState,
@@ -29,6 +28,7 @@ import {
 import {
   CASSIOPEIA_CONSTELLATION,
   ECLIPTIC_CARDINAL_POINTS,
+  SOUTHERN_CROSS_CONSTELLATION,
   ZODIAC_CONSTELLATIONS,
   ZodiacConstellationId,
   eclipticToWorldUnitVector,
@@ -106,8 +106,6 @@ interface EarthGlobeCanvasProps {
   selectedCityId: string;
   /** 都市選択時のコールバック */
   onSelectCity: (cityId: string) => void;
-  /** 基準座標系（太陽方向固定 / 恒星・春分点固定） */
-  referenceFrame: ReferenceFrame;
   /** 目標カメラ姿勢（プリセット・連続スライダーから渡されます） */
   cameraPoseTarget: CameraPoseTarget;
   /** 手動ドラッグ時にプリセット選択表示を解除するための通知 */
@@ -387,7 +385,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   cities,
   selectedCityId,
   onSelectCity,
-  referenceFrame,
   cameraPoseTarget,
   onCameraUserDrag,
   layers,
@@ -411,6 +408,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   const venusBadgeRef = useRef<HTMLSpanElement | null>(null);
   const polarisBadgeRef = useRef<HTMLSpanElement | null>(null);
   const cassiopeiaBadgeRef = useRef<HTMLSpanElement | null>(null);
+  const southernCrossBadgeRef = useRef<HTMLSpanElement | null>(null);
   const equinoxBadgeRef = useRef<HTMLSpanElement | null>(null);
 
   const latestPropsRef = useRef({
@@ -421,7 +419,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     galileanMoons,
     cities,
     selectedCityId,
-    referenceFrame,
     layers,
     isInspectorOpen,
   });
@@ -433,7 +430,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     galileanMoons,
     cities,
     selectedCityId,
-    referenceFrame,
     layers,
     isInspectorOpen,
   };
@@ -467,10 +463,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       eclipticYawOffset: cameraPoseTarget.eclipticYawOffset,
       eclipticFixedLon: cameraPoseTarget.eclipticFixedLon,
       eclipticViewLatRad: cameraPoseTarget.eclipticViewLatRad,
-      rightAngle:
-        referenceFrame === "solar"
-          ? degToRad(solarState.sunEclipticLongitudeDeg)
-          : 0,
+      rightAngle: degToRad(solarState.sunEclipticLongitudeDeg),
     },
     from: {
       yaw: cameraPoseTarget.yaw,
@@ -492,10 +485,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       eclipticYawOffset: cameraPoseTarget.eclipticYawOffset,
       eclipticFixedLon: cameraPoseTarget.eclipticFixedLon,
       eclipticViewLatRad: cameraPoseTarget.eclipticViewLatRad,
-      rightAngle:
-        referenceFrame === "solar"
-          ? degToRad(solarState.sunEclipticLongitudeDeg)
-          : 0,
+      rightAngle: degToRad(solarState.sunEclipticLongitudeDeg),
     },
     to: { ...cameraPoseTarget },
     elapsed: 0,
@@ -1004,6 +994,80 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       CASSIOPEIA_CONSTELLATION.labelPoint.latDeg
     );
     const cassiopeiaLabelUnitDir = new THREE.Vector3(clx, cly, clz).normalize();
+
+    // 2.7 南半球（シドニー・南極点）の南の空で見える「南十字星（みなみじゅうじ座 / Crux）」（十字形・J2000.0 実座標）
+    const southernCrossGroup = new THREE.Group();
+    scene.add(southernCrossGroup);
+    const scStarVecs: THREE.Vector3[] = [];
+    const scStarCoords: number[] = [];
+    const scStarCols: number[] = [];
+    for (const st of SOUTHERN_CROSS_CONSTELLATION.stars) {
+      const [ux, uy, uz] = eclipticToWorldUnitVector(st.lonDeg, st.latDeg);
+      const v = new THREE.Vector3(
+        ux * ZODIAC_RADIUS,
+        uy * ZODIAC_RADIUS,
+        uz * ZODIAC_RADIUS
+      );
+      scStarVecs.push(v);
+      scStarCoords.push(v.x, v.y, v.z);
+      // 上端のガクルックス（γ Cru）は赤色巨星のため暖かなオレンジ色、他は青白色で描画します。
+      if (st.nameJa === "ガクルックス") {
+        scStarCols.push(1.0, 0.72, 0.44);
+      } else {
+        scStarCols.push(0.9, 0.96, 1.0);
+      }
+    }
+    const scEdgePts: THREE.Vector3[] = [];
+    for (const [a, b] of SOUTHERN_CROSS_CONSTELLATION.edges) {
+      if (scStarVecs[a] && scStarVecs[b]) {
+        scEdgePts.push(scStarVecs[a], scStarVecs[b]);
+      }
+    }
+    const scLineGeo = new THREE.BufferGeometry().setFromPoints(scEdgePts);
+    const scLineMat = new THREE.LineBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.92,
+    });
+    const scLines = new THREE.LineSegments(scLineGeo, scLineMat);
+    scLines.renderOrder = 2;
+    southernCrossGroup.add(scLines);
+    zodiacDisposableGeos.push(scLineGeo);
+    zodiacDisposableMats.push(scLineMat);
+
+    const scStarsGeo = new THREE.BufferGeometry();
+    scStarsGeo.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(scStarCoords, 3)
+    );
+    scStarsGeo.setAttribute(
+      "color",
+      new THREE.Float32BufferAttribute(scStarCols, 3)
+    );
+    const scStarsMat = new THREE.PointsMaterial({
+      size: 5.2,
+      map: starTexture,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.98,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const scStarsPoints = new THREE.Points(scStarsGeo, scStarsMat);
+    scStarsPoints.renderOrder = 2;
+    southernCrossGroup.add(scStarsPoints);
+    zodiacDisposableGeos.push(scStarsGeo);
+    zodiacDisposableMats.push(scStarsMat);
+
+    const [sclx, scly, sclz] = eclipticToWorldUnitVector(
+      SOUTHERN_CROSS_CONSTELLATION.labelPoint.lonDeg,
+      SOUTHERN_CROSS_CONSTELLATION.labelPoint.latDeg
+    );
+    const southernCrossLabelUnitDir = new THREE.Vector3(
+      sclx,
+      scly,
+      sclz
+    ).normalize();
 
     // 東京の地上視点で見上げる大気スカイドーム（星 115〜210 の手前・太陽 75 と月 55 の奥に配置）
     const tokyoSkyMesh = new THREE.Mesh(
@@ -1707,17 +1771,27 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       );
     };
 
-    // 7.5 東京の地上観測ドーム（地球表面に固定された接平面：地平線ディスク・方位リング・高度線・北極星目印）
-    const tokyoLocalCompass = getLocalCompassVectors(TOKYO_LAT_DEG, TOKYO_LON_DEG);
+    // 7.5 観察地点の地上観測ドーム（選択した地点の地表接平面：地平線ディスク・方位リング・高度線・北極星/天の南極目印）
+    const initialGroundCity =
+      cities.find((c) => c.id === latestPropsRef.current.selectedCityId) ??
+      cities[0];
+    let curGroundLatDeg = initialGroundCity ? initialGroundCity.latDeg : TOKYO_LAT_DEG;
+    let curGroundLonDeg = initialGroundCity ? initialGroundCity.lonDeg : TOKYO_LON_DEG;
+
+    const tokyoLocalCompass = getLocalCompassVectors(
+      curGroundLatDeg,
+      curGroundLonDeg
+    );
     const tokyoEastLocal = new THREE.Vector3(...tokyoLocalCompass.east);
     const tokyoNorthLocal = new THREE.Vector3(...tokyoLocalCompass.north);
     const tokyoUpLocal = new THREE.Vector3(...tokyoLocalCompass.up);
+    const tokyoSouthLocal = tokyoNorthLocal.clone().negate();
 
     // ローカル +X = 東, +Y = 天頂, +Z = 南（-Z = 北）となる右手直交基底を構築します。
     const tokyoBasisMat = new THREE.Matrix4().makeBasis(
       tokyoEastLocal,
       tokyoUpLocal,
-      tokyoNorthLocal.clone().negate()
+      tokyoSouthLocal
     );
     const tokyoGroundGroup = new THREE.Group();
     tokyoGroundGroup.quaternion.setFromRotationMatrix(tokyoBasisMat);
@@ -2238,6 +2312,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     const groundCamQuat = new THREE.Quaternion();
     const rollQuat = new THREE.Quaternion();
     let lastMoonBadgeText = "";
+    let lastPolarisBadgeText = "";
 
     const renderFrame = (now: number) => {
       animFrameId = requestAnimationFrame(renderFrame);
@@ -2253,7 +2328,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         galileanMoons: curGalilean,
         cities: curCities,
         selectedCityId: curSelectedId,
-        referenceFrame: curFrame,
         layers: curLayers,
         isInspectorOpen: curInspectorOpen,
       } = latestPropsRef.current;
@@ -2267,7 +2341,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       // 連続カメラアニメーションの現在値を先に進行させ、モードブレンド率 (g, s, j) を確定します。
       const eclipticLonRad = degToRad(curSolar.sunEclipticLongitudeDeg);
       const anim = cameraAnimRef.current;
-      const desiredEarthRightAngle = curFrame === "solar" ? eclipticLonRad : 0;
+      const desiredEarthRightAngle = eclipticLonRad;
       const desiredSunRightAngle = -Math.PI / 2;
       const desiredTargetRightAngle =
         anim.to.sunCenterBlend > 0.5
@@ -2518,7 +2592,46 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       earthSystemGroup.updateMatrixWorld(true);
       earthGroup.getWorldQuaternion(earthQuat);
 
-      // 東京の地表における現在の天頂・北・東のワールド単位ベクトルと視点座標を算出します。
+      // 現在選択されている観察地点（東京・ロンドン・ニューヨーク・トロムソ・シドニー・北極点・南極点）へ地上ドームを滑らかに追従させます。
+      const activeGroundCity =
+        curCities.find((c) => c.id === curSelectedId) ?? curCities[0];
+      if (activeGroundCity) {
+        const cityLerp = 1 - Math.exp(-7.5 * dt);
+        curGroundLatDeg += (activeGroundCity.latDeg - curGroundLatDeg) * cityLerp;
+        const lonDiffDeg =
+          ((((activeGroundCity.lonDeg - curGroundLonDeg) % 360) + 540) % 360) -
+          180;
+        curGroundLonDeg += lonDiffDeg * cityLerp;
+
+        const dynCompass = getLocalCompassVectors(
+          curGroundLatDeg,
+          curGroundLonDeg
+        );
+        tokyoEastLocal.set(...dynCompass.east);
+        tokyoNorthLocal.set(...dynCompass.north);
+        tokyoUpLocal.set(...dynCompass.up);
+        tokyoSouthLocal.copy(tokyoNorthLocal).negate();
+
+        tokyoBasisMat.makeBasis(tokyoEastLocal, tokyoUpLocal, tokyoSouthLocal);
+        tokyoGroundGroup.quaternion.setFromRotationMatrix(tokyoBasisMat);
+        tokyoGroundGroup.position
+          .copy(tokyoUpLocal)
+          .multiplyScalar(1.0 + GROUND_EYE_ALTITUDE - 0.002);
+
+        // 北半球では北の空（-Z）に北極星、南半球では南の空（+Z）に天の南極リングを高度 |緯度| で配置します。
+        const poleAltRad = degToRad(Math.abs(curGroundLatDeg));
+        const isNorthHemisphere = curGroundLatDeg >= 0;
+        polarisAnchor.position.set(
+          0,
+          guideRadius * Math.sin(poleAltRad),
+          (isNorthHemisphere ? -1 : 1) * guideRadius * Math.cos(poleAltRad)
+        );
+        polarisRing.position.copy(polarisAnchor.position);
+        polarisRing.lookAt(0, 0, 0);
+        polarisRing.visible = Math.abs(curGroundLatDeg) > 0.5;
+      }
+
+      // 選択地点の地表における現在の天頂・北・東のワールド単位ベクトルと視点座標を算出します。
       tokyoUpWorld.copy(tokyoUpLocal).applyQuaternion(earthQuat).normalize();
       tokyoNorthWorld.copy(tokyoNorthLocal).applyQuaternion(earthQuat).normalize();
       tokyoEastWorld.copy(tokyoEastLocal).applyQuaternion(earthQuat).normalize();
@@ -2668,10 +2781,12 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         starsGroup.position.copy(earthOrbitPos).multiplyScalar(eBlend);
         zodiacGroup.position.copy(earthOrbitPos).multiplyScalar(eBlend);
         cassiopeiaGroup.position.copy(earthOrbitPos).multiplyScalar(eBlend);
+        southernCrossGroup.position.copy(earthOrbitPos).multiplyScalar(eBlend);
       } else {
         starsGroup.position.copy(tokyoEyeWorldPos).multiplyScalar(g);
         zodiacGroup.position.copy(tokyoEyeWorldPos).multiplyScalar(g);
         cassiopeiaGroup.position.copy(tokyoEyeWorldPos).multiplyScalar(g);
+        southernCrossGroup.position.copy(tokyoEyeWorldPos).multiplyScalar(g);
       }
       tokyoSkyMesh.position.copy(tokyoEyeWorldPos);
 
@@ -3001,14 +3116,22 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         zodiacSkyArtGroup.visible = false;
       }
 
-      // 東京の地上視点で見えるカシオペア座（W字形・夜空でくっきり表示、昼間も淡く星図確認可能）
+      // 地上視点で見えるカシオペア座（北天・W字）と南十字星（南天・十字）の明るさ制御
       const cassiopeiaNightFactor = isGroundView
         ? THREE.MathUtils.clamp((-tokyoSunElev + 0.14) * 3.2, 0.12, 1.0)
         : 0;
-      cassiopeiaGroup.visible = isGroundView && curLayers.starsAndEquinox;
+      cassiopeiaGroup.visible =
+        isGroundView && curLayers.starsAndEquinox && curGroundLatDeg > -15;
       if (cassiopeiaGroup.visible) {
         cassiopeiaLineMat.opacity = 0.88 * cassiopeiaNightFactor;
         cassiopeiaStarsMat.opacity = 0.98 * cassiopeiaNightFactor;
+      }
+
+      southernCrossGroup.visible =
+        isGroundView && curLayers.starsAndEquinox && curGroundLatDeg < 25;
+      if (southernCrossGroup.visible) {
+        scLineMat.opacity = 0.9 * cassiopeiaNightFactor;
+        scStarsMat.opacity = 0.98 * cassiopeiaNightFactor;
       }
 
       // 簡易版「太陽の真上・公転面やや上」視点のとき、外周の黄道13星座イラストメダリオンと「地球 → 太陽 → 星座」視線ガイドを表示します。
@@ -3293,7 +3416,17 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         );
       }
 
-      // 東京地上視点時の北極星ラベル（北の空・高度 35.7°）
+      // 地上視点時の北極星（北半球）または天の南極（南半球）ラベル
+      if (polarisBadgeRef.current) {
+        const nextPolarisText =
+          curGroundLatDeg >= 0
+            ? `★ 北極星 (高度 ${curGroundLatDeg.toFixed(1)}°)`
+            : `◎ 天の南極 (高度 ${Math.abs(curGroundLatDeg).toFixed(1)}°)`;
+        if (lastPolarisBadgeText !== nextPolarisText) {
+          polarisBadgeRef.current.textContent = nextPolarisText;
+          lastPolarisBadgeText = nextPolarisText;
+        }
+      }
       polarisAnchor.getWorldPosition(tmpWorldPos);
       tmpToCam.copy(tmpWorldPos).sub(camera.position).normalize();
       updateFloatingBadgeAtPosition(
@@ -3302,7 +3435,9 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         camera,
         hostW,
         hostH,
-        isGroundView && tmpToCam.dot(camForward) > 0.18,
+        isGroundView &&
+          Math.abs(curGroundLatDeg) > 0.5 &&
+          tmpToCam.dot(camForward) > 0.18,
         curInspectorOpen,
         false
       );
@@ -3462,7 +3597,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         }
       }
 
-      // 東京地上視点時のカシオペア座（W字形）ラベル
+      // 地上視点時のカシオペア座（W字形）ラベル
       tmpWorldPos
         .copy(cassiopeiaGroup.position)
         .addScaledVector(cassiopeiaLabelUnitDir, ZODIAC_RADIUS);
@@ -3478,6 +3613,27 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           curLayers.starsAndEquinox &&
           casInFront &&
           casAboveHorizon,
+        curInspectorOpen,
+        false
+      );
+
+      // 地上視点時の南十字星（みなみじゅうじ座）ラベル
+      tmpWorldPos
+        .copy(southernCrossGroup.position)
+        .addScaledVector(southernCrossLabelUnitDir, ZODIAC_RADIUS);
+      const scInFront = southernCrossLabelUnitDir.dot(camForward) > 0.16;
+      const scAboveHorizon =
+        southernCrossLabelUnitDir.dot(tokyoUpWorld) > 0.02;
+      updateFloatingBadgeAtPosition(
+        southernCrossBadgeRef.current,
+        tmpWorldPos,
+        camera,
+        hostW,
+        hostH,
+        isGroundView &&
+          curLayers.starsAndEquinox &&
+          scInFront &&
+          scAboveHorizon,
         curInspectorOpen,
         false
       );
@@ -3724,6 +3880,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           style={{ display: "none" }}
         >
           ★ カシオペア座 (W字)
+        </span>
+
+        <span
+          ref={southernCrossBadgeRef}
+          className="space-badge is-polaris"
+          style={{ display: "none" }}
+        >
+          ✦ 南十字星 (みなみじゅうじ座)
         </span>
 
         <span

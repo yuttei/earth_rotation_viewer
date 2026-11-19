@@ -18,7 +18,6 @@ import {
 import {
   CameraPreset,
   DisplayLayers,
-  ReferenceFrame,
 } from "./types/astronomy";
 import {
   CameraPoseTarget,
@@ -316,7 +315,6 @@ export function App() {
   const [speedMultiplier, setSpeedMultiplier] = useState<number>(1800);
 
   const [selectedCityId, setSelectedCityId] = useState<string>("tokyo");
-  const [referenceFrame, setReferenceFrame] = useState<ReferenceFrame>("solar");
 
   const [activePresetButton, setActivePresetButton] =
     useState<CameraPreset | null>("northPole");
@@ -486,14 +484,6 @@ export function App() {
     [currentDate]
   );
 
-  const handleStepSeconds = useCallback(
-    (deltaSeconds: number) => {
-      const next = new Date(simTimeMsRef.current + deltaSeconds * 1000);
-      applyNewDate(next);
-    },
-    [applyNewDate]
-  );
-
   const handleStepMonth = useCallback(() => {
     const next = new Date(
       simTimeMsRef.current + 30 * SOLAR_DAY_SECONDS * 1000
@@ -534,10 +524,7 @@ export function App() {
       setActivePresetButton(preset);
       setViewTransitionRatio(p.ratio);
 
-      if (isTargetGround) {
-        // 東京の地上視点へ移動したら、右パネルの観測情報も自動で「東京」に合わせます。
-        setSelectedCityId("tokyo");
-      } else {
+      if (!isTargetGround) {
         setIsAnnualMotionMode(false);
       }
 
@@ -797,8 +784,23 @@ export function App() {
           break;
 
         case "tokyo-ground-sky":
-          handleSelectCameraPreset("tokyoSouth", false);
           setSelectedCityId("tokyo");
+          handleSelectCameraPreset("tokyoSouth", false);
+          setLayers((prev) => ({
+            ...prev,
+            graticule: true,
+            moonAndOrbit: true,
+            starsAndEquinox: true,
+          }));
+          setSpeedMultiplier(1800);
+          setIsPlaying(true);
+          break;
+
+        case "sydney-southern-cross":
+          // 5月中旬の 21:00 AEST（UTC 11:00）はシドニーの南の空高くに南十字星が正立して見やすい時刻です。
+          setSelectedCityId("sydney");
+          handleSelectCameraPreset("tokyoSouth", false);
+          applyNewDate(new Date("2026-05-15T11:00:00Z"));
           setLayers((prev) => ({
             ...prev,
             graticule: true,
@@ -858,7 +860,6 @@ export function App() {
         case "ecliptic-tilt":
           handleSelectCameraPreset("eclipticPlane", false);
           handleSelectSeason("summer-solstice");
-          setReferenceFrame("solar");
           setLayers((prev) => ({
             ...prev,
             eclipticPlane: true,
@@ -872,7 +873,6 @@ export function App() {
         case "summer-midnight-sun":
           handleSelectCameraPreset("northPole", false);
           handleSelectSeason("summer-solstice");
-          setReferenceFrame("solar");
           setSelectedCityId("tromso");
           setLayers((prev) => ({
             ...prev,
@@ -887,7 +887,6 @@ export function App() {
         case "winter-polar-night":
           handleSelectCameraPreset("northPole", false);
           handleSelectSeason("winter-solstice");
-          setReferenceFrame("solar");
           setSelectedCityId("tromso");
           setLayers((prev) => ({
             ...prev,
@@ -903,7 +902,6 @@ export function App() {
           // 春分日の UTC 20:15 は、東経139.65°の東京が夜明け直前（太陽時 05:34頃）になる時刻です。
           handleSelectCameraPreset("northPole", false);
           applyNewDate(new Date("2026-03-20T20:15:00Z"));
-          setReferenceFrame("solar");
           setSelectedCityId("tokyo");
           setLayers((prev) => ({
             ...prev,
@@ -913,18 +911,6 @@ export function App() {
           }));
           setSpeedMultiplier(1800);
           setIsPlaying(true);
-          break;
-
-        case "sidereal-vs-solar":
-          handleSelectCameraPreset("northPole", false);
-          setReferenceFrame("sidereal");
-          setLayers((prev) => ({
-            ...prev,
-            starsAndEquinox: true,
-            celestialCompass: true,
-            graticule: true,
-          }));
-          setIsPlaying(false);
           break;
       }
 
@@ -950,7 +936,6 @@ export function App() {
         cities={OBSERVATION_CITIES}
         selectedCityId={selectedCityId}
         onSelectCity={setSelectedCityId}
-        referenceFrame={referenceFrame}
         cameraPoseTarget={cameraPoseTarget}
         onCameraUserDrag={handleCameraUserDrag}
         layers={layers}
@@ -984,8 +969,6 @@ export function App() {
             onResetNorthPoleCamera={handleResetNorthPoleCamera}
             viewTransitionRatio={viewTransitionRatio}
             onChangeViewTransitionRatio={handleChangeViewTransitionRatio}
-            referenceFrame={referenceFrame}
-            onChangeReferenceFrame={setReferenceFrame}
             layers={layers}
             onToggleLayer={handleToggleLayer}
             onRunGuideExperiment={handleRunGuideExperiment}
@@ -1001,7 +984,6 @@ export function App() {
           onSetDate={applyNewDate}
           onSelectSeason={handleSelectSeason}
           transitioningSeasonId={transitioningSeasonId}
-          onStepSeconds={handleStepSeconds}
           onResetToNow={handleResetToNow}
           isAnnualMotionMode={isAnnualMotionMode}
           onToggleAnnualMotion={handleToggleAnnualMotion}

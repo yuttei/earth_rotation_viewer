@@ -634,3 +634,28 @@ export const CASSIOPEIA_CONSTELLATION: {
     [3, 4],
   ],
 };
+
+/**
+ * シドニーや南極点など南半球の南の空で、天の南極のまわりを時計回りに巡る
+ * 「南十字星（みなみじゅうじ座 / Crux）」（十字形・J2000.0 実座標）です。
+ */
+export const SOUTHERN_CROSS_CONSTELLATION: {
+  nameJa: string;
+  labelPoint: { lonDeg: number; latDeg: number };
+  stars: ZodiacStarPoint[];
+  edges: Array<[number, number]>;
+} = {
+  nameJa: "南十字星",
+  labelPoint: equatorialToEclipticDeg(12.52, -55.4),
+  stars: buildStars([
+    { raHours: 12.443, decDeg: -63.1, mag: 0.76, nameJa: "アクルックス" }, // 0: α Cru（下端・1等星）
+    { raHours: 12.795, decDeg: -59.69, mag: 1.25, nameJa: "ミモザ" }, // 1: β Cru（東端・1等星）
+    { raHours: 12.519, decDeg: -57.11, mag: 1.63, nameJa: "ガクルックス" }, // 2: γ Cru（上端・赤色1等星）
+    { raHours: 12.252, decDeg: -58.75, mag: 2.79, nameJa: "イマイ" }, // 3: δ Cru（西端）
+    { raHours: 12.356, decDeg: -60.4, mag: 3.59, nameJa: "ギナン" }, // 4: ε Cru（第5星）
+  ]),
+  edges: [
+    [0, 2], // 縦の柱（天の南極を指す軸）
+    [1, 3], // 横の梁
+  ],
+};

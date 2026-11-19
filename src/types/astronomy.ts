@@ -2,9 +2,6 @@
  * 天文計算・3D表示・UI全体で共有する型定義をまとめたファイルです。
  */
 
-/** 基準にする座標系（何を画面内で固定して見せるか） */
-export type ReferenceFrame = "solar" | "sidereal";
-
 /** カメラのプリセット視点 */
 export type CameraPreset =
   | "northPole"

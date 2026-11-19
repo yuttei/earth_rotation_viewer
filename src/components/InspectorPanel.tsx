@@ -16,7 +16,6 @@ import {
   DisplayLayers,
   GalileanMoonState,
   MoonState,
-  ReferenceFrame,
   SolarSystemBodyState,
   SolarSystemState,
   VenusState,
@@ -38,12 +37,12 @@ export type GuideExperimentId =
   | "summer-midnight-sun"
   | "winter-polar-night"
   | "sunrise-east"
-  | "sidereal-vs-solar"
   | "ecliptic-tilt"
   | "sun-orbit-overview"
   | "moon-orbit-observe"
   | "venus-orbit-observe"
   | "tokyo-ground-sky"
+  | "sydney-southern-cross"
   | "real-solar-system"
   | "zodiac-ecliptic-follow"
   | "zodiac-ecliptic-fixed"
@@ -70,8 +69,6 @@ interface InspectorPanelProps {
   onResetNorthPoleCamera: () => void;
   viewTransitionRatio: number;
   onChangeViewTransitionRatio: (ratio: number) => void;
-  referenceFrame: ReferenceFrame;
-  onChangeReferenceFrame: (frame: ReferenceFrame) => void;
   layers: DisplayLayers;
   onToggleLayer: (key: keyof DisplayLayers) => void;
   onRunGuideExperiment: (id: GuideExperimentId) => void;
@@ -113,8 +110,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   onResetNorthPoleCamera,
   viewTransitionRatio,
   onChangeViewTransitionRatio,
-  referenceFrame,
-  onChangeReferenceFrame,
   layers,
   onToggleLayer,
   onRunGuideExperiment,
@@ -632,7 +627,30 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               </div>
 
               <div className="view-group-block">
-                <span className="view-group-label">東京の地上から見る空</span>
+                <span className="view-group-label">
+                  観察地点の地上から見る空（現在：{selectedCity.nameJa}）
+                </span>
+                <div
+                  className="option-btn-group four-col"
+                  style={{ marginBottom: 3 }}
+                  role="group"
+                  aria-label="地上観察地点の選択"
+                >
+                  {cities.map((city) => (
+                    <button
+                      key={city.id}
+                      type="button"
+                      className={`choice-btn ${
+                        city.id === selectedCity.id ? "is-active" : ""
+                      }`}
+                      style={{ padding: "5px 4px", fontSize: 10.5 }}
+                      onClick={() => onSelectCity(city.id)}
+                      title={`${city.nameJa}（${city.regionJa}）の地上へ切り替え`}
+                    >
+                      {city.nameJa}
+                    </button>
+                  ))}
+                </div>
                 <div className="option-btn-group four-col">
                   <button
                     type="button"
@@ -765,35 +783,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               </button>
               <p className="note-box" style={{ fontSize: 11 }}>
                 6DOF操作：左ドラッグ＝回転 ／ 右ドラッグ・Shift+ドラッグ・2本指移動＝平行移動 ／ Alt+ドラッグ・Q/E・2本指ひねり＝ロール ／ WASD・R/F＝自由飛行 ／ ホイール・ピンチ＝ズーム
-              </p>
-            </div>
-
-            <div className="section-card">
-              <h2 className="section-title">基準座標系</h2>
-              <div className="option-btn-group two-col">
-                <button
-                  type="button"
-                  className={`choice-btn ${
-                    referenceFrame === "solar" ? "is-active" : ""
-                  }`}
-                  onClick={() => onChangeReferenceFrame("solar")}
-                >
-                  太陽方向を固定
-                </button>
-                <button
-                  type="button"
-                  className={`choice-btn ${
-                    referenceFrame === "sidereal" ? "is-active" : ""
-                  }`}
-                  onClick={() => onChangeReferenceFrame("sidereal")}
-                >
-                  恒星・春分点を固定
-                </button>
-              </div>
-              <p className="note-box" style={{ fontSize: 11 }}>
-                {referenceFrame === "solar"
-                  ? "太陽を画面右側に固定して、各地の昼夜変化や月の満ち欠けを見やすくします。"
-                  : "背景の星座と春分点（紫線）を静止させます。「+1恒星日」を押すと地球が同じ星に対してきっちり1回転する様子を確認できます。"}
               </p>
             </div>
 
@@ -935,17 +924,26 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">1. 東京の地上から見る空（日周運動と北極星）</h3>
+              <h3 className="guide-title">1. 観察地点の地上から見る空（北極星・カシオペア座・南十字星）</h3>
               <p className="guide-text">
-                東京（北緯35.7°）の地上へ降りると、北の空では高度35.7°の北極星を中心に星々が反時計回りに回り、東から昇った太陽や月が南を通って西へ沈む様子を連続視点で観察できます。
+                東京やトロムソなど北半球では、北の空の北極星（高度＝その土地の北緯）とW字の<strong>カシオペア座</strong>を中心に星が反時計回りに回り、南半球のシドニーや南極点では、南の空に<strong>南十字星</strong>が見えて天の南極のまわりを時計回りに巡ります。
               </p>
-              <button
-                type="button"
-                className="guide-action-btn"
-                onClick={() => onRunGuideExperiment("tokyo-ground-sky")}
-              >
-                東京の地上（南の空）へ移動して観察
-              </button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="guide-action-btn"
+                  onClick={() => onRunGuideExperiment("tokyo-ground-sky")}
+                >
+                  東京の地上（南の空）を見る
+                </button>
+                <button
+                  type="button"
+                  className="guide-action-btn"
+                  onClick={() => onRunGuideExperiment("sydney-southern-cross")}
+                >
+                  シドニーの南の空（南十字星）を見る
+                </button>
+              </div>
             </div>
 
             <div className="guide-card">
@@ -1052,20 +1050,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 onClick={() => onRunGuideExperiment("sunrise-east")}
               >
                 東京の夜明け前を再現する
-              </button>
-            </div>
-
-            <div className="guide-card">
-              <h3 className="guide-title">9. 恒星日（23h56m）と太陽日（24h）</h3>
-              <p className="guide-text">
-                地球が1回転する間にも地球は太陽の周りを約1°公転するため、太陽が再び真上に来るには約4分余計に回る必要があります。春分点（紫線）を固定し、下の「+1恒星日」と「+1太陽日」を押し比べてみましょう。
-              </p>
-              <button
-                type="button"
-                className="guide-action-btn"
-                onClick={() => onRunGuideExperiment("sidereal-vs-solar")}
-              >
-                恒星固定モードで比較準備
               </button>
             </div>
           </>

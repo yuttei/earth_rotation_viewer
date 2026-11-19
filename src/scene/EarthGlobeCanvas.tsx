@@ -34,11 +34,23 @@ import {
   eclipticToWorldUnitVector,
   getZodiacConstellationAtLongitude,
 } from "../astronomy/zodiac";
+import { CelestialBodyId } from "../data/celestialBodies";
+import {
+  FEATURED_BRIGHT_STARS,
+  FEATURED_STAR_MAP,
+  FeaturedStarId,
+  SEASONAL_ASTERISMS,
+  SEASONAL_CONSTELLATIONS,
+} from "../astronomy/seasonalStars";
+import {
+  COSMIC_BADGE_SPECS,
+  CosmicBadgeId,
+  createCosmicScaleRig,
+} from "./cosmicScale";
 import { createEarthTextures, EarthTextures } from "./earthTexture";
 import { createMoonTexture } from "./moonTexture";
 import { createVenusTexture } from "./venusTexture";
 import { createSolarPlanetTextures } from "./planetTextures";
-import { createZodiacArtTextures } from "./zodiacArt";
 import {
   createAtmosphereMaterial,
   createEarthMaterial,
@@ -83,6 +95,8 @@ export interface CameraPoseTarget {
   eclipticFixedLon: number;
   /** 黄道ビューの上下チルト（黄緯方向の仰角・ラジアン） */
   eclipticViewLatRad: number;
+  /** 銀河・大規模構造スケール段階（0 = 太陽系まで, 1 = 近傍恒星, 2 = 天の川銀河, 3 = 天の川＆アンドロメダ, 4 = 局部銀河群, 5 = おとめ座銀河団, 6 = ラニアケア超銀河団, 7 = 観測可能な宇宙） */
+  cosmicLevel: number;
   /** トランジションにかける時間（秒）。プリセット移動時はゆっくり長めに設定します */
   durationSec: number;
   /** 同じ数値でもアニメーションを再適用するための連番トリガー */
@@ -114,6 +128,10 @@ interface EarthGlobeCanvasProps {
   layers: DisplayLayers;
   /** 右側の観察パネルが開いているか（地球・軌道の水平センタリングを補正するため） */
   isInspectorOpen: boolean;
+  /** タップしてクローズアップ表示中の天体ID（未選択なら null） */
+  focusedBodyId: CelestialBodyId | null;
+  /** 3D空間上の天体または天体ラベルをタップしたときのコールバック */
+  onSelectCelestialBody: (bodyId: CelestialBodyId) => void;
 }
 
 interface CameraSnapshot {
@@ -136,6 +154,7 @@ interface CameraSnapshot {
   eclipticYawOffset: number;
   eclipticFixedLon: number;
   eclipticViewLatRad: number;
+  cosmicLevel: number;
   rightAngle: number;
 }
 
@@ -335,7 +354,7 @@ function createHorizontalRing(
  * 3D ワールド位置をスクリーン座標 (px) へ投影してバッジ位置を更新するヘルパーです。
  */
 function updateFloatingBadgeAtPosition(
-  badgeEl: HTMLSpanElement | null,
+  badgeEl: HTMLElement | null,
   worldPosition: THREE.Vector3,
   camera: THREE.PerspectiveCamera,
   hostW: number,
@@ -389,27 +408,40 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   onCameraUserDrag,
   layers,
   isInspectorOpen,
+  focusedBodyId,
+  onSelectCelestialBody,
 }) => {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const labelButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const seasonBadgeRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
   const compassBadgeRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
-  const planetBadgeRefs = useRef<Map<SolarBodyId, HTMLSpanElement>>(new Map());
-  const galileanBadgeRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
+  const planetBadgeRefs = useRef<Map<SolarBodyId, HTMLButtonElement>>(
+    new Map()
+  );
+  const galileanBadgeRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const zodiacBadgeRefs = useRef<Map<ZodiacConstellationId, HTMLSpanElement>>(
     new Map()
   );
   const eclipticCardinalBadgeRefs = useRef<Map<string, HTMLSpanElement>>(
     new Map()
   );
-  const sunBadgeRef = useRef<HTMLSpanElement | null>(null);
-  const earthBadgeRef = useRef<HTMLSpanElement | null>(null);
-  const moonBadgeRef = useRef<HTMLSpanElement | null>(null);
-  const venusBadgeRef = useRef<HTMLSpanElement | null>(null);
+  const cosmicBadgeRefs = useRef<Map<CosmicBadgeId, HTMLElement>>(new Map());
+  const seasonalConstellationBadgeRefs = useRef<Map<string, HTMLSpanElement>>(
+    new Map()
+  );
+  const seasonalAsterismBadgeRefs = useRef<Map<string, HTMLSpanElement>>(
+    new Map()
+  );
+  const featuredStarBadgeRefs = useRef<Map<FeaturedStarId, HTMLButtonElement>>(
+    new Map()
+  );
+  const sunBadgeRef = useRef<HTMLButtonElement | null>(null);
+  const earthBadgeRef = useRef<HTMLButtonElement | null>(null);
+  const moonBadgeRef = useRef<HTMLButtonElement | null>(null);
+  const venusBadgeRef = useRef<HTMLButtonElement | null>(null);
   const polarisBadgeRef = useRef<HTMLSpanElement | null>(null);
   const cassiopeiaBadgeRef = useRef<HTMLSpanElement | null>(null);
   const southernCrossBadgeRef = useRef<HTMLSpanElement | null>(null);
-  const equinoxBadgeRef = useRef<HTMLSpanElement | null>(null);
 
   const latestPropsRef = useRef({
     solarState,
@@ -421,6 +453,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     selectedCityId,
     layers,
     isInspectorOpen,
+    focusedBodyId,
+    onSelectCelestialBody,
   });
   latestPropsRef.current = {
     solarState,
@@ -432,7 +466,93 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     selectedCityId,
     layers,
     isInspectorOpen,
+    focusedBodyId,
+    onSelectCelestialBody,
   };
+
+  // 天体タップ時の滑らかなズームイン／ズームアウト（および閉じたときの元の視点への復帰）を管理します。
+  const bodyFocusRef = useRef<{
+    activeId: CelestialBodyId | null;
+    blend: number;
+    fromBlend: number;
+    targetBlend: number;
+    elapsed: number;
+    duration: number;
+    transitioning: boolean;
+    orbitYaw: number;
+    orbitPitch: number;
+    zoomFactor: number;
+    switchElapsed: number;
+    switchDuration: number;
+    switching: boolean;
+    switchFromPos: THREE.Vector3;
+    switchFromRadius: number;
+    lastFocusPos: THREE.Vector3;
+    lastFocusRadius: number;
+  }>({
+    activeId: null,
+    blend: 0,
+    fromBlend: 0,
+    targetBlend: 0,
+    elapsed: 0,
+    duration: 1.3,
+    transitioning: false,
+    orbitYaw: 0.45,
+    orbitPitch: 0.24,
+    zoomFactor: 1.0,
+    switchElapsed: 0,
+    switchDuration: 1.1,
+    switching: false,
+    switchFromPos: new THREE.Vector3(),
+    switchFromRadius: 1,
+    lastFocusPos: new THREE.Vector3(),
+    lastFocusRadius: 1,
+  });
+
+  useEffect(() => {
+    const f = bodyFocusRef.current;
+    if (focusedBodyId) {
+      if (f.blend > 0.05 && f.activeId && f.activeId !== focusedBodyId) {
+        // 別の天体へ直接切り替えたときは、現在のフォーカス位置から次の天体へ滑らかに移動します。
+        f.switchFromPos.copy(f.lastFocusPos);
+        f.switchFromRadius = f.lastFocusRadius;
+        f.switchElapsed = 0;
+        f.switchDuration = 1.1;
+        f.switching = true;
+      } else {
+        f.switching = false;
+      }
+      f.activeId = focusedBodyId;
+      f.fromBlend = f.blend;
+      f.targetBlend = 1;
+      f.elapsed = 0;
+      f.duration = 1.3;
+      f.transitioning = true;
+      const isCosmicFocus =
+        focusedBodyId === "milkyWay" ||
+        focusedBodyId === "andromeda" ||
+        focusedBodyId === "triangulum" ||
+        focusedBodyId === "magellanicClouds" ||
+        focusedBodyId === "localGroup" ||
+        focusedBodyId === "virgoCluster" ||
+        focusedBodyId === "fornaxCluster" ||
+        focusedBodyId === "comaCluster" ||
+        focusedBodyId === "greatAttractor" ||
+        focusedBodyId === "laniakea" ||
+        focusedBodyId === "observableUniverse";
+      f.orbitYaw = isCosmicFocus ? 0.36 : 0.48;
+      f.orbitPitch = isCosmicFocus ? 0.48 : 0.24;
+      f.zoomFactor = 1.0;
+    } else if (f.activeId !== null) {
+      // 詳細カードを閉じたときは、直前の元のカメラ視点へ滑らかに戻します。
+      f.fromBlend = f.blend;
+      f.targetBlend = 0;
+      f.elapsed = 0;
+      f.duration = 1.2;
+      f.transitioning = true;
+      f.switching = false;
+    }
+  }, [focusedBodyId]);
 
   // カメラの現在値とアニメーション遷移管理を保持します。
   const cameraAnimRef = useRef<{
@@ -442,6 +562,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     elapsed: number;
     duration: number;
     active: boolean;
+    /** 太陽系（cosmicLevel = 0）側の基準距離。太陽系⇄宇宙階層遷移時の距離変化を相殺して純粋なズームアウト／ズームインにします */
+    solarRefDist: number;
   }>({
     current: {
       yaw: cameraPoseTarget.yaw,
@@ -463,6 +585,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       eclipticYawOffset: cameraPoseTarget.eclipticYawOffset,
       eclipticFixedLon: cameraPoseTarget.eclipticFixedLon,
       eclipticViewLatRad: cameraPoseTarget.eclipticViewLatRad,
+      cosmicLevel: cameraPoseTarget.cosmicLevel,
       rightAngle: degToRad(solarState.sunEclipticLongitudeDeg),
     },
     from: {
@@ -485,12 +608,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       eclipticYawOffset: cameraPoseTarget.eclipticYawOffset,
       eclipticFixedLon: cameraPoseTarget.eclipticFixedLon,
       eclipticViewLatRad: cameraPoseTarget.eclipticViewLatRad,
+      cosmicLevel: cameraPoseTarget.cosmicLevel,
       rightAngle: degToRad(solarState.sunEclipticLongitudeDeg),
     },
     to: { ...cameraPoseTarget },
     elapsed: 0,
     duration: cameraPoseTarget.durationSec,
     active: false,
+    solarRefDist: cameraPoseTarget.distance,
   });
 
   // 目標姿勢が更新されたら、現在位置を始点として新しい連続補間を開始します。
@@ -498,6 +623,13 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     const anim = cameraAnimRef.current;
     anim.from = { ...anim.current };
     anim.to = { ...cameraPoseTarget };
+    if (anim.from.cosmicLevel < 0.05 && anim.to.cosmicLevel >= 0.5) {
+      anim.solarRefDist = Math.max(1.5, anim.from.distance);
+    } else if (anim.from.cosmicLevel >= 0.5 && anim.to.cosmicLevel < 0.05) {
+      anim.solarRefDist = Math.max(1.5, anim.to.distance);
+    } else if (anim.to.cosmicLevel < 0.05) {
+      anim.solarRefDist = Math.max(1.5, anim.to.distance);
+    }
     anim.elapsed = 0;
     anim.duration = Math.max(0.15, cameraPoseTarget.durationSec);
     anim.active = true;
@@ -517,6 +649,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     cameraPoseTarget.eclipticYawOffset,
     cameraPoseTarget.eclipticFixedLon,
     cameraPoseTarget.eclipticViewLatRad,
+    cameraPoseTarget.cosmicLevel,
     cameraPoseTarget.durationSec,
     cameraPoseTarget.seq,
   ]);
@@ -565,6 +698,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     // 2. 遠方星空（太陽中心ビュー時でも常に外側に位置するよう半径 110〜210 に配置）
     const starsGroup = new THREE.Group();
     scene.add(starsGroup);
+
+    // 2b. 近傍恒星・銀河・局部銀河群・おとめ座銀河団・ラニアケア・観測可能な宇宙の 7 段階コズミック・スケール構築
+    const cosmicRig = createCosmicScaleRig(starTexture);
+    scene.add(cosmicRig.root);
+
+    // 2c. 太陽系全体を束ねるルートグループ（太陽系→近傍恒星・銀河へ遷移するとき、太陽系全体を滑らかに縮小ズームアウトさせます）
+    const solarWorldGroup = new THREE.Group();
+    scene.add(solarWorldGroup);
 
     const tiltAngleRad = degToRad(EARTH_AXIAL_TILT_DEG);
     // ワールド座標での天の北極方向ベクトル (0, cos ε, -sin ε)
@@ -838,74 +979,121 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     zodiacDisposableGeos.push(zodiacStarsGeo);
     zodiacDisposableMats.push(zodiacStarsMat);
 
-    // 太陽の真上・公転面（やや上）視点用：外周の黄道13星座リング＋星座イラストメダリオン＋「地球 → 太陽 → 今の星座」視線ガイド
-    const zodiacArtBundle = createZodiacArtTextures();
-    const sunOverheadZodiacRing = createHorizontalRing(21.4, 0x94a3b8, 0.3, 128);
-    scene.add(sunOverheadZodiacRing);
+    // 太陽の真上・公転面（やや上）視点用：公転軌道の外周（3D天球面・半径 24.5）に黄道13星座の「星とその点を結ぶ星座線」を実配置
+    const SUN_ORBIT_ZODIAC_RADIUS = 24.5;
+    const sunOverheadZodiacRing = createHorizontalRing(
+      SUN_ORBIT_ZODIAC_RADIUS,
+      0x94a3b8,
+      0.28,
+      128
+    );
+    solarWorldGroup.add(sunOverheadZodiacRing);
     zodiacDisposableGeos.push(sunOverheadZodiacRing.geometry);
     zodiacDisposableMats.push(sunOverheadZodiacRing.material as THREE.Material);
 
-    const sunOverheadZodiacArtGroup = new THREE.Group();
-    scene.add(sunOverheadZodiacArtGroup);
-    const sunOverheadZodiacArtMap = new Map<
+    const sunOverheadZodiacGroup = new THREE.Group();
+    solarWorldGroup.add(sunOverheadZodiacGroup);
+    const sunOverheadZodiacLineMap = new Map<
       ZodiacConstellationId,
-      { sprite: THREE.Sprite; mat: THREE.SpriteMaterial }
+      {
+        lineMat: THREE.LineBasicMaterial;
+        isThirteenth: boolean;
+      }
     >();
 
-    const zodiacSkyArtGroup = new THREE.Group();
-    zodiacGroup.add(zodiacSkyArtGroup);
-    const zodiacSkyArtMap = new Map<
-      ZodiacConstellationId,
-      { sprite: THREE.Sprite; mat: THREE.SpriteMaterial }
-    >();
+    const orbitZodiacStarCoords: number[] = [];
+    const orbitZodiacStarCols: number[] = [];
+    const starDotGeo = new THREE.SphereGeometry(0.16, 10, 10);
+    zodiacDisposableGeos.push(starDotGeo);
 
     for (const c of ZODIAC_CONSTELLATIONS) {
-      const tex = zodiacArtBundle.textures.get(c.id);
-      if (!tex) continue;
+      const orbitStarVecs: THREE.Vector3[] = [];
+      for (const st of c.stars) {
+        const [ux, uy, uz] = eclipticToWorldUnitVector(st.lonDeg, st.latDeg);
+        const v = new THREE.Vector3(
+          ux * SUN_ORBIT_ZODIAC_RADIUS,
+          uy * SUN_ORBIT_ZODIAC_RADIUS,
+          uz * SUN_ORBIT_ZODIAC_RADIUS
+        );
+        orbitStarVecs.push(v);
+        orbitZodiacStarCoords.push(v.x, v.y, v.z);
 
-      // 太陽と地球の公転ビュー（太陽の真上・公転面やや上）の外周メダリオン（半径 24.8）
-      const [ox, , oz] = eclipticToWorldUnitVector(c.labelLonDeg, 0);
-      const orbitMat = new THREE.SpriteMaterial({
-        map: tex,
-        transparent: true,
-        opacity: 0.9,
-        depthWrite: false,
-      });
-      const orbitSprite = new THREE.Sprite(orbitMat);
-      orbitSprite.position.set(ox * 24.8, 0.3, oz * 24.8);
-      orbitSprite.scale.set(5.4, 5.4, 1);
-      orbitSprite.renderOrder = 4;
-      sunOverheadZodiacArtGroup.add(orbitSprite);
-      sunOverheadZodiacArtMap.set(c.id, { sprite: orbitSprite, mat: orbitMat });
-      zodiacDisposableMats.push(orbitMat);
+        const lum = THREE.MathUtils.clamp(1.18 - st.mag * 0.14, 0.58, 1.0);
+        let starHex = 0xe0f2fe;
+        if (c.isThirteenth) {
+          orbitZodiacStarCols.push(0.95 * lum, 0.78 * lum, 1.0 * lum);
+          starHex = 0xf3e8ff;
+        } else if (st.nameJa === "アンタレス" || st.nameJa === "アルデバラン") {
+          orbitZodiacStarCols.push(1.0 * lum, 0.68 * lum, 0.45 * lum);
+          starHex = 0xfdba74;
+        } else {
+          orbitZodiacStarCols.push(0.9 * lum, 0.96 * lum, 1.0 * lum);
+        }
 
-      // 地球から見る黄道ビューの天球背景イラスト（星図の背後に淡く配置）
-      const [sx, sy, sz] = eclipticToWorldUnitVector(
-        c.labelLonDeg,
-        c.labelLatDeg * 0.45
+        // 3D空間上の「星（点）」としてどの角度からも位置が分かる小さな発光球を配置
+        const dotMat = new THREE.MeshBasicMaterial({ color: starHex });
+        zodiacDisposableMats.push(dotMat);
+        const dotMesh = new THREE.Mesh(starDotGeo, dotMat);
+        dotMesh.position.copy(v);
+        const dotScale = THREE.MathUtils.clamp(1.38 - st.mag * 0.16, 0.72, 1.35);
+        dotMesh.scale.setScalar(dotScale);
+        sunOverheadZodiacGroup.add(dotMesh);
+      }
+
+      const orbitEdgePts: THREE.Vector3[] = [];
+      for (const [aIdx, bIdx] of c.edges) {
+        if (orbitStarVecs[aIdx] && orbitStarVecs[bIdx]) {
+          orbitEdgePts.push(orbitStarVecs[aIdx], orbitStarVecs[bIdx]);
+        }
+      }
+      const orbitLineGeo = new THREE.BufferGeometry().setFromPoints(
+        orbitEdgePts
       );
-      const skyMat = new THREE.SpriteMaterial({
-        map: tex,
+      const orbitLineMat = new THREE.LineBasicMaterial({
+        color: c.isThirteenth ? 0xd8b4fe : 0x7dd3fc,
         transparent: true,
-        opacity: 0.24,
-        depthWrite: false,
+        opacity: c.isThirteenth ? 0.85 : 0.75,
       });
-      const skySprite = new THREE.Sprite(skyMat);
-      skySprite.position.set(
-        sx * (ZODIAC_RADIUS + 2),
-        sy * (ZODIAC_RADIUS + 2),
-        sz * (ZODIAC_RADIUS + 2)
-      );
-      skySprite.scale.set(22, 22, 1);
-      skySprite.renderOrder = 0;
-      zodiacSkyArtGroup.add(skySprite);
-      zodiacSkyArtMap.set(c.id, { sprite: skySprite, mat: skyMat });
-      zodiacDisposableMats.push(skyMat);
+      const orbitSegs = new THREE.LineSegments(orbitLineGeo, orbitLineMat);
+      sunOverheadZodiacGroup.add(orbitSegs);
+      zodiacDisposableGeos.push(orbitLineGeo);
+      zodiacDisposableMats.push(orbitLineMat);
+
+      sunOverheadZodiacLineMap.set(c.id, {
+        lineMat: orbitLineMat,
+        isThirteenth: c.isThirteenth,
+      });
     }
+
+    const orbitZodiacStarsGeo = new THREE.BufferGeometry();
+    orbitZodiacStarsGeo.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(orbitZodiacStarCoords, 3)
+    );
+    orbitZodiacStarsGeo.setAttribute(
+      "color",
+      new THREE.Float32BufferAttribute(orbitZodiacStarCols, 3)
+    );
+    const orbitZodiacStarsMat = new THREE.PointsMaterial({
+      size: 1.85,
+      map: starTexture,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const orbitZodiacStarsPoints = new THREE.Points(
+      orbitZodiacStarsGeo,
+      orbitZodiacStarsMat
+    );
+    sunOverheadZodiacGroup.add(orbitZodiacStarsPoints);
+    zodiacDisposableGeos.push(orbitZodiacStarsGeo);
+    zodiacDisposableMats.push(orbitZodiacStarsMat);
 
     const earthSunZodiacSightGeo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 0.06, 0),
-      new THREE.Vector3(21.4, 0.06, 0),
+      new THREE.Vector3(SUN_ORBIT_ZODIAC_RADIUS, 0.06, 0),
     ]);
     const earthSunZodiacSightMat = new THREE.LineDashedMaterial({
       color: 0xfbbf24,
@@ -918,7 +1106,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       earthSunZodiacSightGeo,
       earthSunZodiacSightMat
     );
-    scene.add(earthSunZodiacSightLine);
+    solarWorldGroup.add(earthSunZodiacSightLine);
     zodiacDisposableGeos.push(earthSunZodiacSightGeo);
     zodiacDisposableMats.push(earthSunZodiacSightMat);
 
@@ -1069,6 +1257,203 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       sclz
     ).normalize();
 
+    // 2.8 四季の星座（北斗七星・オリオン座・おおいぬ座・はくちょう座・ペガスス座等）・大三角／四辺形・主要15恒星（J2000.0実座標）
+    const seasonalSkyGroup = new THREE.Group();
+    scene.add(seasonalSkyGroup);
+    const seasonalFadeMats: Array<{ mat: THREE.Material; baseOpacity: number }> =
+      [];
+    const seasonalConstellationLabelDirs = new Map<string, THREE.Vector3>();
+    const seasonalAsterismLabelDirs = new Map<string, THREE.Vector3>();
+    const seasonalBrightStarMeshes = new Map<FeaturedStarId, THREE.Mesh>();
+
+    // 四季の12星座の星と星座線
+    const seasonalConstStarCoords: number[] = [];
+    const seasonalConstStarCols: number[] = [];
+    const seasonalConstEdgePts: THREE.Vector3[] = [];
+    const tmpStarColor = new THREE.Color();
+
+    for (const sc of SEASONAL_CONSTELLATIONS) {
+      const vecs: THREE.Vector3[] = [];
+      for (const st of sc.stars) {
+        const [ux, uy, uz] = eclipticToWorldUnitVector(st.lonDeg, st.latDeg);
+        const v = new THREE.Vector3(
+          ux * ZODIAC_RADIUS,
+          uy * ZODIAC_RADIUS,
+          uz * ZODIAC_RADIUS
+        );
+        vecs.push(v);
+        seasonalConstStarCoords.push(v.x, v.y, v.z);
+        tmpStarColor.set(st.colorHex ?? "#e2e8f0");
+        seasonalConstStarCols.push(
+          tmpStarColor.r,
+          tmpStarColor.g,
+          tmpStarColor.b
+        );
+      }
+      for (const [a, b] of sc.edges) {
+        if (vecs[a] && vecs[b]) {
+          seasonalConstEdgePts.push(vecs[a], vecs[b]);
+        }
+      }
+      const [lx, ly, lz] = eclipticToWorldUnitVector(
+        sc.labelPoint.lonDeg,
+        sc.labelPoint.latDeg
+      );
+      seasonalConstellationLabelDirs.set(
+        sc.id,
+        new THREE.Vector3(lx, ly, lz).normalize()
+      );
+    }
+
+    const seasonalConstLineGeo = new THREE.BufferGeometry().setFromPoints(
+      seasonalConstEdgePts
+    );
+    const seasonalConstLineMat = new THREE.LineBasicMaterial({
+      color: 0x7dd3fc,
+      transparent: true,
+      opacity: 0.44,
+      depthWrite: false,
+    });
+    const seasonalConstLines = new THREE.LineSegments(
+      seasonalConstLineGeo,
+      seasonalConstLineMat
+    );
+    seasonalConstLines.renderOrder = 2;
+    seasonalSkyGroup.add(seasonalConstLines);
+    zodiacDisposableGeos.push(seasonalConstLineGeo);
+    zodiacDisposableMats.push(seasonalConstLineMat);
+    seasonalFadeMats.push({ mat: seasonalConstLineMat, baseOpacity: 0.44 });
+
+    const seasonalConstStarsGeo = new THREE.BufferGeometry();
+    seasonalConstStarsGeo.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(seasonalConstStarCoords, 3)
+    );
+    seasonalConstStarsGeo.setAttribute(
+      "color",
+      new THREE.Float32BufferAttribute(seasonalConstStarCols, 3)
+    );
+    const seasonalConstStarsMat = new THREE.PointsMaterial({
+      size: 4.1,
+      map: starTexture,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const seasonalConstStarsPoints = new THREE.Points(
+      seasonalConstStarsGeo,
+      seasonalConstStarsMat
+    );
+    seasonalConstStarsPoints.renderOrder = 2;
+    seasonalSkyGroup.add(seasonalConstStarsPoints);
+    zodiacDisposableGeos.push(seasonalConstStarsGeo);
+    zodiacDisposableMats.push(seasonalConstStarsMat);
+    seasonalFadeMats.push({ mat: seasonalConstStarsMat, baseOpacity: 0.92 });
+
+    // 春夏秋冬の大三角・四辺形・春の大曲線・冬のダイヤモンドの強調ライン
+    const ASTERISM_RADIUS = ZODIAC_RADIUS - 0.35;
+    for (const ast of SEASONAL_ASTERISMS) {
+      const verts = ast.vertices.map((v) => {
+        const [ux, uy, uz] = eclipticToWorldUnitVector(v.lonDeg, v.latDeg);
+        return new THREE.Vector3(
+          ux * ASTERISM_RADIUS,
+          uy * ASTERISM_RADIUS,
+          uz * ASTERISM_RADIUS
+        );
+      });
+      const segPts: THREE.Vector3[] = [];
+      for (const [a, b] of ast.edges) {
+        if (verts[a] && verts[b]) {
+          segPts.push(verts[a], verts[b]);
+        }
+      }
+      const astGeo = new THREE.BufferGeometry().setFromPoints(segPts);
+      const baseOp = ast.dashed ? 0.54 : 0.78;
+      const astMat = ast.dashed
+        ? new THREE.LineDashedMaterial({
+            color: new THREE.Color(ast.colorHex),
+            dashSize: 2.2,
+            gapSize: 1.5,
+            transparent: true,
+            opacity: baseOp,
+            depthWrite: false,
+          })
+        : new THREE.LineBasicMaterial({
+            color: new THREE.Color(ast.colorHex),
+            transparent: true,
+            opacity: baseOp,
+            depthWrite: false,
+          });
+      const astLine = new THREE.LineSegments(astGeo, astMat);
+      if (ast.dashed) {
+        astLine.computeLineDistances();
+      }
+      astLine.renderOrder = 2;
+      seasonalSkyGroup.add(astLine);
+      zodiacDisposableGeos.push(astGeo);
+      zodiacDisposableMats.push(astMat);
+      seasonalFadeMats.push({ mat: astMat, baseOpacity: baseOp });
+
+      const [alx, aly, alz] = eclipticToWorldUnitVector(
+        ast.labelPoint.lonDeg,
+        ast.labelPoint.latDeg
+      );
+      seasonalAsterismLabelDirs.set(
+        ast.id,
+        new THREE.Vector3(alx, aly, alz).normalize()
+      );
+    }
+
+    // 代表15恒星（シリウス・ベテルギウス・ベガ等）の3D発光球＋コロナスプライト（実等級＆スペクトル色・タップ選択対応）
+    const BRIGHT_STAR_RADIUS = ZODIAC_RADIUS - 0.85;
+    const brightStarCoreGeo = new THREE.SphereGeometry(1.0, 32, 24);
+    zodiacDisposableGeos.push(brightStarCoreGeo);
+
+    for (const star of FEATURED_BRIGHT_STARS) {
+      const [ux, uy, uz] = star.unitDir;
+      const pos = new THREE.Vector3(
+        ux * BRIGHT_STAR_RADIUS,
+        uy * BRIGHT_STAR_RADIUS,
+        uz * BRIGHT_STAR_RADIUS
+      );
+      const starCol = new THREE.Color(star.colorHex);
+      const magBoost = THREE.MathUtils.clamp((2.4 - star.mag) / 3.8, 0.28, 1.0);
+      const coreScale = 0.52 + magBoost * 0.65;
+      const haloScale = 4.2 + magBoost * 5.8;
+
+      const coreMat = new THREE.MeshBasicMaterial({
+        color: starCol,
+        transparent: true,
+        opacity: 0.98,
+      });
+      const coreMesh = new THREE.Mesh(brightStarCoreGeo, coreMat);
+      coreMesh.position.copy(pos);
+      coreMesh.scale.setScalar(coreScale);
+      coreMesh.renderOrder = 2;
+      seasonalSkyGroup.add(coreMesh);
+      seasonalBrightStarMeshes.set(star.id, coreMesh);
+      zodiacDisposableMats.push(coreMat);
+      seasonalFadeMats.push({ mat: coreMat, baseOpacity: 0.98 });
+
+      const haloMat = new THREE.SpriteMaterial({
+        map: starTexture,
+        color: starCol,
+        transparent: true,
+        opacity: 0.94,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      const haloSprite = new THREE.Sprite(haloMat);
+      haloSprite.position.copy(pos);
+      haloSprite.scale.setScalar(haloScale);
+      haloSprite.renderOrder = 2;
+      seasonalSkyGroup.add(haloSprite);
+      zodiacDisposableMats.push(haloMat);
+      seasonalFadeMats.push({ mat: haloMat, baseOpacity: 0.94 });
+    }
+
     // 東京の地上視点で見上げる大気スカイドーム（星 115〜210 の手前・太陽 75 と月 55 の奥に配置）
     const tokyoSkyMesh = new THREE.Mesh(
       new THREE.SphereGeometry(95, 48, 32),
@@ -1083,17 +1468,17 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       new THREE.SphereGeometry(SUN_RADIUS, 48, 32),
       sunBundle.material
     );
-    scene.add(sunMesh);
+    solarWorldGroup.add(sunMesh);
 
     const sunCoronaMesh = new THREE.Mesh(
       new THREE.SphereGeometry(SUN_RADIUS * 1.48, 48, 32),
       sunCoronaMaterial
     );
     sunCoronaMesh.renderOrder = 2;
-    scene.add(sunCoronaMesh);
+    solarWorldGroup.add(sunCoronaMesh);
 
     const orbitGuideGroup = new THREE.Group();
-    scene.add(orbitGuideGroup);
+    solarWorldGroup.add(orbitGuideGroup);
     orbitGuideGroup.add(createHorizontalRing(ORBIT_RADIUS, 0xf59e0b, 0.36, 256));
     orbitGuideGroup.add(
       createHorizontalRing(ORBIT_RADIUS + 0.12, 0xfbbf24, 0.14, 256)
@@ -1124,12 +1509,12 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         opacity: 0.28,
       })
     );
-    scene.add(sunEarthLine);
+    solarWorldGroup.add(sunEarthLine);
 
     // 3.5 金星（太陽の内側を約224.7日で公転する内惑星：軌道傾斜角 約3.395°）
     const venusOrbitGroup = new THREE.Group();
     venusOrbitGroup.rotation.y = degToRad(VENUS_ASCENDING_NODE_DEG);
-    scene.add(venusOrbitGroup);
+    solarWorldGroup.add(venusOrbitGroup);
 
     const venusPlaneGroup = new THREE.Group();
     venusPlaneGroup.rotation.x = degToRad(VENUS_ORBIT_INCLINATION_DEG);
@@ -1145,7 +1530,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       new THREE.SphereGeometry(VENUS_RADIUS, 48, 32),
       venusBundle.material
     );
-    scene.add(venusMesh);
+    solarWorldGroup.add(venusMesh);
 
     // 東京の地上視点で明けの明星・宵の明星として輝く淡いシャンパン色の輝きスプライト
     const venusGlowMat = new THREE.SpriteMaterial({
@@ -1159,7 +1544,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     const venusGlowSprite = new THREE.Sprite(venusGlowMat);
     venusGlowSprite.renderOrder = 2;
     venusGlowSprite.visible = false;
-    scene.add(venusGlowSprite);
+    solarWorldGroup.add(venusGlowSprite);
 
     // 太陽の真上視点で「地球から見える半球の境目（地球に対して平行な補助線）」を示すガイド線群
     const makeDynamicLine = (
@@ -1187,7 +1572,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       const line = new THREE.Line(geo, mat);
       line.renderOrder = 4;
       line.visible = false;
-      scene.add(line);
+      solarWorldGroup.add(line);
       return { line, mat };
     };
 
@@ -1199,7 +1584,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     // 3.8 リアル太陽系モード（1 AU = ORBIT_RADIUS = 13.5 基準の忠実な 3D ケプラー楕円軌道＋水金地火木土天海冥＋木星主要4衛星）
     const realSolarSystemGroup = new THREE.Group();
     realSolarSystemGroup.visible = false;
-    scene.add(realSolarSystemGroup);
+    solarWorldGroup.add(realSolarSystemGroup);
 
     const realOrbitMaterials: THREE.LineBasicMaterial[] = [];
     for (const el of SOLAR_SYSTEM_ELEMENTS) {
@@ -1363,7 +1748,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
 
     // 4. 地球システム（公転位置へ毎フレーム移動させるルート）
     const earthSystemGroup = new THREE.Group();
-    scene.add(earthSystemGroup);
+    solarWorldGroup.add(earthSystemGroup);
 
     // 地球周りのローカル黄道面ガイド（常に黄道面 Y = 0 と平行）
     const eclipticLocalGroup = new THREE.Group();
@@ -1489,32 +1874,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     const earthTiltGroup = new THREE.Group();
     earthTiltGroup.rotation.x = -tiltAngleRad;
     earthSystemGroup.add(earthTiltGroup);
-
-    // 春分点方向（赤道面上・+X軸）の基準ライン
-    const equinoxGroup = new THREE.Group();
-    earthTiltGroup.add(equinoxGroup);
-
-    const equinoxLineGeo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(1.36, 0, 0),
-      new THREE.Vector3(1.85, 0, 0),
-    ]);
-    const equinoxLineMat = new THREE.LineDashedMaterial({
-      color: 0xc084fc,
-      dashSize: 0.06,
-      gapSize: 0.035,
-      transparent: true,
-      opacity: 0.86,
-    });
-    const equinoxLine = new THREE.Line(equinoxLineGeo, equinoxLineMat);
-    equinoxLine.computeLineDistances();
-    equinoxGroup.add(equinoxLine);
-
-    const equinoxMarker = new THREE.Mesh(
-      new THREE.SphereGeometry(0.024, 16, 16),
-      new THREE.MeshBasicMaterial({ color: 0xd8b4fe })
-    );
-    equinoxMarker.position.set(1.88, 0, 0);
-    equinoxGroup.add(equinoxMarker);
 
     // 天球目盛りリングと反時計回り（自転方向）の矢印（赤道面上）
     const celestialCompassGroup = new THREE.Group();
@@ -2023,11 +2382,82 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       anim.current.panZ += panStepVec.z;
     };
 
+    const raycaster = new THREE.Raycaster();
+    const pointerNdc = new THREE.Vector2();
+    let pointerMovedDist = 0;
+    let pointerDownButton = 0;
+    let pointerHadMultiTouch = false;
+
+    const pickCelestialBodyAtClientPos = (
+      clientX: number,
+      clientY: number
+    ): CelestialBodyId | null => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      pointerNdc.set(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1
+      );
+      raycaster.setFromCamera(pointerNdc, camera);
+
+      const curCosmicLevel = cameraAnimRef.current.current.cosmicLevel;
+      if (curCosmicLevel >= 0.55) {
+        const cosmicCandidates = cosmicRig.getPickCandidates(curCosmicLevel);
+        const cosmicMeshes = cosmicCandidates.map((c) => c.mesh);
+        const cosmicHits = raycaster.intersectObjects(cosmicMeshes, false);
+        if (cosmicHits.length === 0) return null;
+        const hitObj = cosmicHits[0].object;
+        const matched = cosmicCandidates.find((c) => c.mesh === hitObj);
+        return matched ? matched.id : null;
+      }
+
+      const candidates: Array<{ id: CelestialBodyId; mesh: THREE.Object3D }> =
+        [];
+      if (sunMesh.visible) candidates.push({ id: "sun", mesh: sunMesh });
+      if (earthMesh.visible) candidates.push({ id: "earth", mesh: earthMesh });
+      if (moonSystemGroup.visible && moonMesh.visible) {
+        candidates.push({ id: "moon", mesh: moonMesh });
+      }
+      if (venusMesh.visible) candidates.push({ id: "venus", mesh: venusMesh });
+      if (seasonalSkyGroup.visible) {
+        for (const [starId, sMesh] of seasonalBrightStarMeshes.entries()) {
+          candidates.push({ id: starId, mesh: sMesh });
+        }
+      }
+      if (realSolarSystemGroup.visible) {
+        for (const [pId, entry] of extraPlanetMap.entries()) {
+          candidates.push({ id: pId, mesh: entry.spinMesh });
+        }
+        if (jupiterMoonsGroup && jupiterMoonsGroup.visible) {
+          for (const [gmId, mEntry] of jupiterGalileanMeshes.entries()) {
+            candidates.push({
+              id: gmId as CelestialBodyId,
+              mesh: mEntry.mesh,
+            });
+          }
+        }
+      }
+
+      const meshes = candidates.map((c) => c.mesh);
+      const hits = raycaster.intersectObjects(meshes, false);
+      if (hits.length === 0) return null;
+      const hitObj = hits[0].object;
+      const matched = candidates.find((c) => c.mesh === hitObj);
+      return matched ? matched.id : null;
+    };
+
     const onContextMenu = (ev: MouseEvent) => {
       ev.preventDefault();
     };
 
     const onPointerDown = (ev: PointerEvent) => {
+      if (activePointers.size === 0) {
+        pointerMovedDist = 0;
+        pointerDownButton = ev.button;
+        pointerHadMultiTouch = false;
+      } else {
+        pointerHadMultiTouch = true;
+      }
       activePointers.set(ev.pointerId, {
         x: ev.clientX,
         y: ev.clientY,
@@ -2046,10 +2476,36 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
 
       const dx = ev.clientX - prevPt.x;
       const dy = ev.clientY - prevPt.y;
+      pointerMovedDist += Math.hypot(dx, dy);
       prevPt.x = ev.clientX;
       prevPt.y = ev.clientY;
 
       const anim = cameraAnimRef.current;
+      const focus = bodyFocusRef.current;
+
+      // 天体クローズアップ表示中のドラッグ／ピンチ操作：タップした天体の周囲を360°回転・ズームできます。
+      if (focus.targetBlend > 0.5) {
+        if (activePointers.size >= 2) {
+          const m = getTwoFingerMetrics();
+          if (m && lastPinchDist !== null && lastPinchDist > 4) {
+            const ratio = lastPinchDist / Math.max(4, m.dist);
+            focus.zoomFactor = Math.max(
+              0.55,
+              Math.min(2.6, focus.zoomFactor * ratio)
+            );
+          }
+          lastPinchDist = m ? m.dist : null;
+          lastTwoFingerMid = m ? { x: m.midX, y: m.midY } : null;
+          lastTwoFingerAngle = m ? m.angle : null;
+          return;
+        }
+        focus.orbitYaw -= dx * 0.0075;
+        focus.orbitPitch = Math.max(
+          -Math.PI / 2 + 0.08,
+          Math.min(Math.PI / 2 - 0.08, focus.orbitPitch + dy * 0.0075)
+        );
+        return;
+      }
 
       // 2本指ジェスチャー：ピンチ（前後ズーム）＋ 2本指平行移動（Pan X/Y）＋ 2本指ひねり（Roll）の同時 6DOF 操作
       if (activePointers.size >= 2) {
@@ -2072,7 +2528,11 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
               );
             } else {
               const maxZoomDist =
-                anim.current.solarSystemBlend > 0.25 ? 2400 : 120;
+                anim.current.cosmicLevel > 0.35
+                  ? 260
+                  : anim.current.solarSystemBlend > 0.25
+                  ? 2400
+                  : 120;
               const nextDist = Math.max(
                 1.5,
                 Math.min(maxZoomDist, anim.current.distance * ratio)
@@ -2172,10 +2632,31 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       if (renderer.domElement.hasPointerCapture(ev.pointerId)) {
         renderer.domElement.releasePointerCapture(ev.pointerId);
       }
+      // ドラッグせずに天体を短くタップ／クリックした場合は、その天体にズームして詳細カードを開きます。
+      if (
+        ev.type === "pointerup" &&
+        activePointers.size === 0 &&
+        !pointerHadMultiTouch &&
+        pointerDownButton === 0 &&
+        pointerMovedDist < 8
+      ) {
+        const hitBody = pickCelestialBodyAtClientPos(ev.clientX, ev.clientY);
+        if (hitBody) {
+          latestPropsRef.current.onSelectCelestialBody(hitBody);
+        }
+      }
     };
 
     const onWheel = (ev: WheelEvent) => {
       ev.preventDefault();
+      const focus = bodyFocusRef.current;
+      if (focus.targetBlend > 0.5) {
+        focus.zoomFactor = Math.max(
+          0.55,
+          Math.min(2.6, focus.zoomFactor * Math.exp(ev.deltaY * 0.0012))
+        );
+        return;
+      }
       const anim = cameraAnimRef.current;
       if (anim.current.eclipticViewBlend > 0.5) {
         eclipticFovOffset = Math.max(
@@ -2192,7 +2673,12 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         );
         return;
       }
-      const maxZoomDist = anim.current.solarSystemBlend > 0.25 ? 2400 : 120;
+      const maxZoomDist =
+        anim.current.cosmicLevel > 0.35
+          ? 260
+          : anim.current.solarSystemBlend > 0.25
+          ? 2400
+          : 120;
       const nextDist = Math.max(
         1.5,
         Math.min(maxZoomDist, anim.current.distance * Math.exp(ev.deltaY * 0.001))
@@ -2263,6 +2749,15 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     let lastTimestamp = performance.now();
     let totalTimeSec = 0;
     let currentOffsetX = 0;
+    let currentOffsetY = 0;
+    const focusTargetPos = new THREE.Vector3();
+    const focusRawPos = new THREE.Vector3();
+    const focusCamPos = new THREE.Vector3();
+    const focusDirFromSun = new THREE.Vector3();
+    const focusBasisRight = new THREE.Vector3();
+    const focusBasisUp = new THREE.Vector3();
+    const focusLookMat = new THREE.Matrix4();
+    const focusCamQuat = new THREE.Quaternion();
 
     const earthOrbitPos = new THREE.Vector3();
     const realEarthPos = new THREE.Vector3();
@@ -2330,6 +2825,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         selectedCityId: curSelectedId,
         layers: curLayers,
         isInspectorOpen: curInspectorOpen,
+        focusedBodyId: curFocusedBodyId,
       } = latestPropsRef.current;
 
       const hostW = host.clientWidth || window.innerWidth;
@@ -2342,7 +2838,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       const eclipticLonRad = degToRad(curSolar.sunEclipticLongitudeDeg);
       const anim = cameraAnimRef.current;
       const desiredEarthRightAngle = eclipticLonRad;
-      const desiredSunRightAngle = -Math.PI / 2;
+      // 太陽と地球の公転視点では、上＝春分・左＝夏至・下＝秋分・右＝冬至（地軸が右傾き）になるよう基準角を +π/2 に設定します。
+      const desiredSunRightAngle = Math.PI / 2;
       const desiredTargetRightAngle =
         anim.to.sunCenterBlend > 0.5
           ? desiredSunRightAngle
@@ -2411,6 +2908,9 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         anim.current.eclipticViewLatRad =
           anim.from.eclipticViewLatRad +
           (anim.to.eclipticViewLatRad - anim.from.eclipticViewLatRad) * ease;
+        anim.current.cosmicLevel =
+          anim.from.cosmicLevel +
+          (anim.to.cosmicLevel - anim.from.cosmicLevel) * ease;
         anim.current.rightAngle =
           anim.from.rightAngle +
           shortestAngleDiff(anim.from.rightAngle, desiredTargetRightAngle) *
@@ -2431,6 +2931,41 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       const s = THREE.MathUtils.clamp(curPose.solarSystemBlend, 0, 1);
       const jFocus = THREE.MathUtils.clamp(curPose.jupiterFocusBlend, 0, 1);
       const eBlend = THREE.MathUtils.clamp(curPose.eclipticViewBlend, 0, 1);
+      const cLevel = THREE.MathUtils.clamp(curPose.cosmicLevel, 0, 7);
+      const cBlend = THREE.MathUtils.clamp(cLevel, 0, 1);
+      const hideSolarForCosmic = cLevel >= 0.9;
+      const hideSolarBadgesForCosmic = cLevel >= 0.3;
+
+      // 異なる宇宙階層（cosmicLevel）を跨ぐトランジション中のみカメラ距離変化を光学的に補償します。
+      // 同一階層内でのプリセット再選択時は補償を無効にし、遷移完了時のスケール瞬間ジャンプを防ぎます。
+      const isCosmicStageTransition =
+        anim.active &&
+        Math.abs(anim.from.cosmicLevel - anim.to.cosmicLevel) > 0.01;
+
+      // 太陽系→近傍恒星・銀河へズームアウトする際、カメラ距離変化を相殺しつつ太陽系全体を原点 (0,0,0) へ指数関数的に縮小します。
+      let solarWorldScale = 1.0;
+      if (!hideSolarForCosmic && cLevel > 0.001) {
+        const exitT = THREE.MathUtils.clamp(cLevel / 0.9, 0, 1);
+        const distComp = isCosmicStageTransition
+          ? curPose.distance / Math.max(1.5, anim.solarRefDist)
+          : 1.0;
+        solarWorldScale = Math.max(
+          0.0004,
+          distComp * Math.pow(0.004, exitT)
+        );
+      }
+      solarWorldGroup.visible = !hideSolarForCosmic;
+      solarWorldGroup.scale.setScalar(solarWorldScale);
+
+      // 近傍恒星〜観測可能な宇宙の 7 段階コズミック・スケールを更新します。
+      cosmicRig.update(
+        cLevel,
+        totalTimeSec,
+        curPose.distance,
+        isCosmicStageTransition,
+        Math.round(anim.from.cosmicLevel),
+        anim.from.distance
+      );
 
       // 6DOF キーボード連続移動（W/S: 前後, A/D: 左右, R/F: 上下, Q/E: ロール, 矢印: 回転）
       if (pressedKeys.size > 0) {
@@ -2644,19 +3179,87 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       atmosphereBundle.uniforms.uSunDirection.value.copy(sunDirWorld);
       moonBundle.uniforms.uSunDirection.value.copy(sunDirWorld);
 
-      // 2. 右側観察パネルが開いているとき、左側の広い空間の中央へ地球・軌道が収まるよう水平オフセットを補間
-      const targetOffsetX = curInspectorOpen && hostW >= 1024 ? 154 : 0;
-      currentOffsetX += (targetOffsetX - currentOffsetX) * (1 - Math.exp(-9 * dt));
-      if (Math.abs(currentOffsetX) > 0.5) {
-        camera.setViewOffset(hostW, hostH, currentOffsetX, 0, hostW, hostH);
+      // 日食・月食シェーダーユニフォームの更新
+      const deltaNewLonDeg =
+        ((((curMoon.phaseAngleDeg) % 360) + 540) % 360) - 180;
+      const solarSepDeg = Math.hypot(
+        deltaNewLonDeg,
+        curMoon.eclipticLatitudeDeg
+      );
+      const deltaFullLonDeg =
+        ((((curMoon.phaseAngleDeg - 180) % 360) + 540) % 360) - 180;
+      const isNearFullMoon = Math.abs(deltaFullLonDeg) < 10 ? 1.0 : 0.0;
+      moonBundle.uniforms.uLunarEclipse.value.set(
+        deltaFullLonDeg,
+        curMoon.eclipticLatitudeDeg,
+        isNearFullMoon
+      );
+
+      if (solarSepDeg <= 1.65) {
+        const spotLonRad = eclipticLonRad + degToRad(deltaNewLonDeg * 18.0);
+        const spotLatRad = degToRad(curMoon.eclipticLatitudeDeg * 22.0);
+        const cosSpotLat = Math.cos(spotLatRad);
+        const spotStrength = THREE.MathUtils.clamp(
+          1.0 - (solarSepDeg / 1.75) * 0.5,
+          0.28,
+          1.0
+        );
+        earthBundle.uniforms.uSolarEclipseSpot.value.set(
+          cosSpotLat * Math.cos(spotLonRad),
+          Math.sin(spotLatRad),
+          -cosSpotLat * Math.sin(spotLonRad),
+          spotStrength
+        );
+      } else {
+        earthBundle.uniforms.uSolarEclipseSpot.value.set(1, 0, 0, 0);
+      }
+
+      const isSolarEclipseGround =
+        g > 0.15 && Math.abs(deltaNewLonDeg) < 3.5 && Math.abs(curMoon.eclipticLatitudeDeg) < 2.2;
+      moonBundle.uniforms.uSolarEclipseSilhouette.value = isSolarEclipseGround
+        ? g * THREE.MathUtils.clamp(1.0 - solarSepDeg / 2.2, 0, 1)
+        : 0;
+
+      // 2. 天体クローズアップ時は左（スマホ縦では上）に天体を配置し、通常時は右側観察パネルの分だけ水平オフセットを補間します。
+      let targetOffsetX = curInspectorOpen && hostW >= 1024 ? 154 : 0;
+      let targetOffsetY = 0;
+      if (curFocusedBodyId !== null) {
+        if (hostW <= 600) {
+          targetOffsetX = 0;
+          targetOffsetY = Math.round(hostH * 0.21);
+        } else {
+          const detailCardW = Math.min(430, Math.max(320, hostW * 0.38));
+          targetOffsetX = Math.round(detailCardW * 0.5);
+          targetOffsetY = 0;
+        }
+      }
+      const offsetLerp = 1 - Math.exp(-9 * dt);
+      currentOffsetX += (targetOffsetX - currentOffsetX) * offsetLerp;
+      currentOffsetY += (targetOffsetY - currentOffsetY) * offsetLerp;
+      if (Math.abs(currentOffsetX) > 0.5 || Math.abs(currentOffsetY) > 0.5) {
+        camera.setViewOffset(
+          hostW,
+          hostH,
+          currentOffsetX,
+          currentOffsetY,
+          hostW,
+          hostH
+        );
       } else {
         camera.clearViewOffset();
       }
 
       // 3. リアル太陽系モードの距離補正と各惑星・木星4衛星の更新
+      const solarBoostDist =
+        cLevel > 0.001 && anim.active ? anim.solarRefDist : curPose.distance;
+      const solarBlendEffective =
+        cLevel > 0.001 &&
+        (anim.from.solarSystemBlend > 0.5 || anim.to.solarSystemBlend > 0.5)
+          ? 1.0
+          : s;
       const outerZoomBoost =
-        s > 0.01 && jFocus < 0.5
-          ? 1.0 + THREE.MathUtils.clamp((curPose.distance - 180) / 210, 0, 5.4)
+        solarBlendEffective > 0.01 && jFocus < 0.5
+          ? 1.0 + THREE.MathUtils.clamp((solarBoostDist - 180) / 210, 0, 5.4)
           : 1.0;
 
       // 太陽サイズ：地上視点では視差なし遠方へ、黄道ビューでは星座と重なりにくいシャープなサイズへ調整します。
@@ -2666,21 +3269,74 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       sunMesh.position.set(0, 0, 0).lerp(groundSunWorldPos, g);
       const solarSunBoost =
         1.0 +
-        s *
+        solarBlendEffective *
           (1 - jFocus) *
-          THREE.MathUtils.clamp((curPose.distance - 180) / 145, 0, 6.8);
+          THREE.MathUtils.clamp((solarBoostDist - 180) / 145, 0, 6.8);
       const baseSunScale = THREE.MathUtils.lerp(solarSunBoost, 2.15, g);
       const sunScale = THREE.MathUtils.lerp(baseSunScale, 0.36, eBlend);
       sunMesh.scale.setScalar(sunScale);
       sunCoronaMesh.position.copy(sunMesh.position);
-      sunCoronaMesh.scale.setScalar(sunScale);
+      const totalEclipseCoronaBoost =
+        curMoon.solarEclipseType === "total"
+          ? 1.0 + 0.52 * g * curMoon.eclipseObscuration
+          : 1.0;
+      sunCoronaMesh.scale.setScalar(sunScale * totalEclipseCoronaBoost);
+
+      // 地上視点での月の方向と視直径（日食時に太陽視直径 約3.04° に対して皆既・金環・部分日食が正確に重なるよう補正）
+      let groundMoonLonRad = moonLonRad;
+      let groundMoonLatRad = moonLatRad;
+      if (g > 0.05 && Math.abs(deltaNewLonDeg) < 8.0) {
+        const eclipseWindow = THREE.MathUtils.clamp(
+          1.0 - Math.abs(deltaNewLonDeg) / 8.0,
+          0,
+          1
+        );
+        const visualLatDeg =
+          Math.abs(curMoon.eclipticLatitudeDeg) <= 0.48
+            ? curMoon.eclipticLatitudeDeg * 0.08
+            : curMoon.eclipticLatitudeDeg * 1.82;
+        const visualLonDeg =
+          curSolar.sunEclipticLongitudeDeg + deltaNewLonDeg * 2.6;
+        groundMoonLonRad = degToRad(
+          THREE.MathUtils.lerp(
+            curMoon.eclipticLongitudeDeg,
+            visualLonDeg,
+            eclipseWindow
+          )
+        );
+        groundMoonLatRad = degToRad(
+          THREE.MathUtils.lerp(
+            curMoon.eclipticLatitudeDeg,
+            visualLatDeg,
+            eclipseWindow
+          )
+        );
+      }
+      const gMoonCosLat = Math.cos(groundMoonLatRad);
+      tmpWorldNormal
+        .set(
+          gMoonCosLat * Math.cos(groundMoonLonRad),
+          Math.sin(groundMoonLatRad),
+          -gMoonCosLat * Math.sin(groundMoonLonRad)
+        )
+        .normalize();
 
       moonGroundLocalPos
         .copy(tokyoLocalOffset)
-        .addScaledVector(moonDirWorld, 55);
+        .addScaledVector(tmpWorldNormal, 55);
       moonMesh.position.copy(moonSpaceLocalPos).lerp(moonGroundLocalPos, g);
       const orbitMoonBoost = 1.0 + 0.85 * curPose.sunCenterBlend * (1 - s);
-      const baseMoonScale = THREE.MathUtils.lerp(orbitMoonBoost, 9.5, g);
+      // 太陽の地上視半径（3.9775 / 75）と距離 55 で一致する基準スケール 10.803 に、近地点（皆既: >1）・遠地点（金環: <1）比を掛けます。
+      const groundApparentFactor =
+        curMoon.apparentSizeRatio >= 1.0
+          ? 1.07
+          : 0.86;
+      const groundMoonScale = 10.803 * groundApparentFactor;
+      const baseMoonScale = THREE.MathUtils.lerp(
+        orbitMoonBoost,
+        groundMoonScale,
+        g
+      );
       const moonScale = THREE.MathUtils.lerp(baseMoonScale, 0.42, eBlend);
       moonMesh.scale.setScalar(moonScale);
       moonMesh.updateMatrixWorld(true);
@@ -2730,7 +3386,11 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       );
 
       // リアル太陽系モードの追加7天体（水星・火星・木星・土星・天王星・海王星・冥王星）と木星4衛星を更新
-      realSolarSystemGroup.visible = s > 0.01 && g < 0.5;
+      const showRealSolarDuringExit =
+        cLevel > 0.001 &&
+        (anim.from.solarSystemBlend > 0.5 || anim.to.solarSystemBlend > 0.5);
+      realSolarSystemGroup.visible =
+        !hideSolarForCosmic && (s > 0.01 || showRealSolarDuringExit) && g < 0.5;
       for (const body of curBodies) {
         const entry = extraPlanetMap.get(body.id as ExtraPlanetId);
         if (!entry) continue;
@@ -2774,28 +3434,39 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       realSolarSystemGroup.updateMatrixWorld(true);
 
       // 遠方星空・黄道13星座天球・カシオペア座の位置を更新します（地球中心ビュー・地上視点では視差ゼロの地球中心へ配置）。
-      const starExpansion = 1.0 + 21.0 * s;
+      const starExpansion = Math.max(
+        1.0 + 21.0 * Math.max(s, cBlend * 0.45),
+        cBlend > 0.01 ? curPose.distance / 70 + 3.0 : 1.0
+      );
       starsGroup.scale.setScalar(starExpansion);
-      starMat.size = 1.55 * (1.0 + 20.0 * s);
+      starMat.size = 1.55 * (1.0 + 20.0 * s + 2.2 * cBlend);
       if (eBlend >= g) {
         starsGroup.position.copy(earthOrbitPos).multiplyScalar(eBlend);
         zodiacGroup.position.copy(earthOrbitPos).multiplyScalar(eBlend);
         cassiopeiaGroup.position.copy(earthOrbitPos).multiplyScalar(eBlend);
         southernCrossGroup.position.copy(earthOrbitPos).multiplyScalar(eBlend);
+        seasonalSkyGroup.position.copy(earthOrbitPos).multiplyScalar(eBlend);
       } else {
         starsGroup.position.copy(tokyoEyeWorldPos).multiplyScalar(g);
         zodiacGroup.position.copy(tokyoEyeWorldPos).multiplyScalar(g);
         cassiopeiaGroup.position.copy(tokyoEyeWorldPos).multiplyScalar(g);
         southernCrossGroup.position.copy(tokyoEyeWorldPos).multiplyScalar(g);
+        seasonalSkyGroup.position.copy(tokyoEyeWorldPos).multiplyScalar(g);
       }
       tokyoSkyMesh.position.copy(tokyoEyeWorldPos);
 
-      // 宇宙視点カメラの注視点（地球 ↔ 太陽 ↔ 木星）＋ 6DOF 平行移動オフセットを計算
+      // 宇宙視点カメラの注視点（地球 ↔ 太陽 ↔ 木星 ↔ 銀河中心原点）＋ 6DOF 平行移動オフセットを計算
       lookAtPos
         .copy(earthOrbitPos)
-        .multiplyScalar(1 - curPose.sunCenterBlend);
+        .multiplyScalar((1 - curPose.sunCenterBlend) * solarWorldScale);
       if (jFocus > 0.001) {
-        lookAtPos.lerp(jupiterWorldPos, jFocus);
+        lookAtPos.lerp(
+          tmpWorldPos.copy(jupiterWorldPos).multiplyScalar(solarWorldScale),
+          jFocus
+        );
+      }
+      if (cBlend > 0.001) {
+        lookAtPos.multiplyScalar(1 - cBlend);
       }
       lookAtPos.x += curPose.panX;
       lookAtPos.y += curPose.panY;
@@ -2920,28 +3591,180 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         rollQuat.setFromAxisAngle(Z_AXIS, curPose.roll);
         camera.quaternion.multiply(rollQuat);
       }
+
+      // 天体タップによるクローズアップ・フォーカス（ズームイン／ズームアウト・元の視点への復帰）を計算します。
+      const focus = bodyFocusRef.current;
+      if (focus.transitioning) {
+        focus.elapsed += dt;
+        const rawT = Math.min(1, focus.elapsed / focus.duration);
+        const ease = easeInOutCubic(rawT);
+        focus.blend = focus.fromBlend + (focus.targetBlend - focus.fromBlend) * ease;
+        if (rawT >= 1) {
+          focus.transitioning = false;
+          if (focus.targetBlend <= 0.001) {
+            focus.activeId = null;
+          }
+        }
+      }
+      const fBlend = THREE.MathUtils.clamp(focus.blend, 0, 1);
+      let focusIdealDist = 4.0;
+
+      if (fBlend > 0.001 && focus.activeId) {
+        let rawRadius = 1.0;
+        const fId = focus.activeId;
+        const cosmicFocusRadius =
+          cLevel >= 0.45
+            ? cosmicRig.getFocusWorldPosAndRadius(fId, cLevel, focusRawPos)
+            : null;
+        if (cosmicFocusRadius !== null) {
+          rawRadius = cosmicFocusRadius;
+        } else if (FEATURED_STAR_MAP[fId as FeaturedStarId]) {
+          const starMesh = seasonalBrightStarMeshes.get(fId as FeaturedStarId);
+          if (starMesh) {
+            starMesh.getWorldPosition(focusRawPos);
+            rawRadius = 2.4;
+          } else {
+            focusRawPos.copy(earthOrbitPos);
+            rawRadius = 1.0;
+          }
+        } else if (fId === "sun") {
+          sunMesh.getWorldPosition(focusRawPos);
+          rawRadius = SUN_RADIUS * sunMesh.scale.x;
+        } else if (fId === "earth") {
+          focusRawPos.copy(earthOrbitPos);
+          rawRadius = 1.0;
+        } else if (fId === "moon") {
+          moonMesh.getWorldPosition(focusRawPos);
+          rawRadius = MOON_RADIUS * moonMesh.scale.x * moonSystemGroup.scale.x;
+        } else if (fId === "venus") {
+          venusMesh.getWorldPosition(focusRawPos);
+          rawRadius = VENUS_RADIUS * venusMesh.scale.x;
+        } else if (
+          fId === "io" ||
+          fId === "europa" ||
+          fId === "ganymede" ||
+          fId === "callisto"
+        ) {
+          const mEntry = jupiterGalileanMeshes.get(fId);
+          const jEntry = extraPlanetMap.get("jupiter");
+          const gmSpec = GALILEAN_MOONS.find((gm) => gm.id === fId);
+          if (mEntry && jEntry && gmSpec) {
+            mEntry.mesh.getWorldPosition(focusRawPos);
+            rawRadius = gmSpec.visualRadiusFactor * jEntry.root.scale.x;
+          } else {
+            focusRawPos.copy(jupiterWorldPos);
+            rawRadius = 1.0;
+          }
+        } else {
+          const pEntry = extraPlanetMap.get(fId as ExtraPlanetId);
+          if (pEntry) {
+            pEntry.root.getWorldPosition(focusRawPos);
+            const ringFactor =
+              fId === "saturn" ? 1.85 : fId === "uranus" ? 1.32 : 1.0;
+            rawRadius = pEntry.root.scale.x * ringFactor;
+          } else {
+            focusRawPos.copy(earthOrbitPos);
+            rawRadius = 1.0;
+          }
+        }
+
+        if (focus.switching) {
+          focus.switchElapsed += dt;
+          const swRaw = Math.min(1, focus.switchElapsed / focus.switchDuration);
+          const swEase = easeInOutCubic(swRaw);
+          focusTargetPos.copy(focus.switchFromPos).lerp(focusRawPos, swEase);
+          rawRadius = THREE.MathUtils.lerp(
+            focus.switchFromRadius,
+            rawRadius,
+            swEase
+          );
+          if (swRaw >= 1) {
+            focus.switching = false;
+          }
+        } else {
+          focusTargetPos.copy(focusRawPos);
+        }
+        focus.lastFocusPos.copy(focusTargetPos);
+        focus.lastFocusRadius = rawRadius;
+
+        // 太陽側（昼面）が見やすく立体的に映える 3/4 角度を基準に orbitYaw / orbitPitch で周回配置します。
+        if (focusTargetPos.lengthSq() > 0.01) {
+          focusDirFromSun.copy(focusTargetPos).negate().normalize();
+        } else {
+          focusDirFromSun.set(0, 0, 1);
+        }
+        focusBasisRight.crossVectors(Y_AXIS, focusDirFromSun);
+        if (focusBasisRight.lengthSq() < 1e-5) {
+          focusBasisRight.copy(X_AXIS);
+        }
+        focusBasisRight.normalize();
+        focusBasisUp
+          .crossVectors(focusDirFromSun, focusBasisRight)
+          .normalize();
+
+        const cosFYaw = Math.cos(focus.orbitYaw);
+        const sinFYaw = Math.sin(focus.orbitYaw);
+        const cosFPitch = Math.cos(focus.orbitPitch);
+        const sinFPitch = Math.sin(focus.orbitPitch);
+
+        tmpHorizBack
+          .copy(focusDirFromSun)
+          .multiplyScalar(cosFYaw)
+          .addScaledVector(focusBasisRight, sinFYaw)
+          .normalize();
+        tmpCamDir
+          .copy(tmpHorizBack)
+          .multiplyScalar(cosFPitch)
+          .addScaledVector(focusBasisUp, sinFPitch)
+          .normalize();
+
+        // モバイル縦画面では少し余裕をもたせた距離、PC/タブレットでは画面左に迫力あるサイズで収めます。
+        const fitMultiplier = hostW <= 600 ? 4.35 : 3.75;
+        focusIdealDist =
+          Math.max(rawRadius * fitMultiplier, 0.28) * focus.zoomFactor;
+        focusCamPos
+          .copy(focusTargetPos)
+          .addScaledVector(tmpCamDir, focusIdealDist);
+        focusLookMat.lookAt(focusCamPos, focusTargetPos, Y_AXIS);
+        focusCamQuat.setFromRotationMatrix(focusLookMat);
+
+        camera.position.lerp(focusCamPos, fBlend);
+        camera.quaternion.slerp(focusCamQuat, fBlend);
+      }
+
       camera.up.set(0, 1, 0).applyQuaternion(camera.quaternion);
       camForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
 
-      // 地上視点では広角 76°、黄道ビューではパノラマ 64°、リアル太陽系の遠方俯瞰では far を 6800 まで広げます。
+      // 地上視点では広角 76°、黄道ビューではパノラマ 64°、天体フォーカス時は自然な 40° へ補間します。
       const baseFov = THREE.MathUtils.lerp(40, 76 + groundFovOffset, g);
-      const targetFov = THREE.MathUtils.lerp(
+      const preFocusFov = THREE.MathUtils.lerp(
         baseFov,
         64 + eclipticFovOffset,
         eBlend
       );
+      const targetFov = THREE.MathUtils.lerp(preFocusFov, 40, fBlend);
       const farDistFactor =
         g < 0.1 && eBlend < 0.1
           ? THREE.MathUtils.clamp((curPose.distance - 140) / 360, 0, 1)
           : 0;
-      const targetNear =
+      const baseNear =
         g > 0.01
           ? THREE.MathUtils.lerp(0.1, 0.005, g)
           : THREE.MathUtils.lerp(0.1, 1.2, farDistFactor);
-      const targetFar =
+      const focusNear = Math.max(0.002, Math.min(0.1, focusIdealDist * 0.025));
+      const targetNear = THREE.MathUtils.lerp(baseNear, focusNear, fBlend);
+      const baseFar =
         g > 0.01 || eBlend > 0.01
           ? THREE.MathUtils.lerp(420, 360, Math.max(g, eBlend))
-          : THREE.MathUtils.lerp(420, 6800, s);
+          : Math.max(
+              THREE.MathUtils.lerp(420, 6800, Math.max(s, cBlend * 0.55)),
+              anim.active && cLevel > 0.01
+                ? curPose.distance * 14 + 4500
+                : cBlend > 0.01
+                ? 4500
+                : 420
+            );
+      const targetFar = Math.max(baseFar, fBlend > 0.01 ? 6800 : baseFar);
       if (
         Math.abs(camera.fov - targetFov) > 0.01 ||
         Math.abs(camera.near - targetNear) > 0.0005 ||
@@ -2958,33 +3781,52 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       earthBundle.uniforms.uShowTerminatorHighlight.value =
         curLayers.terminatorGuide ? 1.0 : 0.0;
 
-      const isGroundView = g >= 0.55;
-      const isEclipticSkyView = eBlend >= 0.55;
-      const isRealSolarSystem = !isGroundView && !isEclipticSkyView && s >= 0.45;
+      const isCosmicView = cLevel >= 0.85;
+      const isGroundView = !isCosmicView && g >= 0.55;
+      const isEclipticSkyView = !isCosmicView && eBlend >= 0.55;
+      const isRealSolarSystem =
+        !isCosmicView &&
+        !isGroundView &&
+        !isEclipticSkyView &&
+        (s >= 0.45 || showRealSolarDuringExit);
       const isJupiterFocus = isRealSolarSystem && jFocus >= 0.45;
       const isOrbitOverview =
-        !isGroundView && !isEclipticSkyView && curPose.sunCenterBlend >= 0.45;
+        !isCosmicView &&
+        !isGroundView &&
+        !isEclipticSkyView &&
+        curPose.sunCenterBlend >= 0.45;
       const isSimpleOrbitOverview = isOrbitOverview && !isRealSolarSystem;
       const isEarthCloseup =
+        !isCosmicView &&
         !isGroundView &&
         !isEclipticSkyView &&
         !isOrbitOverview &&
         curPose.distance < 7.5;
       const isMoonView =
+        !isCosmicView &&
         !isGroundView &&
         !isEclipticSkyView &&
         !isOrbitOverview &&
         curPose.distance >= 7.5;
 
-      // 東京の大気スカイドーム・地平線ディスク・方位ガイドの滑らかなフェード制御
-      const skyOpacity = Math.pow(g, 1.8);
-      const groundOpacity = THREE.MathUtils.clamp((g - 0.28) / 0.52, 0, 1);
+      // 東京の大気スカイドーム・地平線ディスク・方位ガイドの滑らかなフェード制御（天体フォーカス時は自然に退避）
+      const skyOpacity = Math.pow(g, 1.8) * (1 - fBlend) * (1 - cBlend);
+      const groundOpacity =
+        THREE.MathUtils.clamp((g - 0.28) / 0.52, 0, 1) *
+        (1 - fBlend) *
+        (1 - cBlend);
       const tokyoSunElev = sunDirWorld.dot(tokyoUpWorld);
 
       tokyoSkyMesh.visible = skyOpacity > 0.01;
       tokyoSkyBundle.uniforms.uUpWorld.value.copy(tokyoUpWorld);
       tokyoSkyBundle.uniforms.uSunDirWorld.value.copy(sunDirWorld);
       tokyoSkyBundle.uniforms.uOpacity.value = skyOpacity;
+      tokyoSkyBundle.uniforms.uEclipseDimming.value =
+        curMoon.solarEclipseType === "total"
+          ? g * curMoon.eclipseObscuration
+          : curMoon.solarEclipseType === "annular"
+          ? g * 0.45 * curMoon.eclipseObscuration
+          : 0;
 
       tokyoGroundGroup.visible = groundOpacity > 0.01;
       tokyoGroundBundle.uniforms.uSunElevation.value = tokyoSunElev;
@@ -2992,9 +3834,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       skylineMat.opacity = 0.96 * groundOpacity;
       tokyoSkyGuidesGroup.visible = groundOpacity > 0.35 && curLayers.graticule;
 
-      // 地上・黄道ビューへ降りきった後は地球本体の球面メッシュを隠して、内側が映り込むのを防ぎます。
-      earthMesh.visible = g < 0.78 && eBlend < 0.52;
-      atmosphereMesh.visible = g < 0.48 && eBlend < 0.35;
+      // 地上・黄道ビューへ降りきった後は地球本体の球面メッシュを隠して、内側が映り込むのを防ぎます（地球フォーカス時は必ず表示）。
+      const focusingEarth = fBlend > 0.05 && focus.activeId === "earth";
+      sunMesh.visible = !hideSolarForCosmic;
+      sunCoronaMesh.visible = !hideSolarForCosmic;
+      earthMesh.visible =
+        !hideSolarForCosmic && (focusingEarth || (g < 0.78 && eBlend < 0.52));
+      atmosphereMesh.visible =
+        !hideSolarForCosmic && (focusingEarth || (g < 0.48 && eBlend < 0.35));
 
       // 月の観察距離では、太陽光線矢印と「☀ 太陽」バッジが白道リングの外側に来るよう滑らかに押し出します。
       const moonBeamFactor = THREE.MathUtils.clamp(
@@ -3006,42 +3853,57 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       sunBeamRoot.updateMatrixWorld(true);
 
       graticuleGroup.visible =
-        curLayers.graticule && g < 0.45 && eBlend < 0.45 && !isRealSolarSystem;
+        !hideSolarForCosmic &&
+        curLayers.graticule &&
+        g < 0.45 &&
+        eBlend < 0.45 &&
+        !isRealSolarSystem;
       celestialCompassGroup.visible =
-        curLayers.celestialCompass && isEarthCloseup;
+        !hideSolarForCosmic && curLayers.celestialCompass && isEarthCloseup;
       eclipticLocalGroup.visible =
+        !hideSolarForCosmic &&
         curLayers.eclipticPlane &&
         !isOrbitOverview &&
         !isGroundView &&
         !isEclipticSkyView;
       orbitGuideGroup.visible =
-        curLayers.eclipticPlane && isSimpleOrbitOverview;
+        !hideSolarForCosmic && curLayers.eclipticPlane && isSimpleOrbitOverview;
       sunEarthLine.visible =
+        !hideSolarForCosmic &&
         (curLayers.eclipticPlane || curLayers.terminatorGuide) &&
         isSimpleOrbitOverview;
       sunGuideGroup.visible =
+        !hideSolarForCosmic &&
         curLayers.terminatorGuide &&
         !isOrbitOverview &&
         !isGroundView &&
         !isEclipticSkyView;
-      citiesGroup.visible = curLayers.cities && isEarthCloseup;
-      equinoxGroup.visible = curLayers.starsAndEquinox && isEarthCloseup;
-      starsGroup.visible =
-        curLayers.starsAndEquinox || isGroundView || isEclipticSkyView;
+      citiesGroup.visible = !hideSolarForCosmic && curLayers.cities && isEarthCloseup;
+      starsGroup.visible = true;
       // リアル太陽系モードでも地球の衛星（月）を保持し、遠方全体俯瞰時だけ小さなリングが潰れないよう整理します。
       moonSystemGroup.visible =
-        curLayers.moonAndOrbit && (!isRealSolarSystem || curPose.distance < 260);
-      moonNodeGroup.visible = !isGroundView && !isEclipticSkyView;
+        !hideSolarForCosmic &&
+        curLayers.moonAndOrbit &&
+        (!isRealSolarSystem || curPose.distance < 260);
+      moonNodeGroup.visible = !hideSolarForCosmic && !isGroundView && !isEclipticSkyView;
       earthMoonLine.visible =
-        !isGroundView && !isEclipticSkyView && !isRealSolarSystem;
+        !hideSolarForCosmic &&
+        !isGroundView &&
+        !isEclipticSkyView &&
+        !isRealSolarSystem;
       moonEclipticRefRing.visible =
-        curLayers.moonAndOrbit && curLayers.eclipticPlane && isMoonView;
+        !hideSolarForCosmic &&
+        curLayers.moonAndOrbit &&
+        curLayers.eclipticPlane &&
+        isMoonView;
       venusOrbitGroup.visible =
-        curLayers.venusAndOrbit && isSimpleOrbitOverview;
+        !hideSolarForCosmic && curLayers.venusAndOrbit && isSimpleOrbitOverview;
       venusMesh.visible =
+        !hideSolarForCosmic &&
         (curLayers.venusAndOrbit || isRealSolarSystem) &&
         (isOrbitOverview || isGroundView || isEclipticSkyView);
       venusGlowSprite.visible =
+        !hideSolarForCosmic &&
         curLayers.venusAndOrbit &&
         ((isGroundView && g > 0.45) || (isEclipticSkyView && eBlend > 0.45));
 
@@ -3101,44 +3963,44 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           }
           trailAttr.needsUpdate = true;
         }
-
-        // 黄道ビューの天球背景イラストを現在通過中の星座だけ少し明るくします。
-        zodiacSkyArtGroup.visible = eBlend > 0.25;
-        if (zodiacSkyArtGroup.visible) {
-          for (const [zId, art] of zodiacSkyArtMap.entries()) {
-            const isHost = zId === activeSunZodiac.id;
-            art.mat.opacity = (isHost ? 0.42 : 0.2) * eBlend;
-            const sSize = isHost ? 25 : 21;
-            art.sprite.scale.set(sSize, sSize, 1);
-          }
-        }
-      } else {
-        zodiacSkyArtGroup.visible = false;
       }
 
       // 地上視点で見えるカシオペア座（北天・W字）と南十字星（南天・十字）の明るさ制御
       const cassiopeiaNightFactor = isGroundView
         ? THREE.MathUtils.clamp((-tokyoSunElev + 0.14) * 3.2, 0.12, 1.0)
         : 0;
-      cassiopeiaGroup.visible =
-        isGroundView && curLayers.starsAndEquinox && curGroundLatDeg > -15;
+      cassiopeiaGroup.visible = isGroundView && curGroundLatDeg > -15;
       if (cassiopeiaGroup.visible) {
         cassiopeiaLineMat.opacity = 0.88 * cassiopeiaNightFactor;
         cassiopeiaStarsMat.opacity = 0.98 * cassiopeiaNightFactor;
       }
 
-      southernCrossGroup.visible =
-        isGroundView && curLayers.starsAndEquinox && curGroundLatDeg < 25;
+      southernCrossGroup.visible = isGroundView && curGroundLatDeg < 25;
       if (southernCrossGroup.visible) {
         scLineMat.opacity = 0.9 * cassiopeiaNightFactor;
         scStarsMat.opacity = 0.98 * cassiopeiaNightFactor;
       }
 
-      // 簡易版「太陽の真上・公転面やや上」視点のとき、外周の黄道13星座イラストメダリオンと「地球 → 太陽 → 星座」視線ガイドを表示します。
+      // 四季の星座・大三角／四辺形・主要15恒星（地上視点の夜空＋黄道ビュー）の表示とフェード制御
+      const seasonalSkyFactor = curLayers.seasonalAsterisms
+        ? Math.max(
+            isGroundView ? cassiopeiaNightFactor : 0,
+            isEclipticSkyView ? eBlend * 0.85 : 0
+          )
+        : 0;
+      seasonalSkyGroup.visible = !hideSolarForCosmic && seasonalSkyFactor > 0.04;
+      if (seasonalSkyGroup.visible) {
+        for (const item of seasonalFadeMats) {
+          (item.mat as THREE.Material & { opacity: number }).opacity =
+            item.baseOpacity * seasonalSkyFactor;
+        }
+      }
+
+      // 簡易版「太陽の真上・公転面やや上」視点のとき、外周の3D黄道13星座（星と星座線）と「地球 → 太陽 → 星座」視線ガイドを表示します。
       const showSunOverheadZodiac =
         isSimpleOrbitOverview && curLayers.zodiacConstellations;
       sunOverheadZodiacRing.visible = showSunOverheadZodiac;
-      sunOverheadZodiacArtGroup.visible = showSunOverheadZodiac;
+      sunOverheadZodiacGroup.visible = showSunOverheadZodiac;
       earthSunZodiacSightLine.visible = showSunOverheadZodiac;
       if (showSunOverheadZodiac) {
         const sightAttr = earthSunZodiacSightGeo.getAttribute(
@@ -3147,18 +4009,25 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         sightAttr.setXYZ(0, earthOrbitPos.x, 0.06, earthOrbitPos.z);
         sightAttr.setXYZ(
           1,
-          sunDirWorld.x * 21.4,
+          sunDirWorld.x * SUN_ORBIT_ZODIAC_RADIUS,
           0.06,
-          sunDirWorld.z * 21.4
+          sunDirWorld.z * SUN_ORBIT_ZODIAC_RADIUS
         );
         sightAttr.needsUpdate = true;
         earthSunZodiacSightLine.computeLineDistances();
 
-        for (const [zId, art] of sunOverheadZodiacArtMap.entries()) {
+        for (const [zId, zLine] of sunOverheadZodiacLineMap.entries()) {
           const isHost = zId === activeSunZodiac.id;
-          art.mat.opacity = isHost ? 1.0 : 0.82;
-          const sz = isHost ? 6.6 : 5.2;
-          art.sprite.scale.set(sz, sz, 1);
+          if (isHost) {
+            zLine.lineMat.color.setHex(0xfde68a);
+            zLine.lineMat.opacity = 1.0;
+          } else if (zLine.isThirteenth) {
+            zLine.lineMat.color.setHex(0xd8b4fe);
+            zLine.lineMat.opacity = 0.85;
+          } else {
+            zLine.lineMat.color.setHex(0x7dd3fc);
+            zLine.lineMat.opacity = 0.75;
+          }
         }
       }
 
@@ -3284,9 +4153,10 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         btn.classList.toggle("is-night", !isDay);
       }
 
-      // 太陽・地球・月・金星・リアル太陽系の惑星/木星4衛星・春分点・季節・方位ラベルを更新
+      // 太陽・地球・月・金星・リアル太陽系の惑星/木星4衛星・季節・方位ラベルを更新
       const isInnerSolarLabelsVisible =
-        !isRealSolarSystem || (!isJupiterFocus && curPose.distance < 260);
+        !hideSolarBadgesForCosmic &&
+        (!isRealSolarSystem || (!isJupiterFocus && curPose.distance < 260));
 
       if (isEclipticSkyView) {
         const sunInFront = sunDirWorld.dot(camForward) > 0.12;
@@ -3328,7 +4198,9 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           camera,
           hostW,
           hostH,
-          !isJupiterFocus && tmpToCam.dot(camForward) > 0.1,
+          !hideSolarBadgesForCosmic &&
+            !isJupiterFocus &&
+            tmpToCam.dot(camForward) > 0.1,
           curInspectorOpen,
           false
         );
@@ -3340,7 +4212,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           camera,
           hostW,
           hostH,
-          curLayers.terminatorGuide,
+          curLayers.terminatorGuide && !hideSolarBadgesForCosmic && !isCosmicView,
           curInspectorOpen,
           true
         );
@@ -3500,6 +4372,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
 
         const isInner = id === "mercury" || id === "mars";
         const shouldShow =
+          !hideSolarBadgesForCosmic &&
           isRealSolarSystem &&
           (isJupiterFocus
             ? id === "jupiter"
@@ -3567,18 +4440,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         }
       }
 
-      equinoxMarker.getWorldPosition(tmpWorldPos);
-      updateFloatingBadgeAtPosition(
-        equinoxBadgeRef.current,
-        tmpWorldPos,
-        camera,
-        hostW,
-        hostH,
-        curLayers.starsAndEquinox && isEarthCloseup,
-        curInspectorOpen,
-        true
-      );
-
       for (const sp of ORBIT_SEASON_POINTS) {
         const el = seasonBadgeRefs.current.get(sp.id) ?? null;
         const markerObj = seasonMarkerObjects.get(sp.id);
@@ -3590,7 +4451,9 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
             camera,
             hostW,
             hostH,
-            isSimpleOrbitOverview && curLayers.eclipticPlane,
+            isSimpleOrbitOverview &&
+              !hideSolarBadgesForCosmic &&
+              curLayers.eclipticPlane,
             curInspectorOpen,
             false
           );
@@ -3609,10 +4472,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         camera,
         hostW,
         hostH,
-        isGroundView &&
-          curLayers.starsAndEquinox &&
-          casInFront &&
-          casAboveHorizon,
+        isGroundView && casInFront && casAboveHorizon,
         curInspectorOpen,
         false
       );
@@ -3630,16 +4490,12 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         camera,
         hostW,
         hostH,
-        isGroundView &&
-          curLayers.starsAndEquinox &&
-          scInFront &&
-          scAboveHorizon,
+        isGroundView && scInFront && scAboveHorizon,
         curInspectorOpen,
         false
       );
 
-      // 黄道13星座（黄道12星座＋へびつかい座）ラベルを更新（地球から黄道ビュー＆東京の夜空・年周運動観察）
-      // ※ 太陽の真上・公転面やや上では外周にイラストメダリオン（星座名入り）を配置するためテキストバッジは重ねません。
+      // 黄道13星座（黄道12星座＋へびつかい座）ラベルを更新（太陽公転ビュー・地球から黄道ビュー・地上夜空）
       const showGroundNightZodiacBadges =
         isGroundView && curLayers.zodiacConstellations && tokyoSunElev < 0.04;
       for (const c of ZODIAC_CONSTELLATIONS) {
@@ -3650,7 +4506,22 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         const isHost = c.id === activeSunZodiac.id && !isGroundView;
         el.classList.toggle("is-sun-host", isHost);
 
-        if (isEclipticSkyView && curLayers.zodiacConstellations) {
+        if (showSunOverheadZodiac) {
+          tmpWorldPos
+            .copy(entry.labelUnitDir)
+            .multiplyScalar(SUN_ORBIT_ZODIAC_RADIUS + 1.4);
+          tmpToCam.copy(tmpWorldPos).sub(camera.position).normalize();
+          updateFloatingBadgeAtPosition(
+            el,
+            tmpWorldPos,
+            camera,
+            hostW,
+            hostH,
+            tmpToCam.dot(camForward) > 0.1,
+            curInspectorOpen,
+            false
+          );
+        } else if (isEclipticSkyView && curLayers.zodiacConstellations) {
           tmpWorldPos
             .copy(zodiacGroup.position)
             .addScaledVector(entry.labelUnitDir, ZODIAC_RADIUS);
@@ -3711,6 +4582,112 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         }
       }
 
+      // 銀河・局部銀河群・おとめ座銀河団・近傍恒星のコズミック・スケールラベルを更新します。
+      const cosmicBadges = cosmicRig.getBadgeWorldPositions(cLevel);
+      const visibleCosmicIds = new Set<CosmicBadgeId>();
+      for (const item of cosmicBadges) {
+        const el = cosmicBadgeRefs.current.get(item.id) ?? null;
+        if (!el) continue;
+        visibleCosmicIds.add(item.id);
+        tmpToCam.copy(item.position).sub(camera.position).normalize();
+        updateFloatingBadgeAtPosition(
+          el,
+          item.position,
+          camera,
+          hostW,
+          hostH,
+          item.visible && tmpToCam.dot(camForward) > 0.1,
+          curInspectorOpen,
+          false
+        );
+      }
+      for (const spec of COSMIC_BADGE_SPECS) {
+        if (!visibleCosmicIds.has(spec.id)) {
+          const el = cosmicBadgeRefs.current.get(spec.id);
+          if (el) el.style.display = "none";
+        }
+      }
+
+      // 地上夜空・黄道ビューでの四季の星座・大三角／四辺形・主要15恒星ラベルを更新します。
+      const showSeasonalGroundLabels =
+        seasonalSkyGroup.visible &&
+        ((isGroundView && tokyoSunElev < 0.08) || isEclipticSkyView);
+
+      for (const ast of SEASONAL_ASTERISMS) {
+        const el = seasonalAsterismBadgeRefs.current.get(ast.id) ?? null;
+        const unitDir = seasonalAsterismLabelDirs.get(ast.id);
+        if (!el || !unitDir) continue;
+        if (!showSeasonalGroundLabels) {
+          el.style.display = "none";
+          continue;
+        }
+        tmpWorldPos
+          .copy(seasonalSkyGroup.position)
+          .addScaledVector(unitDir, ASTERISM_RADIUS);
+        const inFront = unitDir.dot(camForward) > 0.18;
+        const aboveHorizon = !isGroundView || unitDir.dot(tokyoUpWorld) > 0.04;
+        updateFloatingBadgeAtPosition(
+          el,
+          tmpWorldPos,
+          camera,
+          hostW,
+          hostH,
+          inFront && aboveHorizon,
+          curInspectorOpen,
+          false
+        );
+      }
+
+      for (const sc of SEASONAL_CONSTELLATIONS) {
+        const el = seasonalConstellationBadgeRefs.current.get(sc.id) ?? null;
+        const unitDir = seasonalConstellationLabelDirs.get(sc.id);
+        if (!el || !unitDir) continue;
+        if (!showSeasonalGroundLabels || !isGroundView) {
+          el.style.display = "none";
+          continue;
+        }
+        tmpWorldPos
+          .copy(seasonalSkyGroup.position)
+          .addScaledVector(unitDir, ZODIAC_RADIUS);
+        const inFront = unitDir.dot(camForward) > 0.2;
+        const aboveHorizon = unitDir.dot(tokyoUpWorld) > 0.06;
+        updateFloatingBadgeAtPosition(
+          el,
+          tmpWorldPos,
+          camera,
+          hostW,
+          hostH,
+          inFront && aboveHorizon,
+          curInspectorOpen,
+          false
+        );
+      }
+
+      for (const star of FEATURED_BRIGHT_STARS) {
+        const el = featuredStarBadgeRefs.current.get(star.id) ?? null;
+        const mesh = seasonalBrightStarMeshes.get(star.id);
+        if (!el || !mesh) continue;
+        if (!showSeasonalGroundLabels) {
+          el.style.display = "none";
+          continue;
+        }
+        mesh.getWorldPosition(tmpWorldPos);
+        tmpToCam.set(star.unitDir[0], star.unitDir[1], star.unitDir[2]);
+        const inFront = tmpToCam.dot(camForward) > 0.2;
+        const aboveHorizon = !isGroundView || tmpToCam.dot(tokyoUpWorld) > 0.03;
+        tmpWorldPos.addScaledVector(camera.up, 2.3);
+        updateFloatingBadgeAtPosition(
+          el,
+          tmpWorldPos,
+          camera,
+          hostW,
+          hostH,
+          inFront && aboveHorizon,
+          curInspectorOpen,
+          false
+        );
+      }
+
       renderer.render(scene, camera);
     };
 
@@ -3732,7 +4709,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       moonTexture.dispose();
       venusTexture.dispose();
       planetTextures.dispose();
-      zodiacArtBundle.dispose();
       starTexture.dispose();
       earthBundle.material.dispose();
       atmosphereBundle.material.dispose();
@@ -3755,6 +4731,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       tokyoSkyBundle.material.dispose();
       tokyoGroundBundle.material.dispose();
       skylineMat.dispose();
+      cosmicRig.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === host) {
         host.removeChild(renderer.domElement);
@@ -3790,43 +4767,56 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           );
         })}
 
-        <span
+        <button
           ref={sunBadgeRef}
-          className="space-badge is-sun"
+          type="button"
+          className="space-badge is-sun is-clickable"
           style={{ display: "none" }}
+          onClick={() => onSelectCelestialBody("sun")}
+          title="太陽をタップして詳細を表示"
         >
           ☀ 太陽
-        </span>
+        </button>
 
-        <span
+        <button
           ref={earthBadgeRef}
-          className="space-badge is-earth"
+          type="button"
+          className="space-badge is-earth is-clickable"
           style={{ display: "none" }}
+          onClick={() => onSelectCelestialBody("earth")}
+          title="地球をタップして詳細を表示"
         >
           ● 地球
-        </span>
+        </button>
 
-        <span
+        <button
           ref={moonBadgeRef}
-          className="space-badge is-moon"
+          type="button"
+          className="space-badge is-moon is-clickable"
           style={{ display: "none" }}
+          onClick={() => onSelectCelestialBody("moon")}
+          title="月をタップして詳細を表示"
         >
           ☾ 月
-        </span>
+        </button>
 
-        <span
+        <button
           ref={venusBadgeRef}
-          className="space-badge is-venus"
+          type="button"
+          className="space-badge is-venus is-clickable"
           style={{ display: "none" }}
+          onClick={() => onSelectCelestialBody("venus")}
+          title="金星をタップして詳細を表示"
         >
           ♀ 金星
-        </span>
+        </button>
 
         {SOLAR_SYSTEM_ELEMENTS.filter(
           (el) => el.id !== "earth" && el.id !== "venus"
         ).map((el) => (
-          <span
+          <button
             key={el.id}
+            type="button"
             ref={(node) => {
               if (node) {
                 planetBadgeRefs.current.set(el.id, node);
@@ -3834,20 +4824,23 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
                 planetBadgeRefs.current.delete(el.id);
               }
             }}
-            className="space-badge is-planet"
+            className="space-badge is-planet is-clickable"
             style={{
               display: "none",
               borderColor: `${el.accentColor}99`,
               color: el.accentColor,
             }}
+            onClick={() => onSelectCelestialBody(el.id)}
+            title={`${el.nameJa}をタップして詳細を表示`}
           >
             {el.symbol} {el.nameJa}
-          </span>
+          </button>
         ))}
 
         {GALILEAN_MOONS.map((gm) => (
-          <span
+          <button
             key={gm.id}
+            type="button"
             ref={(node) => {
               if (node) {
                 galileanBadgeRefs.current.set(gm.id, node);
@@ -3855,15 +4848,17 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
                 galileanBadgeRefs.current.delete(gm.id);
               }
             }}
-            className="space-badge is-satellite"
+            className="space-badge is-satellite is-clickable"
             style={{
               display: "none",
               borderColor: `${gm.color}88`,
               color: gm.color,
             }}
+            onClick={() => onSelectCelestialBody(gm.id)}
+            title={`${gm.nameJa}をタップして詳細を表示`}
           >
             ◦ {gm.nameJa}
-          </span>
+          </button>
         ))}
 
         <span
@@ -3888,14 +4883,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           style={{ display: "none" }}
         >
           ✦ 南十字星 (みなみじゅうじ座)
-        </span>
-
-        <span
-          ref={equinoxBadgeRef}
-          className="space-badge is-equinox"
-          style={{ display: "none" }}
-        >
-          ♈ 春分点
         </span>
 
         {TOKYO_COMPASS_POINTS.map((cp) => (
@@ -3969,6 +4956,113 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           >
             {cp.labelJa}
           </span>
+        ))}
+
+        {COSMIC_BADGE_SPECS.map((spec) =>
+          spec.clickableBodyId !== null ? (
+            <button
+              key={spec.id}
+              type="button"
+              ref={(el) => {
+                if (el) {
+                  cosmicBadgeRefs.current.set(spec.id, el);
+                } else {
+                  cosmicBadgeRefs.current.delete(spec.id);
+                }
+              }}
+              className="space-badge is-cosmic is-clickable"
+              style={{
+                display: "none",
+                borderColor: `${spec.accentColor}99`,
+                color: spec.accentColor,
+              }}
+              onClick={() => onSelectCelestialBody(spec.clickableBodyId!)}
+              title={`${spec.label}をタップして詳細を表示`}
+            >
+              {spec.label}
+            </button>
+          ) : (
+            <span
+              key={spec.id}
+              ref={(el) => {
+                if (el) {
+                  cosmicBadgeRefs.current.set(spec.id, el);
+                } else {
+                  cosmicBadgeRefs.current.delete(spec.id);
+                }
+              }}
+              className="space-badge is-cosmic is-cosmic-info"
+              style={{
+                display: "none",
+                borderColor: `${spec.accentColor}66`,
+                color: spec.accentColor,
+              }}
+            >
+              {spec.label}
+            </span>
+          )
+        )}
+
+        {SEASONAL_ASTERISMS.map((ast) => (
+          <span
+            key={ast.id}
+            ref={(el) => {
+              if (el) {
+                seasonalAsterismBadgeRefs.current.set(ast.id, el);
+              } else {
+                seasonalAsterismBadgeRefs.current.delete(ast.id);
+              }
+            }}
+            className="space-badge is-asterism"
+            style={{
+              display: "none",
+              borderColor: `${ast.colorHex}aa`,
+              color: ast.colorHex,
+            }}
+          >
+            {ast.nameJa}
+          </span>
+        ))}
+
+        {SEASONAL_CONSTELLATIONS.map((sc) => (
+          <span
+            key={sc.id}
+            ref={(el) => {
+              if (el) {
+                seasonalConstellationBadgeRefs.current.set(sc.id, el);
+              } else {
+                seasonalConstellationBadgeRefs.current.delete(sc.id);
+              }
+            }}
+            className="space-badge is-seasonal-constellation"
+            style={{ display: "none" }}
+          >
+            {sc.nameJa}
+          </span>
+        ))}
+
+        {FEATURED_BRIGHT_STARS.map((star) => (
+          <button
+            key={star.id}
+            type="button"
+            ref={(el) => {
+              if (el) {
+                featuredStarBadgeRefs.current.set(star.id, el);
+              } else {
+                featuredStarBadgeRefs.current.delete(star.id);
+              }
+            }}
+            className="space-badge is-bright-star is-clickable"
+            style={{
+              display: "none",
+              borderColor: `${star.colorHex}aa`,
+              color: star.colorHex,
+            }}
+            onClick={() => onSelectCelestialBody(star.bodyId)}
+            title={`${star.nameJa}（${star.constellationJa}・約${star.distanceLy}光年）をタップして詳細を表示`}
+          >
+            ★ {star.nameJa}
+          </button>
         ))}
       </div>
     </div>

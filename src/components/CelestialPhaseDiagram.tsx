@@ -9,6 +9,10 @@ interface CelestialPhaseDiagramProps {
   litSide: "right" | "left";
   /** 地球からの距離（AU・金星の見かけの大きさ変化にのみ使用） */
   distanceAu?: number;
+  /** 日食の種類（月のカードのみ） */
+  solarEclipseType?: "none" | "total" | "annular" | "partial";
+  /** 月食の種類（月のカードのみ） */
+  lunarEclipseType?: "none" | "total" | "partial" | "penumbral";
   /** スクリーンリーダー向け説明文 */
   ariaLabel: string;
 }
@@ -56,6 +60,8 @@ export const CelestialPhaseDiagram: React.FC<CelestialPhaseDiagramProps> = ({
   illumination,
   litSide,
   distanceAu,
+  solarEclipseType = "none",
+  lunarEclipseType = "none",
   ariaLabel,
 }) => {
   const uid = useId().replace(/:/g, "");
@@ -78,6 +84,7 @@ export const CelestialPhaseDiagram: React.FC<CelestialPhaseDiagramProps> = ({
   const gradId = `phase-grad-${body}-${uid}`;
   const clipId = `phase-clip-${body}-${uid}`;
   const glowId = `phase-glow-${body}-${uid}`;
+  const isTotalLunar = body === "moon" && lunarEclipseType === "total";
 
   return (
     <svg
@@ -90,11 +97,19 @@ export const CelestialPhaseDiagram: React.FC<CelestialPhaseDiagramProps> = ({
     >
       <defs>
         {body === "moon" ? (
-          <radialGradient id={gradId} cx="42%" cy="38%" r="65%">
-            <stop offset="0%" stopColor="#f8fafc" />
-            <stop offset="68%" stopColor="#dce4ef" />
-            <stop offset="100%" stopColor="#9fb0c7" />
-          </radialGradient>
+          isTotalLunar ? (
+            <radialGradient id={gradId} cx="42%" cy="38%" r="68%">
+              <stop offset="0%" stopColor="#f97316" />
+              <stop offset="58%" stopColor="#b91c1c" />
+              <stop offset="100%" stopColor="#5c110c" />
+            </radialGradient>
+          ) : (
+            <radialGradient id={gradId} cx="42%" cy="38%" r="65%">
+              <stop offset="0%" stopColor="#f8fafc" />
+              <stop offset="68%" stopColor="#dce4ef" />
+              <stop offset="100%" stopColor="#9fb0c7" />
+            </radialGradient>
+          )
         ) : (
           <radialGradient id={gradId} cx="40%" cy="35%" r="70%">
             <stop offset="0%" stopColor="#fffdf2" />
@@ -144,6 +159,26 @@ export const CelestialPhaseDiagram: React.FC<CelestialPhaseDiagramProps> = ({
       )}
 
       {/* 影側（夜面）のベース円 */}
+      {body === "moon" && solarEclipseType === "total" && (
+        <circle
+          cx={cx}
+          cy={cy}
+          r={radius + 3.5}
+          fill="none"
+          stroke="rgba(224, 242, 254, 0.78)"
+          strokeWidth="2.4"
+        />
+      )}
+      {body === "moon" && solarEclipseType === "annular" && (
+        <circle
+          cx={cx}
+          cy={cy}
+          r={radius + 1.8}
+          fill="none"
+          stroke="#fbbf24"
+          strokeWidth="2.6"
+        />
+      )}
       <circle
         cx={cx}
         cy={cy}
@@ -197,6 +232,22 @@ export const CelestialPhaseDiagram: React.FC<CelestialPhaseDiagramProps> = ({
               fill="rgba(71, 85, 105, 0.22)"
             />
             <circle cx={cx - 2} cy={cy + 13} r={2.2} fill="rgba(255,255,255,0.45)" />
+            {lunarEclipseType === "partial" && (
+              <circle
+                cx={cx - 13}
+                cy={cy - 18}
+                r={radius * 1.65}
+                fill="rgba(52, 16, 14, 0.86)"
+              />
+            )}
+            {lunarEclipseType === "penumbral" && (
+              <circle
+                cx={cx - 12}
+                cy={cy - 17}
+                r={radius * 1.7}
+                fill="rgba(15, 23, 42, 0.42)"
+              />
+            )}
           </>
         ) : (
           <>

@@ -15,6 +15,7 @@ import {
   calculateFullSolarSystemState,
   calculateGalileanMoonsState,
 } from "./astronomy/solarSystem";
+import { SEASONAL_SKY_GUIDE_DATES } from "./astronomy/seasonalStars";
 import {
   CameraPreset,
   DisplayLayers,
@@ -29,6 +30,8 @@ import {
   GuideExperimentId,
   InspectorPanel,
 } from "./components/InspectorPanel";
+import { CelestialBodyCard } from "./components/CelestialBodyCard";
+import { CelestialBodyId } from "./data/celestialBodies";
 
 const DEFAULT_LAYERS: DisplayLayers = {
   graticule: true,
@@ -36,10 +39,10 @@ const DEFAULT_LAYERS: DisplayLayers = {
   eclipticPlane: true,
   terminatorGuide: true,
   cities: true,
-  starsAndEquinox: true,
   moonAndOrbit: true,
   venusAndOrbit: true,
   zodiacConstellations: true,
+  seasonalAsterisms: true,
 };
 
 const GROUND_DEFAULT_ELEVATION = degToRad(26);
@@ -50,6 +53,7 @@ const ECLIPTIC_OFF_DEFAULTS = {
   eclipticYawOffset: 0,
   eclipticFixedLon: 0,
   eclipticViewLatRad: 0,
+  cosmicLevel: 0,
 };
 
 const PRESET_POSES: Record<
@@ -162,6 +166,7 @@ const PRESET_POSES: Record<
     eclipticYawOffset: 0,
     eclipticFixedLon: 0,
     eclipticViewLatRad: 0,
+    cosmicLevel: 0,
     durationSec: 2.8,
     ratio: 1,
   },
@@ -181,6 +186,7 @@ const PRESET_POSES: Record<
     eclipticYawOffset: 0,
     eclipticFixedLon: 0,
     eclipticViewLatRad: 0,
+    cosmicLevel: 0,
     durationSec: 2.2,
     ratio: 1,
   },
@@ -304,6 +310,118 @@ const PRESET_POSES: Record<
     durationSec: 3.6,
     ratio: 1,
   },
+  nearbyStars: {
+    yaw: degToRad(18),
+    pitch: degToRad(24),
+    distance: 90.0,
+    eclipticBlend: 1,
+    sunCenterBlend: 1,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
+    cosmicLevel: 1,
+    durationSec: 3.2,
+    ratio: 1,
+  },
+  milkyWay: {
+    yaw: degToRad(18),
+    pitch: degToRad(40),
+    distance: 62.0,
+    eclipticBlend: 1,
+    sunCenterBlend: 1,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
+    cosmicLevel: 2,
+    durationSec: 3.2,
+    ratio: 1,
+  },
+  milkyWayAndromeda: {
+    yaw: degToRad(-12),
+    pitch: degToRad(24),
+    distance: 66.0,
+    eclipticBlend: 1,
+    sunCenterBlend: 1,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
+    cosmicLevel: 3,
+    durationSec: 3.2,
+    ratio: 1,
+  },
+  localGroup: {
+    yaw: degToRad(-24),
+    pitch: degToRad(26),
+    distance: 80.0,
+    eclipticBlend: 1,
+    sunCenterBlend: 1,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
+    cosmicLevel: 4,
+    durationSec: 3.2,
+    ratio: 1,
+  },
+  galaxyCluster: {
+    yaw: degToRad(-14),
+    pitch: degToRad(22),
+    distance: 100.0,
+    eclipticBlend: 1,
+    sunCenterBlend: 1,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
+    cosmicLevel: 5,
+    durationSec: 3.4,
+    ratio: 1,
+  },
+  laniakea: {
+    yaw: degToRad(-14),
+    pitch: degToRad(24),
+    distance: 98.0,
+    eclipticBlend: 1,
+    sunCenterBlend: 1,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
+    cosmicLevel: 6,
+    durationSec: 3.4,
+    ratio: 1,
+  },
+  observableUniverse: {
+    yaw: degToRad(12),
+    pitch: degToRad(18),
+    distance: 116.0,
+    eclipticBlend: 1,
+    sunCenterBlend: 1,
+    groundBlend: 0,
+    groundAzimuth: 0,
+    groundElevation: GROUND_DEFAULT_ELEVATION,
+    solarSystemBlend: 0,
+    jupiterFocusBlend: 0,
+    ...ECLIPTIC_OFF_DEFAULTS,
+    cosmicLevel: 7,
+    durationSec: 3.6,
+    ratio: 1,
+  },
 };
 
 /**
@@ -341,6 +459,9 @@ export function App() {
       ? window.innerWidth >= 1024 && window.innerHeight >= 540
       : true
   );
+  const [focusedBodyId, setFocusedBodyId] = useState<CelestialBodyId | null>(
+    null
+  );
   const [layers, setLayers] = useState<DisplayLayers>(DEFAULT_LAYERS);
   const [isAnnualMotionMode, setIsAnnualMotionMode] = useState<boolean>(false);
   const isAnnualMotionRef = useRef<boolean>(false);
@@ -348,9 +469,11 @@ export function App() {
   const [transitioningSeasonId, setTransitioningSeasonId] = useState<
     SeasonPreset["id"] | null
   >(null);
+  const [isCustomTimeTransition, setIsCustomTimeTransition] =
+    useState<boolean>(false);
 
   const simTimeMsRef = useRef<number>(currentDate.getTime());
-  // 春分・夏至・秋分・冬至ボタンを押した際に時間を未来方向へ滑らかに進める補間状態です。
+  // 春分・夏至・秋分・冬至ボタンや日食・月食ガイドボタンを押した際に時間を滑らかに補間する状態です。
   const timeTransitionRef = useRef<{
     active: boolean;
     fromMs: number;
@@ -369,6 +492,7 @@ export function App() {
     if (timeTransitionRef.current.active) {
       timeTransitionRef.current.active = false;
       setTransitioningSeasonId(null);
+      setIsCustomTimeTransition(false);
     }
   }, []);
 
@@ -379,6 +503,23 @@ export function App() {
       setCurrentDate(nextDate);
     },
     [cancelTimeTransition]
+  );
+
+  const smoothTransitionToDate = useCallback(
+    (targetDate: Date, durationSec = 2.8) => {
+      const fromMs = simTimeMsRef.current;
+      const toMs = targetDate.getTime();
+      timeTransitionRef.current = {
+        active: true,
+        fromMs,
+        toMs,
+        elapsed: 0,
+        duration: durationSec,
+      };
+      setTransitioningSeasonId(null);
+      setIsCustomTimeTransition(true);
+    },
+    []
   );
 
   const handleSelectSeason = useCallback((seasonId: SeasonPreset["id"]) => {
@@ -396,6 +537,7 @@ export function App() {
       elapsed: 0,
       duration,
     };
+    setIsCustomTimeTransition(false);
     setTransitioningSeasonId(seasonId);
   }, []);
 
@@ -408,7 +550,8 @@ export function App() {
     });
   }, [cancelTimeTransition]);
 
-  const isTimeTransitioning = transitioningSeasonId !== null;
+  const isTimeTransitioning =
+    transitioningSeasonId !== null || isCustomTimeTransition;
 
   useEffect(() => {
     if (!isPlaying && !isTimeTransitioning) return;
@@ -437,6 +580,7 @@ export function App() {
         if (rawT >= 1) {
           tr.active = false;
           setTransitioningSeasonId(null);
+          setIsCustomTimeTransition(false);
         }
         return;
       }
@@ -500,7 +644,6 @@ export function App() {
         applyNewDate(snapped);
         setLayers((l) => ({
           ...l,
-          starsAndEquinox: true,
           zodiacConstellations: true,
         }));
         setSpeedMultiplier((sp) => (sp < 86400 ? 864000 : sp));
@@ -519,6 +662,7 @@ export function App() {
 
   const handleSelectCameraPreset = useCallback(
     (preset: CameraPreset, adjustSpeedAutomatically = true) => {
+      setFocusedBodyId(null);
       const p = PRESET_POSES[preset];
       const isTargetGround = p.groundBlend > 0.5;
       setActivePresetButton(preset);
@@ -535,8 +679,9 @@ export function App() {
           .sunEclipticLongitudeDeg
       );
 
-      // 宇宙空間 ⇄ 東京地上 ⇄ 地球から黄道 ⇄ リアル太陽系、各距離帯を跨ぐ場合はゆっくり連続移動します。
+      // 宇宙空間 ⇄ 東京地上 ⇄ 地球から黄道 ⇄ リアル太陽系 ⇄ 銀河・銀河団、各距離帯を跨ぐ場合はゆっくり連続移動します。
       setCameraPoseTarget((prev) => {
+        const crossesCosmic = prev.cosmicLevel !== p.cosmicLevel;
         const crossesGround = prev.groundBlend !== p.groundBlend;
         const crossesEclipticSky =
           prev.eclipticViewBlend !== p.eclipticViewBlend;
@@ -544,7 +689,12 @@ export function App() {
         const crossesJupiter = prev.jupiterFocusBlend !== p.jupiterFocusBlend;
         const crossesSunCenter = prev.sunCenterBlend !== p.sunCenterBlend;
         const crossesMoonBand = (prev.distance >= 7.5) !== (p.distance >= 7.5);
-        const durationSec = crossesGround || crossesEclipticSky
+        const durationSec = crossesCosmic
+          ? Math.min(
+              5.4,
+              2.9 + Math.abs(prev.cosmicLevel - p.cosmicLevel) * 0.55
+            )
+          : crossesGround || crossesEclipticSky
           ? prev.sunCenterBlend > 0.5 || p.sunCenterBlend > 0.5
             ? 3.4
             : 2.9
@@ -584,6 +734,7 @@ export function App() {
           eclipticViewLatRad: isTargetEclipticView
             ? p.eclipticViewLatRad
             : prev.eclipticViewLatRad,
+          cosmicLevel: p.cosmicLevel,
           durationSec,
           seq: prev.seq + 1,
         };
@@ -640,6 +791,7 @@ export function App() {
   );
 
   const isMoonDistanceMode =
+    cameraPoseTarget.cosmicLevel < 0.5 &&
     cameraPoseTarget.groundBlend < 0.5 &&
     cameraPoseTarget.eclipticViewBlend < 0.5 &&
     cameraPoseTarget.sunCenterBlend < 0.5 &&
@@ -650,6 +802,7 @@ export function App() {
 
   const handleChangeViewTransitionRatio = useCallback(
     (ratio: number) => {
+      setFocusedBodyId(null);
       const clamped = Math.max(0, Math.min(1, ratio));
       setViewTransitionRatio(clamped);
 
@@ -685,6 +838,7 @@ export function App() {
         jupiterFocusBlend: 0,
         ...ECLIPTIC_OFF_DEFAULTS,
         durationSec:
+          prev.cosmicLevel > 0.1 ||
           prev.sunCenterBlend > 0.5 ||
           prev.groundBlend > 0.5 ||
           prev.eclipticViewBlend > 0.5 ||
@@ -711,7 +865,172 @@ export function App() {
 
   const handleRunGuideExperiment = useCallback(
     (id: GuideExperimentId) => {
+      setFocusedBodyId(null);
+      const glideToGroundSky = (
+        cityId: string,
+        preset: CameraPreset,
+        azDeg: number,
+        elevDeg: number,
+        isoDate: string
+      ) => {
+        setIsAnnualMotionMode(false);
+        setSelectedCityId(cityId);
+        setActivePresetButton(preset);
+        setViewTransitionRatio(0);
+        setCameraPoseTarget((prev) => ({
+          yaw: 0,
+          pitch: Math.PI / 2,
+          distance: 3.92,
+          eclipticBlend: 0,
+          sunCenterBlend: 0,
+          groundBlend: 1,
+          groundAzimuth: degToRad(azDeg),
+          groundElevation: degToRad(elevDeg),
+          solarSystemBlend: 0,
+          jupiterFocusBlend: 0,
+          ...ECLIPTIC_OFF_DEFAULTS,
+          durationSec: 2.8,
+          seq: prev.seq + 1,
+        }));
+        smoothTransitionToDate(new Date(isoDate), 2.8);
+        setLayers((prev) => ({
+          ...prev,
+          graticule: true,
+          moonAndOrbit: true,
+        }));
+        setSpeedMultiplier(1);
+        setIsPlaying(true);
+      };
+
       switch (id) {
+        case "solar-eclipse-total":
+          // 2027年8月2日 10:10 UTC：月が近地点にあり太陽を完全に隠す皆既日食（ロンドン南東の空）
+          glideToGroundSky(
+            "london",
+            "tokyoSouth",
+            134.9,
+            49.2,
+            "2027-08-02T10:10:25Z"
+          );
+          break;
+
+        case "solar-eclipse-annular":
+          // 2030年6月1日 15:50 JST (06:50 UTC)：月が遠地点にあり金の輪が残る金環日食（東京・西の空）
+          glideToGroundSky(
+            "tokyo",
+            "tokyoWest",
+            274.0,
+            34.4,
+            "2030-06-01T06:50:03Z"
+          );
+          break;
+
+        case "solar-eclipse-partial":
+          // 2026年8月12日 16:15 UTC：中心から少しずれて太陽が三日月形に欠ける部分日食（ロンドン・西の空）
+          glideToGroundSky(
+            "london",
+            "tokyoWest",
+            257.6,
+            28.5,
+            "2026-08-12T16:15:51Z"
+          );
+          break;
+
+        case "solar-eclipse-space":
+          // 宇宙視点（地球の昼面と月の軌道）から、太陽と地球の間に新月が入って地球に月の影（本影・半影）が落ちる様子を観察
+          setIsAnnualMotionMode(false);
+          setActivePresetButton("moonEclipticPlane");
+          setViewTransitionRatio(1);
+          setCameraPoseTarget((prev) => ({
+            yaw: degToRad(32),
+            pitch: degToRad(16),
+            distance: 9.8,
+            eclipticBlend: 1,
+            sunCenterBlend: 0,
+            groundBlend: 0,
+            groundAzimuth: prev.groundAzimuth,
+            groundElevation: prev.groundElevation,
+            solarSystemBlend: 0,
+            jupiterFocusBlend: 0,
+            ...ECLIPTIC_OFF_DEFAULTS,
+            durationSec: 2.8,
+            seq: prev.seq + 1,
+          }));
+          smoothTransitionToDate(new Date("2027-08-02T10:10:25Z"), 2.8);
+          setLayers((prev) => ({
+            ...prev,
+            moonAndOrbit: true,
+            eclipticPlane: true,
+            terminatorGuide: true,
+          }));
+          setSpeedMultiplier(1800);
+          setIsPlaying(true);
+          break;
+
+        case "lunar-eclipse-total":
+          // 2028年12月31日 19:24 UTC：満月が地球の本影にすっぽり入り赤銅色に輝く皆既月食（ロンドン・東の夜空）
+          glideToGroundSky(
+            "london",
+            "tokyoEast",
+            90.4,
+            30.0,
+            "2028-12-31T19:24:05Z"
+          );
+          break;
+
+        case "lunar-eclipse-partial":
+          // 2027年2月20日 21:26 UTC：満月の一部が地球の丸い本影に入り欠けて見える部分月食（ロンドン・南東の夜空）
+          glideToGroundSky(
+            "london",
+            "tokyoSouth",
+            125.5,
+            36.6,
+            "2027-02-20T21:26:47Z"
+          );
+          break;
+
+        case "lunar-eclipse-penumbral":
+          // 2028年7月7日 00:53 JST (2028-07-06 15:53 UTC)：満月の片側が地球の半影で淡く翳る半影月食（東京・南の夜空）
+          glideToGroundSky(
+            "tokyo",
+            "tokyoSouth",
+            197.2,
+            28.5,
+            "2028-07-06T15:53:07Z"
+          );
+          break;
+
+        case "lunar-eclipse-space":
+          // 宇宙視点（月の公転面）から、約5.1°傾いた白道と黄道面の交点付近で満月が地球の影に入り赤銅色に染まる様子を観察
+          setIsAnnualMotionMode(false);
+          setActivePresetButton("moonEclipticPlane");
+          setViewTransitionRatio(1);
+          setCameraPoseTarget((prev) => ({
+            yaw: degToRad(-38),
+            pitch: degToRad(14),
+            distance: 11.2,
+            eclipticBlend: 1,
+            sunCenterBlend: 0,
+            groundBlend: 0,
+            groundAzimuth: prev.groundAzimuth,
+            groundElevation: prev.groundElevation,
+            solarSystemBlend: 0,
+            jupiterFocusBlend: 0,
+            ...ECLIPTIC_OFF_DEFAULTS,
+            durationSec: 2.8,
+            seq: prev.seq + 1,
+          }));
+          smoothTransitionToDate(new Date("2028-12-31T19:24:05Z"), 2.8);
+          setLayers((prev) => ({
+            ...prev,
+            moonAndOrbit: true,
+            eclipticPlane: true,
+            terminatorGuide: true,
+          }));
+          setSpeedMultiplier(1800);
+          setIsPlaying(true);
+          break;
+
         case "annual-motion-north":
           handleSelectCameraPreset("tokyoNorth", false);
           setSelectedCityId("tokyo");
@@ -720,7 +1039,6 @@ export function App() {
           setLayers((prev) => ({
             ...prev,
             graticule: true,
-            starsAndEquinox: true,
             zodiacConstellations: true,
           }));
           setSpeedMultiplier(864000);
@@ -735,7 +1053,6 @@ export function App() {
           setLayers((prev) => ({
             ...prev,
             graticule: true,
-            starsAndEquinox: true,
             zodiacConstellations: true,
             moonAndOrbit: true,
           }));
@@ -751,7 +1068,6 @@ export function App() {
             eclipticPlane: true,
             moonAndOrbit: true,
             venusAndOrbit: true,
-            starsAndEquinox: true,
           }));
           setSpeedMultiplier(864000);
           setIsPlaying(true);
@@ -765,7 +1081,6 @@ export function App() {
             eclipticPlane: true,
             moonAndOrbit: true,
             venusAndOrbit: true,
-            starsAndEquinox: true,
           }));
           setSpeedMultiplier(864000);
           setIsPlaying(true);
@@ -777,10 +1092,81 @@ export function App() {
             ...prev,
             moonAndOrbit: true,
             venusAndOrbit: true,
-            starsAndEquinox: true,
           }));
           setSpeedMultiplier(2592000);
           setIsPlaying(true);
+          break;
+
+        case "seasonal-spring":
+          glideToGroundSky(
+            "tokyo",
+            "tokyoSouth",
+            SEASONAL_SKY_GUIDE_DATES.spring.azDeg,
+            SEASONAL_SKY_GUIDE_DATES.spring.elevDeg,
+            SEASONAL_SKY_GUIDE_DATES.spring.isoUtc
+          );
+          setLayers((prev) => ({ ...prev, seasonalAsterisms: true }));
+          break;
+
+        case "seasonal-summer":
+          glideToGroundSky(
+            "tokyo",
+            "tokyoSouth",
+            SEASONAL_SKY_GUIDE_DATES.summer.azDeg,
+            SEASONAL_SKY_GUIDE_DATES.summer.elevDeg,
+            SEASONAL_SKY_GUIDE_DATES.summer.isoUtc
+          );
+          setLayers((prev) => ({ ...prev, seasonalAsterisms: true }));
+          break;
+
+        case "seasonal-autumn":
+          glideToGroundSky(
+            "tokyo",
+            "tokyoSouth",
+            SEASONAL_SKY_GUIDE_DATES.autumn.azDeg,
+            SEASONAL_SKY_GUIDE_DATES.autumn.elevDeg,
+            SEASONAL_SKY_GUIDE_DATES.autumn.isoUtc
+          );
+          setLayers((prev) => ({ ...prev, seasonalAsterisms: true }));
+          break;
+
+        case "seasonal-winter":
+          glideToGroundSky(
+            "tokyo",
+            "tokyoSouth",
+            SEASONAL_SKY_GUIDE_DATES.winter.azDeg,
+            SEASONAL_SKY_GUIDE_DATES.winter.elevDeg,
+            SEASONAL_SKY_GUIDE_DATES.winter.isoUtc
+          );
+          setLayers((prev) => ({ ...prev, seasonalAsterisms: true }));
+          break;
+
+        case "cosmic-nearby-stars":
+          handleSelectCameraPreset("nearbyStars", false);
+          break;
+
+        case "cosmic-milky-way":
+          handleSelectCameraPreset("milkyWay", false);
+          break;
+
+        case "cosmic-andromeda":
+          handleSelectCameraPreset("milkyWayAndromeda", false);
+          break;
+
+        case "cosmic-local-group":
+          handleSelectCameraPreset("localGroup", false);
+          break;
+
+        case "cosmic-galaxy-cluster":
+          handleSelectCameraPreset("galaxyCluster", false);
+          break;
+
+        case "cosmic-laniakea":
+          handleSelectCameraPreset("laniakea", false);
+          break;
+
+        case "cosmic-observable-universe":
+          handleSelectCameraPreset("observableUniverse", false);
           break;
 
         case "tokyo-ground-sky":
@@ -790,7 +1176,6 @@ export function App() {
             ...prev,
             graticule: true,
             moonAndOrbit: true,
-            starsAndEquinox: true,
           }));
           setSpeedMultiplier(1800);
           setIsPlaying(true);
@@ -805,7 +1190,6 @@ export function App() {
             ...prev,
             graticule: true,
             moonAndOrbit: true,
-            starsAndEquinox: true,
           }));
           setSpeedMultiplier(1800);
           setIsPlaying(true);
@@ -829,7 +1213,6 @@ export function App() {
             ...prev,
             venusAndOrbit: true,
             eclipticPlane: true,
-            starsAndEquinox: true,
           }));
           setSpeedMultiplier(86400);
           setIsPlaying(true);
@@ -840,7 +1223,6 @@ export function App() {
           setLayers((prev) => ({
             ...prev,
             eclipticPlane: true,
-            starsAndEquinox: true,
           }));
           setSpeedMultiplier(86400);
           setIsPlaying(true);
@@ -922,8 +1304,30 @@ export function App() {
         setIsInspectorOpen(false);
       }
     },
-    [applyNewDate, handleSelectCameraPreset, handleSelectSeason]
+    [
+      applyNewDate,
+      handleSelectCameraPreset,
+      handleSelectSeason,
+      smoothTransitionToDate,
+    ]
   );
+
+  const handleSelectCelestialBody = useCallback((bodyId: CelestialBodyId) => {
+    setFocusedBodyId(bodyId);
+  }, []);
+
+  const handleCloseCelestialBody = useCallback(() => {
+    setFocusedBodyId(null);
+  }, []);
+
+  const handleToggleInspector = useCallback(() => {
+    if (focusedBodyId !== null) {
+      setFocusedBodyId(null);
+      setIsInspectorOpen(true);
+      return;
+    }
+    setIsInspectorOpen((prev) => !prev);
+  }, [focusedBodyId]);
 
   return (
     <div className="app-shell">
@@ -939,40 +1343,49 @@ export function App() {
         cameraPoseTarget={cameraPoseTarget}
         onCameraUserDrag={handleCameraUserDrag}
         layers={layers}
-        isInspectorOpen={isInspectorOpen}
+        isInspectorOpen={isInspectorOpen && focusedBodyId === null}
+        focusedBodyId={focusedBodyId}
+        onSelectCelestialBody={handleSelectCelestialBody}
       />
 
       <div className="ui-hud-layout">
         <HeaderBar
-          isInspectorOpen={isInspectorOpen}
-          onToggleInspector={() => setIsInspectorOpen((prev) => !prev)}
+          isInspectorOpen={isInspectorOpen && focusedBodyId === null}
+          onToggleInspector={handleToggleInspector}
         />
 
         <div className="hud-middle">
-          <InspectorPanel
-            isOpen={isInspectorOpen}
-            currentDate={currentDate}
-            solarState={solarState}
-            moonState={moonState}
-            venusState={venusState}
-            solarSystemBodies={solarSystemBodies}
-            galileanMoons={galileanMoons}
-            isRealSolarSystemMode={isRealSolarSystemMode}
-            isAnnualMotionMode={isAnnualMotionMode}
-            onToggleAnnualMotion={handleToggleAnnualMotion}
-            onStepMonth={handleStepMonth}
-            cities={OBSERVATION_CITIES}
-            selectedCityId={selectedCityId}
-            onSelectCity={setSelectedCityId}
-            cameraPreset={activePresetButton}
-            onSelectCameraPreset={handleSelectCameraPreset}
-            onResetNorthPoleCamera={handleResetNorthPoleCamera}
-            viewTransitionRatio={viewTransitionRatio}
-            onChangeViewTransitionRatio={handleChangeViewTransitionRatio}
-            layers={layers}
-            onToggleLayer={handleToggleLayer}
-            onRunGuideExperiment={handleRunGuideExperiment}
-          />
+          {focusedBodyId !== null ? (
+            <CelestialBodyCard
+              bodyId={focusedBodyId}
+              onClose={handleCloseCelestialBody}
+            />
+          ) : (
+            <InspectorPanel
+              isOpen={isInspectorOpen}
+              currentDate={currentDate}
+              solarState={solarState}
+              moonState={moonState}
+              venusState={venusState}
+              solarSystemBodies={solarSystemBodies}
+              galileanMoons={galileanMoons}
+              isRealSolarSystemMode={isRealSolarSystemMode}
+              isAnnualMotionMode={isAnnualMotionMode}
+              onToggleAnnualMotion={handleToggleAnnualMotion}
+              onStepMonth={handleStepMonth}
+              cities={OBSERVATION_CITIES}
+              selectedCityId={selectedCityId}
+              onSelectCity={setSelectedCityId}
+              cameraPreset={activePresetButton}
+              onSelectCameraPreset={handleSelectCameraPreset}
+              onResetNorthPoleCamera={handleResetNorthPoleCamera}
+              viewTransitionRatio={viewTransitionRatio}
+              onChangeViewTransitionRatio={handleChangeViewTransitionRatio}
+              layers={layers}
+              onToggleLayer={handleToggleLayer}
+              onRunGuideExperiment={handleRunGuideExperiment}
+            />
+          )}
         </div>
 
         <TimeControlBar

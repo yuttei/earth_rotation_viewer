@@ -19,7 +19,14 @@ export type CameraPreset =
   | "solarInner"
   | "solarJupiter"
   | "solarFullTop"
-  | "solarFullOblique";
+  | "solarFullOblique"
+  | "nearbyStars"
+  | "milkyWay"
+  | "milkyWayAndromeda"
+  | "localGroup"
+  | "galaxyCluster"
+  | "laniakea"
+  | "observableUniverse";
 
 /** 木星の主要4衛星（ガリレオ衛星）の識別子 */
 export type GalileanMoonId = "io" | "europa" | "ganymede" | "callisto";
@@ -140,8 +147,6 @@ export interface DisplayLayers {
   terminatorGuide: boolean;
   /** 都市マーカーと、選択都市の局所方位（N/E/S/W）ベクトル */
   cities: boolean;
-  /** 恒星背景と春分点（♈）の基準方向ライン */
-  starsAndEquinox: boolean;
   /** 公転面（黄道面：赤道面と約23.4°傾いた軌道面）のガイドリング */
   eclipticPlane: boolean;
   /** 月本体と白道（月の公転軌道）の表示 */
@@ -150,6 +155,8 @@ export interface DisplayLayers {
   venusAndOrbit: boolean;
   /** 黄道12星座（へびつかい座を含む13星座）と黄道ラインの表示 */
   zodiacConstellations: boolean;
+  /** 四季の大三角・四辺形と主要恒星（シリウス・ベテルギウス・ベガ等）の表示 */
+  seasonalAsterisms: boolean;
 }
 
 /** ある瞬間における月の位置（黄道座標）と満ち欠けの状態 */
@@ -166,8 +173,18 @@ export interface MoonState {
   illumination: number;
   /** 平均朔望月に基づく月齢の目安（日：0 〜 29.53） */
   moonAgeDays: number;
-  /** 月相の日本語名（例：「上弦の月」「満月」） */
+  /** 月相の日本語名（例：「上弦の月」「満月」「満月（皆既月食）」） */
   phaseLabelJa: string;
+  /** 地球から見た月の見かけの視直径比（太陽 = 1.0 基準：近地点で約 1.075、遠地点で約 0.925） */
+  apparentSizeRatio: number;
+  /** 日食の種類（none = なし, total = 皆既日食, annular = 金環日食, partial = 部分日食） */
+  solarEclipseType: "none" | "total" | "annular" | "partial";
+  /** 月食の種類（none = なし, total = 皆既月食, partial = 部分月食, penumbral = 半影月食） */
+  lunarEclipseType: "none" | "total" | "partial" | "penumbral";
+  /** 食の深さ・食分（0.0 = 食なし 〜 1.0 = 最大食） */
+  eclipseObscuration: number;
+  /** 太陽中心（日食時）または地球本影中心（月食時）からの月の相対角度ズレ [Δλ(度), β(度)] */
+  eclipseOffsetDeg: [number, number];
 }
 
 /** ある瞬間における金星の位置（日心・地心黄道座標）と見え方の状態 */

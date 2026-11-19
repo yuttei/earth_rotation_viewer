@@ -27,6 +27,7 @@ const EARTH_FRAGMENT_SHADER = /* glsl */ `
   uniform sampler2D uMaskMap;
   uniform vec3 uSunDirection;
   uniform float uShowTerminatorHighlight;
+  uniform vec4 uSolarEclipseSpot;
 
   varying vec2 vUv;
   varying vec3 vWorldNormal;
@@ -59,6 +60,16 @@ const EARTH_FRAGMENT_SHADER = /* glsl */ `
     float specBase = pow(max(dot(normal, halfVec), 0.0), 42.0);
     float oceanSpecular = specBase * (1.0 - landMask) * smoothstep(0.0, 0.25, ndotl);
     dayColor += vec3(0.45, 0.65, 0.85) * oceanSpecular * 0.35;
+
+    // 日食時：地球の昼面に落ちる月の影（中心の濃い本影スポットと周囲の半影）
+    if (uSolarEclipseSpot.w > 0.01 && ndotl > 0.0) {
+      vec3 spotDir = normalize(uSolarEclipseSpot.xyz);
+      float angularDist = acos(clamp(dot(normal, spotDir), -1.0, 1.0));
+      float penumbra = (1.0 - smoothstep(0.08, 0.42, angularDist)) * uSolarEclipseSpot.w;
+      float umbra = (1.0 - smoothstep(0.035, 0.11, angularDist)) * uSolarEclipseSpot.w;
+      dayColor *= mix(1.0, 0.38, penumbra);
+      dayColor = mix(dayColor, baseColor * vec3(0.08, 0.10, 0.18), umbra * 0.92);
+    }
 
     // 夜側の色（完全に黒く潰さず、輪郭と地形が視認できる濃紺にする）
     vec3 nightColor = baseColor * vec3(0.14, 0.19, 0.30) + vec3(0.018, 0.032, 0.068);
@@ -128,6 +139,7 @@ export interface EarthMaterialBundle {
     uMaskMap: { value: THREE.Texture };
     uSunDirection: { value: THREE.Vector3 };
     uShowTerminatorHighlight: { value: number };
+    uSolarEclipseSpot: { value: THREE.Vector4 };
   };
 }
 
@@ -143,6 +155,7 @@ export function createEarthMaterial(
     uMaskMap: { value: maskMap },
     uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
     uShowTerminatorHighlight: { value: 1 },
+    uSolarEclipseSpot: { value: new THREE.Vector4(1, 0, 0, 0) },
   };
 
   const material = new THREE.ShaderMaterial({
@@ -309,9 +322,11 @@ export function createSunCoronaMaterial(): THREE.ShaderMaterial {
 const MOON_VERTEX_SHADER = /* glsl */ `
   varying vec2 vUv;
   varying vec3 vWorldNormal;
+  varying vec3 vLocalNormal;
 
   void main() {
     vUv = uv;
+    vLocalNormal = normalize(position);
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
@@ -320,12 +335,16 @@ const MOON_VERTEX_SHADER = /* glsl */ `
 const MOON_FRAGMENT_SHADER = /* glsl */ `
   uniform sampler2D uMoonMap;
   uniform vec3 uSunDirection;
+  uniform vec3 uLunarEclipse;
+  uniform float uSolarEclipseSilhouette;
 
   varying vec2 vUv;
   varying vec3 vWorldNormal;
+  varying vec3 vLocalNormal;
 
   void main() {
     vec3 normal = normalize(vWorldNormal);
+    vec3 localN = normalize(vLocalNormal);
     vec3 sunDir = normalize(uSunDirection);
     vec3 albedo = texture2D(uMoonMap, vUv).rgb;
 
@@ -335,8 +354,35 @@ const MOON_FRAGMENT_SHADER = /* glsl */ `
     float diffuse = pow(max(ndotl, 0.0), 0.72);
 
     vec3 sunlit = albedo * mix(0.75, 1.22, diffuse);
-    // 影側も完全に真っ黒にせず、地球からの反射光（地球照）でうっすら青白く見せます。
-    vec3 earthshine = albedo * vec3(0.11, 0.14, 0.22) + vec3(0.015, 0.024, 0.045);
+
+    // 月食時（満月が地球の半影・本影を通過するとき）：
+    // 月面の各点の対日照点（地球の影の中心）からの角度距離 distDeg を計算し、
+    // 半影（1.50°以内）の減光と、本影（0.73°以内）の丸い欠け＆赤銅色（ブラッドムーン）を描画します。
+    if (uLunarEclipse.z > 0.01 && dayMask > 0.01) {
+      vec2 pointOffsetDeg = vec2(
+        uLunarEclipse.x + localN.z * 0.28,
+        uLunarEclipse.y + localN.y * 0.28
+      );
+      float distDeg = length(pointOffsetDeg);
+
+      // 半影（0.73°〜1.50°）による穏やかな減光（半影月食）
+      float penumbraKeep = mix(0.32, 1.0, smoothstep(0.73, 1.50, distDeg));
+      vec3 penumbraLit = sunlit * mix(1.0, penumbraKeep, uLunarEclipse.z);
+
+      // 本影（0.73°以内）のくっきりした丸い境界と、地球大気屈折による赤銅色（皆既月食・部分月食）
+      float umbraMask = (1.0 - smoothstep(0.68, 0.75, distDeg)) * uLunarEclipse.z;
+      float umbraDepth = clamp(distDeg / 0.73, 0.0, 1.0);
+      vec3 copperCenter = albedo * vec3(0.68, 0.14, 0.04) + vec3(0.10, 0.018, 0.005);
+      vec3 copperRim = albedo * vec3(0.96, 0.34, 0.09) + vec3(0.14, 0.04, 0.01);
+      vec3 umbraColor = mix(copperCenter, copperRim, pow(umbraDepth, 1.3));
+
+      sunlit = mix(penumbraLit, umbraColor, umbraMask);
+    }
+
+    // 影側も完全に真っ黒にせず、地球からの反射光（地球照）でうっすら青白く見せます（日食シルエット時は黒く引き締める）。
+    vec3 baseEarthshine = albedo * vec3(0.11, 0.14, 0.22) + vec3(0.015, 0.024, 0.045);
+    vec3 darkSilhouette = vec3(0.008, 0.012, 0.024);
+    vec3 earthshine = mix(baseEarthshine, darkSilhouette, uSolarEclipseSilhouette);
 
     vec3 finalColor = mix(earthshine, sunlit, dayMask);
     gl_FragColor = vec4(finalColor, 1.0);
@@ -344,18 +390,22 @@ const MOON_FRAGMENT_SHADER = /* glsl */ `
 `;
 
 /**
- * 月本体用の ShaderMaterial（太陽光による満ち欠け＋地球照表現）を生成します。
+ * 月本体用の ShaderMaterial（太陽光による満ち欠け＋地球照＋月食の本影/半影/赤銅色表現）を生成します。
  */
 export function createMoonMaterial(moonMap: THREE.Texture): {
   material: THREE.ShaderMaterial;
   uniforms: {
     uMoonMap: { value: THREE.Texture };
     uSunDirection: { value: THREE.Vector3 };
+    uLunarEclipse: { value: THREE.Vector3 };
+    uSolarEclipseSilhouette: { value: number };
   };
 } {
   const uniforms = {
     uMoonMap: { value: moonMap },
     uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
+    uLunarEclipse: { value: new THREE.Vector3(0, 0, 0) },
+    uSolarEclipseSilhouette: { value: 0 },
   };
   const material = new THREE.ShaderMaterial({
     uniforms,
@@ -536,6 +586,7 @@ const TOKYO_SKY_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uUpWorld;
   uniform vec3 uSunDirWorld;
   uniform float uOpacity;
+  uniform float uEclipseDimming;
 
   varying vec3 vSkyDir;
 
@@ -548,10 +599,14 @@ const TOKYO_SKY_FRAGMENT_SHADER = /* glsl */ `
     float sunElev = dot(sunDir, up);
     float sunAlign = max(dot(dir, sunDir), 0.0);
 
-    // 太陽高度に応じて 昼・薄明（朝焼け/夕焼け）・夜 のブレンド係数を滑らかに求めます。
-    float dayFactor = smoothstep(-0.07, 0.22, sunElev);
+    // 太陽高度に応じて 昼・薄明（朝焼け/夕焼け）・夜 のブレンド係数を滑らかに求めます（皆既日食時は昼でも薄明〜夜空へ減光）。
+    float rawDayFactor = smoothstep(-0.07, 0.22, sunElev);
+    float dayFactor = rawDayFactor * (1.0 - uEclipseDimming * 0.92);
     float twilightFactor =
-      smoothstep(-0.24, -0.02, sunElev) * (1.0 - smoothstep(0.03, 0.28, sunElev));
+      max(
+        smoothstep(-0.24, -0.02, sunElev) * (1.0 - smoothstep(0.03, 0.28, sunElev)),
+        rawDayFactor * uEclipseDimming * 0.75
+      );
     float horizonGlow = pow(1.0 - clamp(elev, 0.0, 1.0), 2.7);
 
     // 昼の青空（天頂は深い青、地平線付近は明るい水色＋太陽周辺の柔らかな輝き）
@@ -595,12 +650,14 @@ export function createTokyoSkyMaterial(): {
     uUpWorld: { value: THREE.Vector3 };
     uSunDirWorld: { value: THREE.Vector3 };
     uOpacity: { value: number };
+    uEclipseDimming: { value: number };
   };
 } {
   const uniforms = {
     uUpWorld: { value: new THREE.Vector3(0, 1, 0) },
     uSunDirWorld: { value: new THREE.Vector3(1, 0, 0) },
     uOpacity: { value: 0 },
+    uEclipseDimming: { value: 0 },
   };
 
   const material = new THREE.ShaderMaterial({

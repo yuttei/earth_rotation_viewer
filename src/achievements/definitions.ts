@@ -152,7 +152,7 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     id: "jupiter-moons",
     category: "solarSystem",
     titleJa: "ガリレオ衛星",
-    hintJa: "木星の視点へ行き、4つの衛星を見る",
+    hintJa: "木星の視点へ行き、4つの衛星を見る（衛星は小さいので、ホイール・ピンチで寄ると見えます）",
   },
   {
     id: "seasonal-constellations",

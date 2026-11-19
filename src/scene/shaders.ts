@@ -20,7 +20,9 @@ const EARTH_VERTEX_SHADER = /* glsl */ `
     vWorldPosition = worldPos.xyz;
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
 
-    gl_Position = projectionMatrix * viewMatrix * worldPos;
+    // 画面上の位置は modelViewMatrix（CPU の倍精度で計算済み）で求めます。
+    // ワールド座標（太陽から約13.5）を経由すると、実際の大きさの小さな天体に寄ったときに精度が足りず形が揺れるためです。
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
 
@@ -197,7 +199,9 @@ const ATMOSPHERE_VERTEX_SHADER = /* glsl */ `
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vWorldPosition = worldPos.xyz;
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
-    gl_Position = projectionMatrix * viewMatrix * worldPos;
+    // 画面上の位置は modelViewMatrix（CPU の倍精度で計算済み）で求めます。
+    // ワールド座標（太陽から約13.5）を経由すると、実際の大きさの小さな天体に寄ったときに精度が足りず形が揺れるためです。
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
 
@@ -278,7 +282,9 @@ const SUN_VERTEX_SHADER = /* glsl */ `
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vWorldPosition = worldPos.xyz;
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
-    gl_Position = projectionMatrix * viewMatrix * worldPos;
+    // 画面上の位置は modelViewMatrix（CPU の倍精度で計算済み）で求めます。
+    // ワールド座標（太陽から約13.5）を経由すると、実際の大きさの小さな天体に寄ったときに精度が足りず形が揺れるためです。
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
 
@@ -369,7 +375,9 @@ const SUN_CORONA_VERTEX_SHADER = /* glsl */ `
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vWorldPosition = worldPos.xyz;
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
-    gl_Position = projectionMatrix * viewMatrix * worldPos;
+    // 画面上の位置は modelViewMatrix（CPU の倍精度で計算済み）で求めます。
+    // ワールド座標（太陽から約13.5）を経由すると、実際の大きさの小さな天体に寄ったときに精度が足りず形が揺れるためです。
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
 
@@ -557,7 +565,9 @@ const VENUS_VERTEX_SHADER = /* glsl */ `
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vWorldPosition = worldPos.xyz;
-    gl_Position = projectionMatrix * viewMatrix * worldPos;
+    // 画面上の位置は modelViewMatrix（CPU の倍精度で計算済み）で求めます。
+    // ワールド座標（太陽から約13.5）を経由すると、実際の大きさの小さな天体に寄ったときに精度が足りず形が揺れるためです。
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
 

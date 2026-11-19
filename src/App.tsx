@@ -296,8 +296,8 @@ const PRESET_POSES: Record<
   solarJupiter: {
     yaw: 0,
     pitch: degToRad(26),
-    // 4衛星を実際の距離の比で描く（カリストは木星の半径の約6.7倍）ので、全体が入るよう少し離れて見ます
-    distance: 46.0,
+    // 木星と4衛星を実際の大きさ・距離で描きます。いちばん外側のカリスト（木星の中心から約0.17）まで入る距離から見ます
+    distance: 0.55,
     eclipticBlend: 1,
     sunCenterBlend: 1,
     groundBlend: 0,

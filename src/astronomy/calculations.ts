@@ -3,6 +3,7 @@ import type {
   CityObservation,
   MoonState,
   SolarSystemState,
+  VenusState,
 } from "../types/astronomy";
 
 /** 1恒星日の長さ（秒）：遠い恒星を基準に地球が1回転（360°）するのにかかる時間（約23時間56分4秒） */
@@ -25,6 +26,18 @@ export const MOON_ORBIT_INCLINATION_DEG = 5.145;
 
 /** 1太陽年（春分から次の春分までの回帰年・日）：約365.24219日 */
 export const TROPICAL_YEAR_DAYS = 365.24219;
+
+/** 金星の軌道長半径（天文単位 AU：地球 = 1.0 AU） */
+export const VENUS_ORBIT_RADIUS_AU = 0.723332;
+
+/** 金星の恒星公転周期（日）：約224.70日 */
+export const VENUS_SIDEREAL_PERIOD_DAYS = 224.7008;
+
+/** 金星の軌道傾斜角（黄道面に対する傾き・度）：約3.395° */
+export const VENUS_ORBIT_INCLINATION_DEG = 3.3947;
+
+/** 金星の昇交点黄経（J2000.0・度） */
+export const VENUS_ASCENDING_NODE_DEG = 76.68;
 
 /** 2000年1月1日 12:00 UTC（J2000.0 エポック）のユリウス日 */
 const J2000_JULIAN_DAY = 2451545.0;
@@ -622,4 +635,88 @@ export function getNextSeasonDate(
   }
 
   return new Date(targetMs);
+}
+
+/**
+ * 指定された日時の金星の位置（日心・地心黄道座標）と、地球からの見え方（離角・輝面比・明け/宵の明星）を計算します。
+ * J2000.0 の平均軌道要素（NASA JPL / Astronomical Almanac 準拠）を使用しています。
+ */
+export function calculateVenusState(
+  date: Date,
+  sunEclipticLongitudeDeg?: number
+): VenusState {
+  const julianDay = dateToJulianDay(date);
+  const d = julianDay - J2000_JULIAN_DAY;
+
+  // 1. 金星の日心平均黄経 L_v、近日点黄経 ϖ_v、平均近点角 M_v（離心率 e ≈ 0.006773）
+  const meanLonDeg = wrapPositive(181.979801 + 1.60213034 * d, 360);
+  const perihelionLonDeg = 131.5637;
+  const meanAnomalyRad = degToRad(wrapPositive(meanLonDeg - perihelionLonDeg, 360));
+
+  // 楕円軌道による中心差（2e ≈ 0.776°）を加えた真の日心黄経と太陽距離
+  const helioLonDeg = wrapPositive(
+    meanLonDeg + 0.776 * Math.sin(meanAnomalyRad),
+    360
+  );
+  const rAu = VENUS_ORBIT_RADIUS_AU * (1 - 0.006773 * Math.cos(meanAnomalyRad));
+
+  // 黄道面に対する軌道傾斜角（約 3.395°）と昇交点黄経から日心黄緯を算出
+  const argLatRad = degToRad(wrapPositive(helioLonDeg - VENUS_ASCENDING_NODE_DEG, 360));
+  const inclRad = degToRad(VENUS_ORBIT_INCLINATION_DEG);
+  const helioLatRad = Math.asin(
+    clamp(Math.sin(inclRad) * Math.sin(argLatRad), -1, 1)
+  );
+  const helioLatDeg = radToDeg(helioLatRad);
+
+  // 2. 太陽中心の右手黄道直交座標（+X=春分点, +Y=黄道北極, -Z=黄経90°）
+  const helioLonRad = degToRad(helioLonDeg);
+  const cosHelioLat = Math.cos(helioLatRad);
+  const vx = rAu * cosHelioLat * Math.cos(helioLonRad);
+  const vy = rAu * Math.sin(helioLatRad);
+  const vz = -rAu * cosHelioLat * Math.sin(helioLonRad);
+
+  // 地球の太陽中心座標（太陽視黄経 λ_sun の反対側 1.0 AU）
+  const sunLonDeg =
+    sunEclipticLongitudeDeg ??
+    calculateSolarPosition(julianDay).eclipticLongitudeDeg;
+  const sunLonRad = degToRad(sunLonDeg);
+  const ex = -Math.cos(sunLonRad);
+  const ey = 0;
+  const ez = Math.sin(sunLonRad);
+
+  // 3. 地球から金星へのベクトル（地心座標・距離・地心黄経/黄緯）
+  const dx = vx - ex;
+  const dy = vy - ey;
+  const dz = vz - ez;
+  const distanceAu = Math.hypot(dx, dy, dz);
+
+  const geoLonDeg = wrapPositive(radToDeg(Math.atan2(-dz, dx)), 360);
+  const geoLatDeg = radToDeg(Math.asin(clamp(dy / distanceAu, -1, 1)));
+
+  // 4. 太陽からの符号付き離角（東がプラス＝夕方の西の空「宵の明星」、西がマイナス＝明け方の東の空「明けの明星」）
+  const elongationDeg = normalizeLonDeg(geoLonDeg - sunLonDeg);
+
+  // 5. 金星から見た太陽方向 (-v) と地球方向 (-d) のなす角（位相角）から輝面比を算出
+  const dotSunEarth = (-vx * -dx + -vy * -dy + -vz * -dz) / (rAu * distanceAu);
+  const illumination = clamp((1 + dotSunEarth) * 0.5, 0, 1);
+
+  let visibilityLabelJa: string;
+  if (Math.abs(elongationDeg) < 8) {
+    visibilityLabelJa = distanceAu < 1.0 ? "内合付近（太陽の正面）" : "外合付近（太陽の裏側）";
+  } else if (elongationDeg > 0) {
+    visibilityLabelJa = "宵の明星（西の空）";
+  } else {
+    visibilityLabelJa = "明けの明星（東の空）";
+  }
+
+  return {
+    heliocentricLongitudeDeg: helioLonDeg,
+    heliocentricLatitudeDeg: helioLatDeg,
+    geocentricLongitudeDeg: geoLonDeg,
+    geocentricLatitudeDeg: geoLatDeg,
+    distanceAu,
+    elongationDeg,
+    illumination,
+    visibilityLabelJa,
+  };
 }

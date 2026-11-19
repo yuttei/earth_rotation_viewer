@@ -92,6 +92,8 @@ export interface DisplayLayers {
   eclipticPlane: boolean;
   /** 月本体と白道（月の公転軌道）の表示 */
   moonAndOrbit: boolean;
+  /** 金星本体と金星の公転軌道（内惑星）の表示 */
+  venusAndOrbit: boolean;
 }
 
 /** ある瞬間における月の位置（黄道座標）と満ち欠けの状態 */
@@ -110,4 +112,24 @@ export interface MoonState {
   moonAgeDays: number;
   /** 月相の日本語名（例：「上弦の月」「満月」） */
   phaseLabelJa: string;
+}
+
+/** ある瞬間における金星の位置（日心・地心黄道座標）と見え方の状態 */
+export interface VenusState {
+  /** 金星の日心黄経（度：太陽から見た公転位置、0°〜360° 未満） */
+  heliocentricLongitudeDeg: number;
+  /** 金星の日心黄緯（度：軌道傾斜角 約3.39° による上下のズレ） */
+  heliocentricLatitudeDeg: number;
+  /** 地球から見た金星の地心黄経（度：0°〜360° 未満） */
+  geocentricLongitudeDeg: number;
+  /** 地球から見た金星の地心黄緯（度） */
+  geocentricLatitudeDeg: number;
+  /** 地球から金星までの距離（天文単位 AU：約0.28〜1.72 AU） */
+  distanceAu: number;
+  /** 太陽からの符号付き離角（度：プラス=太陽の東＝宵の明星、マイナス=太陽の西＝明けの明星） */
+  elongationDeg: number;
+  /** 地球から見た金星の輝面比（0.0 〜 1.0） */
+  illumination: number;
+  /** 日本語での見え方ラベル（明けの明星・宵の明星・内合付近・外合付近） */
+  visibilityLabelJa: string;
 }

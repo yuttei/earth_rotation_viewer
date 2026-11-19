@@ -8,10 +8,12 @@ import {
   SIDEREAL_MONTH_DAYS,
   SOLAR_DAY_SECONDS,
   SYNODIC_MONTH_DAYS,
+  VENUS_SIDEREAL_PERIOD_DAYS,
   calculateGmstRad,
   calculateMoonState,
   calculateSolarPosition,
   calculateSolarSystemState,
+  calculateVenusState,
   dateToJulianDay,
   degToRad,
   formatDateTimeParts,
@@ -305,5 +307,42 @@ describe("天文計算エンジン (calculations)", () => {
     const nextSummer = getNextSeasonDate(exactSummer, "summer-solstice");
     const diffDays = (nextSummer.getTime() - exactSummer.getTime()) / (86400 * 1000);
     expect(diffDays).toBeCloseTo(365.24219, 3);
+  });
+
+  it("金星は内惑星として離角が約48°以内に収まり、1公転周期（約224.7日）で日心黄経が1周戻る", () => {
+    // 2026年10月24日頃は金星の内合付近（太陽の正面・距離約0.28 AU・離角が小さい）
+    const infConjDate = new Date("2026-10-24T12:00:00Z");
+    const infConjVenus = calculateVenusState(infConjDate);
+    expect(infConjVenus.distanceAu).toBeLessThan(0.32);
+    expect(Math.abs(infConjVenus.elongationDeg)).toBeLessThan(8);
+    expect(infConjVenus.illumination).toBeLessThan(0.05);
+
+    // 約1ヶ月後の2026年11月19日は太陽の西側へ離れ「明けの明星（東の空）」になる
+    const morningDate = new Date("2026-11-19T00:00:00Z");
+    const morningVenus = calculateVenusState(morningDate);
+    expect(morningVenus.elongationDeg).toBeLessThan(-15);
+    expect(morningVenus.visibilityLabelJa).toBe("明けの明星（東の空）");
+
+    // 1公転周期（224.7008日）経過すると日心黄経がほぼ元の値に戻る
+    const afterOneOrbit = new Date(
+      morningDate.getTime() + VENUS_SIDEREAL_PERIOD_DAYS * SOLAR_DAY_SECONDS * 1000
+    );
+    const orbitVenus = calculateVenusState(afterOneOrbit);
+    expect(
+      Math.abs(
+        signedAngleDiffDeg(
+          orbitVenus.heliocentricLongitudeDeg,
+          morningVenus.heliocentricLongitudeDeg
+        )
+      )
+    ).toBeLessThan(1.0);
+
+    // 1会合周期（約584日）にわたって離角が常に 48° 以内（内惑星の性質）
+    for (let day = 0; day < 600; day += 30) {
+      const d = new Date(infConjDate.getTime() + day * SOLAR_DAY_SECONDS * 1000);
+      const v = calculateVenusState(d);
+      expect(Math.abs(v.elongationDeg)).toBeLessThanOrEqual(48);
+      expect(Math.abs(v.heliocentricLatitudeDeg)).toBeLessThanOrEqual(3.5);
+    }
   });
 });

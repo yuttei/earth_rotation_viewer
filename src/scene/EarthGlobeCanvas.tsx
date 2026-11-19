@@ -6,11 +6,14 @@ import {
   MoonState,
   ReferenceFrame,
   SolarSystemState,
+  VenusState,
   VisualStyle,
 } from "../types/astronomy";
 import {
   EARTH_AXIAL_TILT_DEG,
   MOON_ORBIT_INCLINATION_DEG,
+  VENUS_ASCENDING_NODE_DEG,
+  VENUS_ORBIT_INCLINATION_DEG,
   degToRad,
   getLocalCompassVectors,
   latLonToVector3Tuple,
@@ -18,6 +21,7 @@ import {
 } from "../astronomy/calculations";
 import { createEarthTextures, EarthTextures } from "./earthTexture";
 import { createMoonTexture } from "./moonTexture";
+import { createVenusTexture } from "./venusTexture";
 import {
   createAtmosphereMaterial,
   createEarthMaterial,
@@ -26,6 +30,7 @@ import {
   createSunMaterial,
   createTokyoGroundMaterial,
   createTokyoSkyMaterial,
+  createVenusMaterial,
 } from "./shaders";
 
 /** 3Dカメラが目標とする連続視点パラメータ */
@@ -57,6 +62,8 @@ interface EarthGlobeCanvasProps {
   solarState: SolarSystemState;
   /** 現在の月の位置（黄道座標）と満ち欠け状態 */
   moonState: MoonState;
+  /** 現在の金星の位置（日心・地心黄道座標）と見え方状態 */
+  venusState: VenusState;
   /** 表示する代表都市の配列 */
   cities: City[];
   /** 現在選択中の都市ID */
@@ -97,6 +104,10 @@ const SUN_RADIUS = 1.85;
 const MOON_RADIUS = 0.27;
 /** 地球中心からの月の公転軌道半径（白道半径） */
 const MOON_ORBIT_RADIUS = 3.45;
+/** 金星の半径（実際の金星/地球比 ≈ 0.95 だが地球を主役に見せるためやや控えめに設定） */
+const VENUS_RADIUS = 0.78;
+/** 太陽中心からの金星の公転軌道半径（月の軌道 13.5 - 3.45 = 10.05 の内側に余裕を持って配置） */
+const VENUS_ORBIT_RADIUS = 8.9;
 /** 東京の緯度・経度（地上視点の基準地点） */
 const TOKYO_LAT_DEG = 35.6762;
 const TOKYO_LON_DEG = 139.6503;
@@ -324,6 +335,7 @@ function updateFloatingBadgeAtPosition(
 export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   solarState,
   moonState,
+  venusState,
   cities,
   selectedCityId,
   onSelectCity,
@@ -341,12 +353,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   const sunBadgeRef = useRef<HTMLSpanElement | null>(null);
   const earthBadgeRef = useRef<HTMLSpanElement | null>(null);
   const moonBadgeRef = useRef<HTMLSpanElement | null>(null);
+  const venusBadgeRef = useRef<HTMLSpanElement | null>(null);
   const polarisBadgeRef = useRef<HTMLSpanElement | null>(null);
   const equinoxBadgeRef = useRef<HTMLSpanElement | null>(null);
 
   const latestPropsRef = useRef({
     solarState,
     moonState,
+    venusState,
     cities,
     selectedCityId,
     visualStyle,
@@ -357,6 +371,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   latestPropsRef.current = {
     solarState,
     moonState,
+    venusState,
     cities,
     selectedCityId,
     visualStyle,
@@ -454,6 +469,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       renderer.capabilities.maxTextureSize
     );
     const moonTexture = createMoonTexture();
+    const venusTexture = createVenusTexture();
     const starTexture = createStarSpriteTexture();
 
     const earthBundle = createEarthMaterial(
@@ -462,6 +478,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     );
     const atmosphereBundle = createAtmosphereMaterial();
     const moonBundle = createMoonMaterial(moonTexture);
+    const venusBundle = createVenusMaterial(venusTexture);
     const sunBundle = createSunMaterial();
     const sunCoronaMaterial = createSunCoronaMaterial();
     const tokyoSkyBundle = createTokyoSkyMaterial();
@@ -588,6 +605,41 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       })
     );
     scene.add(sunEarthLine);
+
+    // 3.5 金星（太陽の内側を約224.7日で公転する内惑星：軌道傾斜角 約3.395°）
+    const venusOrbitGroup = new THREE.Group();
+    venusOrbitGroup.rotation.y = degToRad(VENUS_ASCENDING_NODE_DEG);
+    scene.add(venusOrbitGroup);
+
+    const venusPlaneGroup = new THREE.Group();
+    venusPlaneGroup.rotation.x = degToRad(VENUS_ORBIT_INCLINATION_DEG);
+    venusOrbitGroup.add(venusPlaneGroup);
+    venusPlaneGroup.add(
+      createHorizontalRing(VENUS_ORBIT_RADIUS, 0xfde68a, 0.44, 192)
+    );
+    venusPlaneGroup.add(
+      createHorizontalRing(VENUS_ORBIT_RADIUS + 0.08, 0xfcd34d, 0.16, 192)
+    );
+
+    const venusMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(VENUS_RADIUS, 48, 32),
+      venusBundle.material
+    );
+    scene.add(venusMesh);
+
+    // 東京の地上視点で明けの明星・宵の明星として輝く淡いシャンパン色の輝きスプライト
+    const venusGlowMat = new THREE.SpriteMaterial({
+      map: starTexture,
+      color: 0xfff3c4,
+      transparent: true,
+      opacity: 0.92,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const venusGlowSprite = new THREE.Sprite(venusGlowMat);
+    venusGlowSprite.renderOrder = 2;
+    venusGlowSprite.visible = false;
+    scene.add(venusGlowSprite);
 
     // 4. 地球システム（公転位置へ毎フレーム移動させるルート）
     const earthSystemGroup = new THREE.Group();
@@ -1288,6 +1340,10 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     const moonDirWorld = new THREE.Vector3();
     const moonSpaceLocalPos = new THREE.Vector3();
     const moonGroundLocalPos = new THREE.Vector3();
+    const venusSpacePos = new THREE.Vector3();
+    const venusGeoDirWorld = new THREE.Vector3();
+    const venusGroundPos = new THREE.Vector3();
+    const venusSunDirWorld = new THREE.Vector3();
     const groundSunWorldPos = new THREE.Vector3();
     const tokyoUpWorld = new THREE.Vector3();
     const tokyoNorthWorld = new THREE.Vector3();
@@ -1329,6 +1385,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       const {
         solarState: curSolar,
         moonState: curMoon,
+        venusState: curVenus,
         cities: curCities,
         selectedCityId: curSelectedId,
         visualStyle: curStyle,
@@ -1502,6 +1559,39 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       const moonScale = 1.0 + 8.5 * g;
       moonMesh.scale.setScalar(moonScale);
       moonMesh.updateMatrixWorld(true);
+
+      // 金星の日心公転位置（宇宙ビュー）と、視差のない真の地心方向（東京の地上ビュー）を滑らかにブレンドします。
+      const vHelioLonRad = degToRad(curVenus.heliocentricLongitudeDeg);
+      const vHelioLatRad = degToRad(curVenus.heliocentricLatitudeDeg);
+      const vCosLat = Math.cos(vHelioLatRad);
+      venusSpacePos.set(
+        VENUS_ORBIT_RADIUS * vCosLat * Math.cos(vHelioLonRad),
+        VENUS_ORBIT_RADIUS * Math.sin(vHelioLatRad),
+        -VENUS_ORBIT_RADIUS * vCosLat * Math.sin(vHelioLonRad)
+      );
+      venusSunDirWorld.copy(venusSpacePos).negate().normalize();
+      venusBundle.uniforms.uSunDirection.value.copy(venusSunDirWorld);
+
+      const vGeoLonRad = degToRad(curVenus.geocentricLongitudeDeg);
+      const vGeoLatRad = degToRad(curVenus.geocentricLatitudeDeg);
+      const vGeoCosLat = Math.cos(vGeoLatRad);
+      venusGeoDirWorld
+        .set(
+          vGeoCosLat * Math.cos(vGeoLonRad),
+          Math.sin(vGeoLatRad),
+          -vGeoCosLat * Math.sin(vGeoLonRad)
+        )
+        .normalize();
+      venusGroundPos.copy(tokyoEyeWorldPos).addScaledVector(venusGeoDirWorld, 64);
+
+      venusMesh.position.copy(venusSpacePos).lerp(venusGroundPos, g);
+      venusMesh.scale.setScalar(THREE.MathUtils.lerp(1.0, 0.55, g));
+      // 金星の大気は逆行（時計回り）でスーパーローテーションしています。
+      venusMesh.rotation.y = -totalTimeSec * 0.08;
+      venusMesh.updateMatrixWorld(true);
+
+      venusGlowSprite.position.copy(venusMesh.position);
+      venusGlowSprite.scale.setScalar(3.6 * Math.max(0.01, g));
 
       starsGroup.position.copy(tokyoEyeWorldPos).multiplyScalar(g);
       tokyoSkyMesh.position.copy(tokyoEyeWorldPos);
@@ -1687,6 +1777,11 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       earthMoonLine.visible = !isGroundView;
       moonEclipticRefRing.visible =
         curLayers.moonAndOrbit && curLayers.eclipticPlane && isMoonView;
+      venusOrbitGroup.visible = curLayers.venusAndOrbit && isOrbitOverview;
+      venusMesh.visible =
+        curLayers.venusAndOrbit && (isOrbitOverview || isGroundView);
+      venusGlowSprite.visible =
+        curLayers.venusAndOrbit && isGroundView && g > 0.45;
 
       if (lastCompassCityId !== curSelectedId) {
         const foundCity = curCities.find((c) => c.id === curSelectedId);
@@ -1859,6 +1954,39 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         false
       );
 
+      // 金星ラベル（太陽中心の公転ビュー、および東京地上視点で地平線上に見えているとき）
+      if (isGroundView) {
+        const venusInFront = venusGeoDirWorld.dot(camForward) > 0.14;
+        const venusAboveHorizon = venusGeoDirWorld.dot(tokyoUpWorld) > -0.02;
+        tmpWorldPos
+          .copy(venusMesh.position)
+          .addScaledVector(camera.up, 1.45);
+        updateFloatingBadgeAtPosition(
+          venusBadgeRef.current,
+          tmpWorldPos,
+          camera,
+          hostW,
+          hostH,
+          curLayers.venusAndOrbit && venusInFront && venusAboveHorizon,
+          curInspectorOpen,
+          false
+        );
+      } else {
+        tmpWorldPos
+          .copy(venusMesh.position)
+          .addScaledVector(camera.up, VENUS_RADIUS + 0.25);
+        updateFloatingBadgeAtPosition(
+          venusBadgeRef.current,
+          tmpWorldPos,
+          camera,
+          hostW,
+          hostH,
+          curLayers.venusAndOrbit && isOrbitOverview,
+          curInspectorOpen,
+          false
+        );
+      }
+
       // 東京地上視点時の8方位（北・北東・東・南東・南・南西・西・北西）地平線ラベル
       for (const cp of TOKYO_COMPASS_POINTS) {
         const el = compassBadgeRefs.current.get(cp.id) ?? null;
@@ -1924,10 +2052,13 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       renderer.domElement.removeEventListener("wheel", onWheel);
       textures.dispose();
       moonTexture.dispose();
+      venusTexture.dispose();
       starTexture.dispose();
       earthBundle.material.dispose();
       atmosphereBundle.material.dispose();
       moonBundle.material.dispose();
+      venusBundle.material.dispose();
+      venusGlowMat.dispose();
       sunBundle.material.dispose();
       sunCoronaMaterial.dispose();
       tokyoSkyBundle.material.dispose();
@@ -1990,6 +2121,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           style={{ display: "none" }}
         >
           ☾ 月
+        </span>
+
+        <span
+          ref={venusBadgeRef}
+          className="space-badge is-venus"
+          style={{ display: "none" }}
+        >
+          ♀ 金星
         </span>
 
         <span

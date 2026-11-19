@@ -7,6 +7,7 @@ import {
   MapPin,
   Moon,
   RotateCcw,
+  Sparkles,
   Sun,
 } from "lucide-react";
 import {
@@ -16,6 +17,7 @@ import {
   MoonState,
   ReferenceFrame,
   SolarSystemState,
+  VenusState,
 } from "../types/astronomy";
 import {
   formatHoursToClock,
@@ -34,12 +36,14 @@ export type GuideExperimentId =
   | "ecliptic-tilt"
   | "sun-orbit-overview"
   | "moon-orbit-observe"
+  | "venus-orbit-observe"
   | "tokyo-ground-sky";
 
 interface InspectorPanelProps {
   isOpen: boolean;
   solarState: SolarSystemState;
   moonState: MoonState;
+  venusState: VenusState;
   cities: City[];
   selectedCityId: string;
   onSelectCity: (cityId: string) => void;
@@ -60,6 +64,7 @@ const LAYER_LABELS: Array<{ key: keyof DisplayLayers; label: string }> = [
   { key: "celestialCompass", label: "天球目盛り・自転矢印(反時計回り)" },
   { key: "eclipticPlane", label: "黄道面（公転面）・公転軌道リング" },
   { key: "moonAndOrbit", label: "月本体と白道（月の公転軌道）" },
+  { key: "venusAndOrbit", label: "金星と金星の公転軌道（内惑星）" },
   { key: "terminatorGuide", label: "太陽光線・昼夜境界ハイライト" },
   { key: "cities", label: "都市マーカー・現地N/E/S/W矢印" },
   { key: "starsAndEquinox", label: "恒星背景・春分点ライン(♈)" },
@@ -67,12 +72,13 @@ const LAYER_LABELS: Array<{ key: keyof DisplayLayers; label: string }> = [
 
 /**
  * 画面右側に配置する観察インスペクターパネルです。
- * 「地点」「表示」「ガイド」の3タブで都市・月の観測、視点設定、学習実験を切り替えられます。
+ * 「地点・天体」「視点・表示」「学習ガイド」の3タブで都市・月・金星の観測、視点設定、学習実験を切り替えられます。
  */
 export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   isOpen,
   solarState,
   moonState,
+  venusState,
   cities,
   selectedCityId,
   onSelectCity,
@@ -113,7 +119,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
           onClick={() => setActiveTab("city")}
         >
           <MapPin size={13} />
-          地点・月
+          地点・天体
         </button>
         <button
           type="button"
@@ -260,6 +266,52 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               </div>
               <p className="note-box" style={{ fontSize: 11 }}>
                 月は地球の周りを反時計回りに約27.3日で公転し、常に同じ面を地球に向けています。
+              </p>
+            </div>
+
+            <div className="section-card">
+              <h2 className="section-title">
+                <Sparkles size={13} />
+                金星の観測状態（内惑星）
+              </h2>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "#fef08a",
+                }}
+              >
+                {venusState.visibilityLabelJa}
+              </div>
+              <div className="observation-metrics">
+                <div className="metric-box">
+                  <div className="metric-label">太陽からの離角</div>
+                  <div className="metric-val" style={{ fontSize: 13 }}>
+                    {venusState.elongationDeg >= 0 ? "東 " : "西 "}
+                    {Math.abs(venusState.elongationDeg).toFixed(1)}°
+                  </div>
+                </div>
+                <div className="metric-box">
+                  <div className="metric-label">輝面比（満ち欠け）</div>
+                  <div className="metric-val">
+                    {Math.round(venusState.illumination * 100)}%
+                  </div>
+                </div>
+                <div className="metric-box">
+                  <div className="metric-label">地球からの距離</div>
+                  <div className="metric-val">
+                    {venusState.distanceAu.toFixed(2)} AU
+                  </div>
+                </div>
+                <div className="metric-box">
+                  <div className="metric-label">日心黄経</div>
+                  <div className="metric-val">
+                    {Math.round(venusState.heliocentricLongitudeDeg)}°
+                  </div>
+                </div>
+              </div>
+              <p className="note-box" style={{ fontSize: 11 }}>
+                金星は地球の内側（0.72 AU）を約225日で公転するため、太陽から約47°以上離れず、明け方の東の空や夕方の西の空で輝きます。
               </p>
             </div>
           </>
@@ -509,7 +561,21 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">3. 太陽の真上から見る「公転と季節」</h3>
+              <h3 className="guide-title">3. 金星の公転と「明けの明星・宵の明星」</h3>
+              <p className="guide-text">
+                地球より内側（0.72 AU）を約225日で公転する金星は、地球から見ると常に太陽の近く（離角約47°以内）にあり、太陽の西側にあると明け方の東の空、東側にあると夕方の西の空で輝きます。
+              </p>
+              <button
+                type="button"
+                className="guide-action-btn"
+                onClick={() => onRunGuideExperiment("venus-orbit-observe")}
+              >
+                太陽の真上から金星と地球の公転を見る
+              </button>
+            </div>
+
+            <div className="guide-card">
+              <h3 className="guide-title">4. 太陽の真上から見る「公転と季節」</h3>
               <p className="guide-text">
                 太陽の真上へ視点を移すと、地球が 23.4° 地軸を傾けたまま太陽の周りを反時計回りに公転し、春分・夏至・秋分・冬至が巡る様子を一望できます。
               </p>
@@ -523,7 +589,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">4. なぜ天の北極からは反時計回り？</h3>
+              <h3 className="guide-title">5. なぜ天の北極からは反時計回り？</h3>
               <p className="guide-text">
                 地球の自転は西から東へ向かっています。天の北極（北極点の真上）から地球を見下ろすと、本初子午線（黄色い線）も日本も反時計回りに回転します。
               </p>
@@ -537,7 +603,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">5. 黄道面（公転面）と地軸23.4°の傾き</h3>
+              <h3 className="guide-title">6. 黄道面（公転面）と地軸23.4°の傾き</h3>
               <p className="guide-text">
                 視点を黄道面（公転面・オレンジの輪）の水平目線へ移すと、太陽光が真横から水平に差し込む中で、地球の地軸が23.4°傾いて自転する姿が見えます。
               </p>
@@ -551,7 +617,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">6. 夏至の「白夜」と冬至の「極夜」</h3>
+              <h3 className="guide-title">7. 夏至の「白夜」と冬至の「極夜」</h3>
               <p className="guide-text">
                 地軸は公転面に対して約23.4°傾いています。夏至には北極側が太陽を向くため北極圏（水色の破線）全体が昼のまま回り（白夜）、冬至には逆に影の中へすっぽり入ります（極夜）。
               </p>
@@ -574,7 +640,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">7. なぜ太陽は東から昇り西に沈む？</h3>
+              <h3 className="guide-title">8. なぜ太陽は東から昇り西に沈む？</h3>
               <p className="guide-text">
                 東京の地表に伸びるシアン色の矢印が「東（地球が回っていく向き）」です。地球が反時計回りに回ることで、東京が東向きに昼の側へ飛び込んでいくため、太陽は東の地平線から昇って見えます。
               </p>
@@ -588,7 +654,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             <div className="guide-card">
-              <h3 className="guide-title">8. 恒星日（23h56m）と太陽日（24h）</h3>
+              <h3 className="guide-title">9. 恒星日（23h56m）と太陽日（24h）</h3>
               <p className="guide-text">
                 地球が1回転する間にも地球は太陽の周りを約1°公転するため、太陽が再び真上に来るには約4分余計に回る必要があります。春分点（紫線）を固定し、下の「+1恒星日」と「+1太陽日」を押し比べてみましょう。
               </p>

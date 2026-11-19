@@ -3,6 +3,7 @@ import { OBSERVATION_CITIES } from "./data/cities";
 import {
   calculateMoonState,
   calculateSolarSystemState,
+  calculateVenusState,
   degToRad,
   getNextSeasonDate,
   SeasonPreset,
@@ -33,6 +34,7 @@ const DEFAULT_LAYERS: DisplayLayers = {
   cities: true,
   starsAndEquinox: true,
   moonAndOrbit: true,
+  venusAndOrbit: true,
 };
 
 const GROUND_DEFAULT_ELEVATION = degToRad(26);
@@ -309,6 +311,11 @@ export function App() {
     [currentDate, solarState.sunEclipticLongitudeDeg]
   );
 
+  const venusState = useMemo(
+    () => calculateVenusState(currentDate, solarState.sunEclipticLongitudeDeg),
+    [currentDate, solarState.sunEclipticLongitudeDeg]
+  );
+
   const handleStepSeconds = useCallback(
     (deltaSeconds: number) => {
       const next = new Date(simTimeMsRef.current + deltaSeconds * 1000);
@@ -468,6 +475,18 @@ export function App() {
           setIsPlaying(true);
           break;
 
+        case "venus-orbit-observe":
+          handleSelectCameraPreset("sunOverhead", false);
+          setLayers((prev) => ({
+            ...prev,
+            venusAndOrbit: true,
+            eclipticPlane: true,
+            starsAndEquinox: true,
+          }));
+          setSpeedMultiplier(86400);
+          setIsPlaying(true);
+          break;
+
         case "sun-orbit-overview":
           handleSelectCameraPreset("sunOverhead", false);
           setLayers((prev) => ({
@@ -571,6 +590,7 @@ export function App() {
       <EarthGlobeCanvas
         solarState={solarState}
         moonState={moonState}
+        venusState={venusState}
         cities={OBSERVATION_CITIES}
         selectedCityId={selectedCityId}
         onSelectCity={setSelectedCityId}
@@ -616,6 +636,10 @@ export function App() {
                 <span>オレンジリング：黄道面（公転面・公転軌道）</span>
               </div>
               <div className="legend-row">
+                <span className="legend-swatch venus" />
+                <span>シャンパン色リング：金星の公転軌道（内惑星）</span>
+              </div>
+              <div className="legend-row">
                 <span className="legend-swatch moon" />
                 <span>銀白リング：月の公転軌道（白道・約5.1°傾斜）</span>
               </div>
@@ -634,6 +658,7 @@ export function App() {
             isOpen={isInspectorOpen}
             solarState={solarState}
             moonState={moonState}
+            venusState={venusState}
             cities={OBSERVATION_CITIES}
             selectedCityId={selectedCityId}
             onSelectCity={setSelectedCityId}

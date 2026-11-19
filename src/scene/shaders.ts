@@ -378,6 +378,74 @@ export function createMoonMaterial(moonMap: THREE.Texture): {
   return { material, uniforms };
 }
 
+const VENUS_VERTEX_SHADER = /* glsl */ `
+  varying vec2 vUv;
+  varying vec3 vWorldNormal;
+  varying vec3 vWorldPosition;
+
+  void main() {
+    vUv = uv;
+    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vWorldPosition = worldPos.xyz;
+    gl_Position = projectionMatrix * viewMatrix * worldPos;
+  }
+`;
+
+const VENUS_FRAGMENT_SHADER = /* glsl */ `
+  uniform sampler2D uVenusMap;
+  uniform vec3 uSunDirection;
+
+  varying vec2 vUv;
+  varying vec3 vWorldNormal;
+  varying vec3 vWorldPosition;
+
+  void main() {
+    vec3 normal = normalize(vWorldNormal);
+    vec3 sunDir = normalize(uSunDirection);
+    vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+    vec3 albedo = texture2D(uVenusMap, vUv).rgb;
+
+    // 分厚い大気を持つ金星は、月よりも柔らかな明暗境界と明るい雲の散乱光を見せます。
+    float ndotl = dot(normal, sunDir);
+    float dayMask = smoothstep(-0.18, 0.24, ndotl);
+    float diffuse = pow(max(ndotl, 0.0), 0.62);
+
+    vec3 sunlit = albedo * mix(0.82, 1.28, diffuse);
+    // 大気のリム散乱（昼側の縁が淡い金色に輝きます）
+    float rim = pow(1.0 - max(dot(normal, viewDir), 0.0), 2.8);
+    sunlit += vec3(1.0, 0.92, 0.72) * rim * smoothstep(-0.2, 0.3, ndotl) * 0.34;
+
+    // 夜側も完全な真っ黒にせず、うっすら輪郭が分かる暗褐色に留めます。
+    vec3 nightSide = albedo * vec3(0.09, 0.08, 0.07) + vec3(0.02, 0.018, 0.015);
+    vec3 finalColor = mix(nightSide, sunlit, dayMask);
+
+    gl_FragColor = vec4(finalColor, 1.0);
+  }
+`;
+
+/**
+ * 金星本体用の ShaderMaterial（分厚い雲の拡散反射・大気リム光・満ち欠け表現）を生成します。
+ */
+export function createVenusMaterial(venusMap: THREE.Texture): {
+  material: THREE.ShaderMaterial;
+  uniforms: {
+    uVenusMap: { value: THREE.Texture };
+    uSunDirection: { value: THREE.Vector3 };
+  };
+} {
+  const uniforms = {
+    uVenusMap: { value: venusMap },
+    uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
+  };
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: VENUS_VERTEX_SHADER,
+    fragmentShader: VENUS_FRAGMENT_SHADER,
+  });
+  return { material, uniforms };
+}
+
 /**
  * 地球の輪郭を包む青い大気ハロー（外気圏の光）用 ShaderMaterial を生成します。
  */

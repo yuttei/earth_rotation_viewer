@@ -191,6 +191,15 @@ input {
   box-shadow: 0 0 14px rgba(203, 213, 225, 0.24);
 }
 
+.space-badge.is-venus {
+  background: rgba(34, 26, 12, 0.84);
+  border: 1px solid rgba(253, 230, 138, 0.62);
+  color: #fef3c7;
+  margin-left: -28px;
+  margin-top: -30px;
+  box-shadow: 0 0 14px rgba(253, 224, 71, 0.26);
+}
+
 .space-badge.is-polaris {
   background: rgba(8, 24, 48, 0.82);
   border: 1px solid rgba(125, 211, 252, 0.55);
@@ -679,6 +688,11 @@ input {
 .legend-swatch.moon {
   border: 2px solid #cbd5e1;
   background: rgba(203, 213, 225, 0.28);
+}
+
+.legend-swatch.venus {
+  border: 2px solid #fde68a;
+  background: rgba(253, 230, 138, 0.3);
 }
 
 .legend-swatch.equinox {

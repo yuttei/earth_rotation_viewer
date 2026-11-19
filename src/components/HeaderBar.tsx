@@ -24,17 +24,13 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           className="icon-toggle-btn"
           onClick={onToggleInspector}
           aria-expanded={isInspectorOpen}
+          aria-label={isInspectorOpen ? "観察パネルを隠す" : "観察パネルを開く"}
+          title={isInspectorOpen ? "観察パネルを隠す" : "観察パネルを開く"}
         >
           {isInspectorOpen ? (
-            <>
-              <PanelRightClose size={15} />
-              パネルを隠す
-            </>
+            <PanelRightClose size={16} />
           ) : (
-            <>
-              <PanelRightOpen size={15} />
-              観察パネル
-            </>
+            <PanelRightOpen size={16} />
           )}
         </button>
       </div>

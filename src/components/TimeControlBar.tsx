@@ -83,22 +83,23 @@ export const TimeControlBar: React.FC<TimeControlBarProps> = ({
       <div className="playback-group">
         <button
           type="button"
-          className="play-btn"
+          className={`play-btn ${isPlaying ? "is-active" : ""}`}
           onClick={onTogglePlay}
+          aria-pressed={isPlaying}
+          aria-label={isPlaying ? "一時停止" : "再生"}
           title={isPlaying ? "自転・公転の進行を一時停止" : "自転・公転の進行を再生"}
         >
-          {isPlaying ? <Pause size={14} /> : <Play size={14} />}
-          {isPlaying ? "一時停止" : "再生"}
+          {isPlaying ? <Pause size={15} /> : <Play size={15} />}
         </button>
 
         <button
           type="button"
           className="ctrl-btn"
           onClick={onResetToNow}
+          aria-label="現在時刻（今）に合わせる"
           title="現実の現在時刻に合わせる"
         >
-          <RotateCcw size={12} />
-          今
+          <RotateCcw size={14} />
         </button>
 
         <button
@@ -127,7 +128,6 @@ export const TimeControlBar: React.FC<TimeControlBarProps> = ({
       </div>
 
       <div className="scrub-group" title={sliderScale.ariaLabel}>
-        <span className="scrub-scale-badge">{sliderScale.rangeBadgeJa}</span>
         <input
           type="range"
           className="scrub-slider"

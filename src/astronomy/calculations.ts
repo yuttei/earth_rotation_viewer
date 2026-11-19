@@ -599,6 +599,56 @@ export function calculateMoonState(
   const illumination = (1 - Math.cos(degToRad(phaseAngleDeg))) / 2;
   const moonAgeDays = (phaseAngleDeg / 360) * SYNODIC_MONTH_DAYS;
 
+  // 4. 楕円軌道による見かけの視直径比（太陽=1.0基準：近地点 cosM>0 で約1.075、遠地点 cosM<0 で約0.925）と日食・月食判定
+  const cosAnomaly = Math.cos(degToRad(meanAnomalyDeg));
+  const apparentSizeRatio = 1.0 + 0.075 * cosAnomaly;
+
+  const deltaNewLonDeg = normalizeLonDeg(phaseAngleDeg);
+  const solarSepDeg = Math.hypot(deltaNewLonDeg, eclipticLatitudeDeg);
+
+  const deltaFullLonDeg = normalizeLonDeg(phaseAngleDeg - 180);
+  const lunarSepDeg = Math.hypot(deltaFullLonDeg, eclipticLatitudeDeg);
+
+  let solarEclipseType: MoonState["solarEclipseType"] = "none";
+  let lunarEclipseType: MoonState["lunarEclipseType"] = "none";
+  let eclipseObscuration = 0;
+  let eclipseOffsetDeg: [number, number] = [0, 0];
+  let phaseLabelJa = getMoonPhaseLabelJa(phaseAngleDeg);
+
+  if (solarSepDeg <= 1.65) {
+    eclipseOffsetDeg = [deltaNewLonDeg, eclipticLatitudeDeg];
+    if (solarSepDeg <= 0.48 && Math.abs(deltaNewLonDeg) <= 0.35) {
+      if (apparentSizeRatio >= 1.0) {
+        solarEclipseType = "total";
+        phaseLabelJa = "新月（皆既日食）";
+        eclipseObscuration = 1.0;
+      } else {
+        solarEclipseType = "annular";
+        phaseLabelJa = "新月（金環日食）";
+        eclipseObscuration = clamp(apparentSizeRatio * apparentSizeRatio, 0.82, 0.96);
+      }
+    } else {
+      solarEclipseType = "partial";
+      phaseLabelJa = "新月（部分日食）";
+      eclipseObscuration = clamp(1.0 - (solarSepDeg - 0.25) / 1.45, 0.1, 0.82);
+    }
+  } else if (lunarSepDeg <= 1.65) {
+    eclipseOffsetDeg = [deltaFullLonDeg, eclipticLatitudeDeg];
+    if (lunarSepDeg <= 0.45) {
+      lunarEclipseType = "total";
+      phaseLabelJa = "満月（皆既月食）";
+      eclipseObscuration = clamp(1.0 - (lunarSepDeg / 0.45) * 0.12, 0.88, 1.0);
+    } else if (lunarSepDeg <= 1.05) {
+      lunarEclipseType = "partial";
+      phaseLabelJa = "満月（部分月食）";
+      eclipseObscuration = clamp(1.0 - (lunarSepDeg - 0.45) / 0.65, 0.2, 0.85);
+    } else {
+      lunarEclipseType = "penumbral";
+      phaseLabelJa = "満月（半影月食）";
+      eclipseObscuration = clamp(1.0 - (lunarSepDeg - 1.05) / 0.65, 0.1, 0.45);
+    }
+  }
+
   return {
     eclipticLongitudeDeg,
     eclipticLatitudeDeg,
@@ -606,7 +656,12 @@ export function calculateMoonState(
     phaseAngleDeg,
     illumination,
     moonAgeDays,
-    phaseLabelJa: getMoonPhaseLabelJa(phaseAngleDeg),
+    phaseLabelJa,
+    apparentSizeRatio,
+    solarEclipseType,
+    lunarEclipseType,
+    eclipseObscuration,
+    eclipseOffsetDeg,
   };
 }
 

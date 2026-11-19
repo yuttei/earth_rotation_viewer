@@ -37,6 +37,15 @@ import {
   calculateGalileanMoonsState,
 } from "../solarSystem";
 import {
+  FEATURED_BRIGHT_STARS,
+  FEATURED_STAR_MAP,
+  SEASONAL_ASTERISMS,
+  SEASONAL_CONSTELLATIONS,
+  SEASONAL_SKY_GUIDE_DATES,
+  getStarAltitudeDeg,
+  starDistanceLyToSceneRadius,
+} from "../seasonalStars";
+import {
   CASSIOPEIA_CONSTELLATION,
   SOUTHERN_CROSS_CONSTELLATION,
   ZODIAC_CONSTELLATIONS,
@@ -513,5 +522,98 @@ describe("天文計算エンジン (calculations)", () => {
     // 東京は半日後も21時固定の夜（太陽高度が負）のまま安定する
     const tokyo = OBSERVATION_CITIES.find((c) => c.id === "tokyo")!;
     expect(observeCity(tokyo, sHalf).daylightPhase).toBe("night");
+  });
+
+  it("白道と黄道の交点付近の新月・満月で日食3種類（皆既・金環・部分）と月食3種類（皆既・部分・半影）が正しく判定される", () => {
+    const totalSolar = calculateMoonState(new Date("2027-08-02T10:10:25Z"));
+    expect(totalSolar.solarEclipseType).toBe("total");
+    expect(totalSolar.phaseLabelJa).toBe("新月（皆既日食）");
+
+    const annularSolar = calculateMoonState(new Date("2030-06-01T06:50:03Z"));
+    expect(annularSolar.solarEclipseType).toBe("annular");
+    expect(annularSolar.phaseLabelJa).toBe("新月（金環日食）");
+
+    const partialSolar = calculateMoonState(new Date("2026-08-12T16:15:51Z"));
+    expect(partialSolar.solarEclipseType).toBe("partial");
+    expect(partialSolar.phaseLabelJa).toBe("新月（部分日食）");
+
+    const totalLunar = calculateMoonState(new Date("2028-12-31T19:24:05Z"));
+    expect(totalLunar.lunarEclipseType).toBe("total");
+    expect(totalLunar.phaseLabelJa).toBe("満月（皆既月食）");
+
+    const partialLunar = calculateMoonState(new Date("2027-02-20T21:26:47Z"));
+    expect(partialLunar.lunarEclipseType).toBe("partial");
+    expect(partialLunar.phaseLabelJa).toBe("満月（部分月食）");
+
+    const penumbralLunar = calculateMoonState(new Date("2028-07-06T15:53:07Z"));
+    expect(penumbralLunar.lunarEclipseType).toBe("penumbral");
+    expect(penumbralLunar.phaseLabelJa).toBe("満月（半影月食）");
+  });
+
+  it("四季の大三角・四辺形・主要15恒星がJ2000.0実座標と距離順で定義され、東京21時に該当季節の星が高く昇る", () => {
+    expect(FEATURED_BRIGHT_STARS).toHaveLength(15);
+    expect(SEASONAL_ASTERISMS).toHaveLength(6);
+    expect(SEASONAL_CONSTELLATIONS).toHaveLength(12);
+
+    // シリウスが全天最輝（-1等より明るい）かつ 3D 奥行き半径が実距離順に単調増加する
+    const sirius = FEATURED_STAR_MAP.sirius;
+    expect(sirius.mag).toBeLessThan(-1.4);
+    expect(starDistanceLyToSceneRadius(FEATURED_STAR_MAP.alphaCentauri.distanceLy)).toBeLessThan(
+      starDistanceLyToSceneRadius(sirius.distanceLy)
+    );
+    expect(starDistanceLyToSceneRadius(sirius.distanceLy)).toBeLessThan(
+      starDistanceLyToSceneRadius(FEATURED_STAR_MAP.betelgeuse.distanceLy)
+    );
+    expect(starDistanceLyToSceneRadius(FEATURED_STAR_MAP.betelgeuse.distanceLy)).toBeLessThan(
+      starDistanceLyToSceneRadius(FEATURED_STAR_MAP.deneb.distanceLy)
+    );
+
+    const tokyo = OBSERVATION_CITIES.find((c) => c.id === "tokyo")!;
+
+    // 冬（2月15日 21:00 JST）の東京ではシリウスとベテルギウスが南の空に高く昇っている
+    const winterState = calculateSolarSystemState(
+      new Date(SEASONAL_SKY_GUIDE_DATES.winter.isoUtc)
+    );
+    expect(
+      getStarAltitudeDeg(
+        sirius.raHours,
+        sirius.decDeg,
+        tokyo.latDeg,
+        tokyo.lonDeg,
+        winterState.gmstRad
+      )
+    ).toBeGreaterThan(30);
+    expect(
+      getStarAltitudeDeg(
+        FEATURED_STAR_MAP.betelgeuse.raHours,
+        FEATURED_STAR_MAP.betelgeuse.decDeg,
+        tokyo.latDeg,
+        tokyo.lonDeg,
+        winterState.gmstRad
+      )
+    ).toBeGreaterThan(50);
+
+    // 夏（8月15日 21:00 JST）の東京ではベガとアルタイルが南の空高くに昇っている
+    const summerState = calculateSolarSystemState(
+      new Date(SEASONAL_SKY_GUIDE_DATES.summer.isoUtc)
+    );
+    expect(
+      getStarAltitudeDeg(
+        FEATURED_STAR_MAP.vega.raHours,
+        FEATURED_STAR_MAP.vega.decDeg,
+        tokyo.latDeg,
+        tokyo.lonDeg,
+        summerState.gmstRad
+      )
+    ).toBeGreaterThan(70);
+    expect(
+      getStarAltitudeDeg(
+        FEATURED_STAR_MAP.altair.raHours,
+        FEATURED_STAR_MAP.altair.decDeg,
+        tokyo.latDeg,
+        tokyo.lonDeg,
+        summerState.gmstRad
+      )
+    ).toBeGreaterThan(55);
   });
 });

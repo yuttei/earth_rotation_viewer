@@ -2,6 +2,7 @@ import React from "react";
 import { Pause, Play, RotateCcw, StepForward } from "lucide-react";
 import {
   SEASON_PRESETS,
+  SeasonPreset,
   SIDEREAL_DAY_SECONDS,
   SOLAR_DAY_SECONDS,
 } from "../astronomy/calculations";
@@ -17,8 +18,12 @@ interface TimeControlBarProps {
   onChangeSpeed: (multiplier: number) => void;
   /** 現在のシミュレーション日時 */
   currentDate: Date;
-  /** 日時を直接変更するハンドラ */
+  /** 日時を直接変更するハンドラ（スライダー等） */
   onSetDate: (date: Date) => void;
+  /** 指定季節（春分・夏至・秋分・冬至）へ時間を滑らかに進めるハンドラ */
+  onSelectSeason: (seasonId: SeasonPreset["id"]) => void;
+  /** 現在、滑らかな時間移動で向かっている季節ID（移動中でなければ null） */
+  transitioningSeasonId: SeasonPreset["id"] | null;
   /** 指定秒数だけ時間を進める（または戻す）ハンドラ */
   onStepSeconds: (deltaSeconds: number) => void;
   /** 現在時刻（「今」）へリセットするハンドラ */
@@ -46,6 +51,8 @@ export const TimeControlBar: React.FC<TimeControlBarProps> = ({
   onChangeSpeed,
   currentDate,
   onSetDate,
+  onSelectSeason,
+  transitioningSeasonId,
   onStepSeconds,
   onResetToNow,
 }) => {
@@ -140,9 +147,11 @@ export const TimeControlBar: React.FC<TimeControlBarProps> = ({
           <button
             key={preset.id}
             type="button"
-            className="ctrl-btn"
-            onClick={() => onSetDate(new Date(preset.date.getTime()))}
-            title={preset.descriptionJa}
+            className={`ctrl-btn ${
+              transitioningSeasonId === preset.id ? "is-active" : ""
+            }`}
+            onClick={() => onSelectSeason(preset.id)}
+            title={`${preset.labelJa}まで時間を滑らかに進めます：${preset.descriptionJa}`}
           >
             {preset.labelJa}
           </button>

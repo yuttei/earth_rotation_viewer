@@ -23,6 +23,9 @@ export const SIDEREAL_MONTH_DAYS = 27.321661;
 /** 月の公転軌道面（白道）と黄道面の傾き（度）：約5.145° */
 export const MOON_ORBIT_INCLINATION_DEG = 5.145;
 
+/** 1太陽年（春分から次の春分までの回帰年・日）：約365.24219日 */
+export const TROPICAL_YEAR_DAYS = 365.24219;
+
 /** 2000年1月1日 12:00 UTC（J2000.0 エポック）のユリウス日 */
 const J2000_JULIAN_DAY = 2451545.0;
 
@@ -592,4 +595,31 @@ export function calculateMoonState(
     moonAgeDays,
     phaseLabelJa: getMoonPhaseLabelJa(phaseAngleDeg),
   };
+}
+
+/**
+ * 現在時刻から「常に未来方向へ」次に訪れる指定季節（春分・夏至・秋分・冬至）の日時を返します。
+ * すでにその季節の直前・直後（12時間未満）にある場合は、1太陽年後の次の同じ季節を返します。
+ */
+export function getNextSeasonDate(
+  fromDate: Date,
+  seasonId: SeasonPreset["id"]
+): Date {
+  const preset = SEASON_PRESETS.find((p) => p.id === seasonId);
+  if (!preset) {
+    return new Date(fromDate.getTime());
+  }
+
+  const tropicalYearMs = TROPICAL_YEAR_DAYS * MS_PER_DAY;
+  const minForwardMs = 12 * 3600 * 1000;
+  const fromMs = fromDate.getTime();
+  const baseMs = preset.date.getTime();
+
+  const cycles = Math.ceil((fromMs - baseMs) / tropicalYearMs);
+  let targetMs = baseMs + cycles * tropicalYearMs;
+  if (targetMs - fromMs < minForwardMs) {
+    targetMs += tropicalYearMs;
+  }
+
+  return new Date(targetMs);
 }

@@ -4,7 +4,8 @@ import {
   calculateMoonState,
   calculateSolarSystemState,
   degToRad,
-  SEASON_PRESETS,
+  getNextSeasonDate,
+  SeasonPreset,
 } from "./astronomy/calculations";
 import {
   CameraPreset,
@@ -192,16 +193,73 @@ export function App() {
 
   const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(true);
   const [layers, setLayers] = useState<DisplayLayers>(DEFAULT_LAYERS);
+  const [transitioningSeasonId, setTransitioningSeasonId] = useState<
+    SeasonPreset["id"] | null
+  >(null);
 
   const simTimeMsRef = useRef<number>(currentDate.getTime());
+  // 春分・夏至・秋分・冬至ボタンを押した際に時間を未来方向へ滑らかに進める補間状態です。
+  const timeTransitionRef = useRef<{
+    active: boolean;
+    fromMs: number;
+    toMs: number;
+    elapsed: number;
+    duration: number;
+  }>({
+    active: false,
+    fromMs: currentDate.getTime(),
+    toMs: currentDate.getTime(),
+    elapsed: 0,
+    duration: 2.8,
+  });
 
-  const applyNewDate = useCallback((nextDate: Date) => {
-    simTimeMsRef.current = nextDate.getTime();
-    setCurrentDate(nextDate);
+  const cancelTimeTransition = useCallback(() => {
+    if (timeTransitionRef.current.active) {
+      timeTransitionRef.current.active = false;
+      setTransitioningSeasonId(null);
+    }
   }, []);
 
+  const applyNewDate = useCallback(
+    (nextDate: Date) => {
+      cancelTimeTransition();
+      simTimeMsRef.current = nextDate.getTime();
+      setCurrentDate(nextDate);
+    },
+    [cancelTimeTransition]
+  );
+
+  const handleSelectSeason = useCallback((seasonId: SeasonPreset["id"]) => {
+    const fromMs = simTimeMsRef.current;
+    const targetDate = getNextSeasonDate(new Date(fromMs), seasonId);
+    const toMs = targetDate.getTime();
+    const deltaDays = Math.max(0, (toMs - fromMs) / 86_400_000);
+    // 移動する日数に応じて 1.8〜5.2 秒かけて、加減速しながら滑らかに未来へ時間を進めます。
+    const duration = Math.max(1.8, Math.min(5.2, 1.5 + (deltaDays / 91.3) * 1.15));
+
+    timeTransitionRef.current = {
+      active: true,
+      fromMs,
+      toMs,
+      elapsed: 0,
+      duration,
+    };
+    setTransitioningSeasonId(seasonId);
+  }, []);
+
+  const handleTogglePlay = useCallback(() => {
+    setIsPlaying((prev) => {
+      if (prev) {
+        cancelTimeTransition();
+      }
+      return !prev;
+    });
+  }, [cancelTimeTransition]);
+
+  const isTimeTransitioning = transitioningSeasonId !== null;
+
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying && !isTimeTransitioning) return;
 
     let rafId = 0;
     let lastFrameMs = performance.now();
@@ -211,13 +269,35 @@ export function App() {
       const elapsedSec = Math.min(0.1, (now - lastFrameMs) / 1000);
       lastFrameMs = now;
 
-      simTimeMsRef.current += elapsedSec * 1000 * speedMultiplier;
-      setCurrentDate(new Date(simTimeMsRef.current));
+      const tr = timeTransitionRef.current;
+      if (tr.active) {
+        tr.elapsed += elapsedSec;
+        const rawT = Math.min(1, tr.elapsed / tr.duration);
+        // 動き始めと着地が滑らかな 3 次イージング（Ease-In-Out Cubic）で時間を進めます。
+        const ease =
+          rawT < 0.5
+            ? 4 * rawT * rawT * rawT
+            : 1 - Math.pow(-2 * rawT + 2, 3) / 2;
+
+        simTimeMsRef.current = tr.fromMs + (tr.toMs - tr.fromMs) * ease;
+        setCurrentDate(new Date(simTimeMsRef.current));
+
+        if (rawT >= 1) {
+          tr.active = false;
+          setTransitioningSeasonId(null);
+        }
+        return;
+      }
+
+      if (isPlaying) {
+        simTimeMsRef.current += elapsedSec * 1000 * speedMultiplier;
+        setCurrentDate(new Date(simTimeMsRef.current));
+      }
     };
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [isPlaying, speedMultiplier]);
+  }, [isPlaying, speedMultiplier, isTimeTransitioning]);
 
   const solarState = useMemo(
     () => calculateSolarSystemState(currentDate),
@@ -412,7 +492,7 @@ export function App() {
 
         case "ecliptic-tilt":
           handleSelectCameraPreset("eclipticPlane", false);
-          applyNewDate(new Date(SEASON_PRESETS[1].date.getTime()));
+          handleSelectSeason("summer-solstice");
           setReferenceFrame("solar");
           setLayers((prev) => ({
             ...prev,
@@ -426,7 +506,7 @@ export function App() {
 
         case "summer-midnight-sun":
           handleSelectCameraPreset("northPole", false);
-          applyNewDate(new Date(SEASON_PRESETS[1].date.getTime()));
+          handleSelectSeason("summer-solstice");
           setReferenceFrame("solar");
           setSelectedCityId("tromso");
           setLayers((prev) => ({
@@ -441,7 +521,7 @@ export function App() {
 
         case "winter-polar-night":
           handleSelectCameraPreset("northPole", false);
-          applyNewDate(new Date(SEASON_PRESETS[3].date.getTime()));
+          handleSelectSeason("winter-solstice");
           setReferenceFrame("solar");
           setSelectedCityId("tromso");
           setLayers((prev) => ({
@@ -483,7 +563,7 @@ export function App() {
           break;
       }
     },
-    [applyNewDate, handleSelectCameraPreset]
+    [applyNewDate, handleSelectCameraPreset, handleSelectSeason]
   );
 
   return (
@@ -572,11 +652,13 @@ export function App() {
 
         <TimeControlBar
           isPlaying={isPlaying}
-          onTogglePlay={() => setIsPlaying((prev) => !prev)}
+          onTogglePlay={handleTogglePlay}
           speedMultiplier={speedMultiplier}
           onChangeSpeed={setSpeedMultiplier}
           currentDate={currentDate}
           onSetDate={applyNewDate}
+          onSelectSeason={handleSelectSeason}
+          transitioningSeasonId={transitioningSeasonId}
           onStepSeconds={handleStepSeconds}
           onResetToNow={handleResetToNow}
         />

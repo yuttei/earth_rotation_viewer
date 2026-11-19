@@ -18,6 +18,7 @@ import {
   formatHoursToClock,
   getLocalCompassVectors,
   getMoonPhaseLabelJa,
+  getNextSeasonDate,
   getSeasonLabelJa,
   latLonToVector3Tuple,
   normalizeAngleRad,
@@ -270,5 +271,39 @@ describe("天文計算エンジン (calculations)", () => {
     expect(getMoonPhaseLabelJa(90)).toBe("上弦の月");
     expect(getMoonPhaseLabelJa(180)).toBe("満月");
     expect(getMoonPhaseLabelJa(270)).toBe("下弦の月");
+  });
+
+  it("getNextSeasonDate は常に現在時刻より未来の次の季節日時を返し、太陽視黄経が目標季節に一致する", () => {
+    const novDate = new Date("2026-11-19T00:00:00Z");
+
+    // 11月から冬至は同年の12月（約32日後）
+    const nextWinter = getNextSeasonDate(novDate, "winter-solstice");
+    expect(nextWinter.getTime()).toBeGreaterThan(novDate.getTime());
+    expect(
+      Math.abs(
+        signedAngleDiffDeg(
+          calculateSolarSystemState(nextWinter).sunEclipticLongitudeDeg,
+          270
+        )
+      )
+    ).toBeLessThan(0.5);
+
+    // 11月から春分は翌年の3月（約122日後）へ前進する
+    const nextVernal = getNextSeasonDate(novDate, "vernal-equinox");
+    expect(nextVernal.getTime()).toBeGreaterThan(nextWinter.getTime());
+    expect(
+      Math.abs(
+        signedAngleDiffDeg(
+          calculateSolarSystemState(nextVernal).sunEclipticLongitudeDeg,
+          0
+        )
+      )
+    ).toBeLessThan(0.5);
+
+    // ちょうど夏至の瞬間に夏至を選ぶと、1太陽年後の次の夏至へ前進する
+    const exactSummer = SEASON_PRESETS[1].date;
+    const nextSummer = getNextSeasonDate(exactSummer, "summer-solstice");
+    const diffDays = (nextSummer.getTime() - exactSummer.getTime()) / (86400 * 1000);
+    expect(diffDays).toBeCloseTo(365.24219, 3);
   });
 });

@@ -35,6 +35,31 @@ import {
 } from "./components/InspectorPanel";
 import { CelestialBodyCard } from "./components/CelestialBodyCard";
 import { CelestialBodyId } from "./data/celestialBodies";
+import { AchievementId } from "./achievements/definitions";
+import { useAchievements } from "./achievements/useAchievements";
+import { AchievementToast } from "./components/AchievementToast";
+
+/**
+ * 学習ガイドの実験のうち、実行すると実績を達成するものの対応表です。
+ * 視点の移動で判定できる実績（地上・リアル太陽系など）は、ここではなく視点の移動先から判定します。
+ */
+const GUIDE_EXPERIMENT_ACHIEVEMENTS: Partial<
+  Record<GuideExperimentId, AchievementId>
+> = {
+  "summer-midnight-sun": "polar-day-night",
+  "winter-polar-night": "polar-day-night",
+  "moon-orbit-observe": "moon-phases",
+  "venus-orbit-observe": "venus-orbit",
+  "solar-eclipse-total": "total-solar-eclipse",
+  "lunar-eclipse-total": "total-lunar-eclipse",
+  "seasonal-spring": "seasonal-constellations",
+  "seasonal-summer": "seasonal-constellations",
+  "seasonal-autumn": "seasonal-constellations",
+  "seasonal-winter": "seasonal-constellations",
+};
+
+/** 倍速ボタンでこの速さ以上（1日/s）を選ぶと「時間を早送り」を達成します */
+const SPEED_UP_ACHIEVEMENT_MULTIPLIER = 86400;
 
 const DEFAULT_LAYERS: DisplayLayers = {
   graticule: true,
@@ -480,6 +505,10 @@ export function App() {
   const [isAnnualMotionMode, setIsAnnualMotionMode] = useState<boolean>(false);
   const isAnnualMotionRef = useRef<boolean>(false);
   isAnnualMotionRef.current = isAnnualMotionMode;
+  // 実績：達成状況（ブラウザに保存）と、達成時の通知
+  const achievements = useAchievements();
+  const { unlock: unlockAchievement, record: recordAchievement } =
+    achievements;
   const [transitioningSeasonId, setTransitioningSeasonId] = useState<
     SeasonPreset["id"] | null
   >(null);
@@ -553,7 +582,8 @@ export function App() {
     };
     setIsCustomTimeTransition(false);
     setTransitioningSeasonId(seasonId);
-  }, []);
+    unlockAchievement("jump-to-season");
+  }, [unlockAchievement]);
 
   const handleTogglePlay = useCallback(() => {
     setIsPlaying((prev) => {
@@ -880,6 +910,10 @@ export function App() {
   const handleRunGuideExperiment = useCallback(
     (id: GuideExperimentId) => {
       setFocusedBodyId(null);
+      const guideAchievement = GUIDE_EXPERIMENT_ACHIEVEMENTS[id];
+      if (guideAchievement) {
+        unlockAchievement(guideAchievement);
+      }
       const glideToGroundSky = (
         cityId: string,
         preset: CameraPreset,
@@ -1323,12 +1357,36 @@ export function App() {
       handleSelectCameraPreset,
       handleSelectSeason,
       smoothTransitionToDate,
+      unlockAchievement,
     ]
   );
 
-  const handleSelectCelestialBody = useCallback((bodyId: CelestialBodyId) => {
-    setFocusedBodyId(bodyId);
-  }, []);
+  const handleSelectCelestialBody = useCallback(
+    (bodyId: CelestialBodyId) => {
+      setFocusedBodyId(bodyId);
+      recordAchievement({ type: "open-body", bodyId });
+    },
+    [recordAchievement]
+  );
+
+  /** ユーザーが画面下の倍速ボタンを押したとき（自動で速さが変わる場合は実績の対象外） */
+  const handleChangeSpeedByUser = useCallback(
+    (multiplier: number) => {
+      setSpeedMultiplier(multiplier);
+      if (multiplier >= SPEED_UP_ACHIEVEMENT_MULTIPLIER) {
+        unlockAchievement("speed-up-time");
+      }
+    },
+    [unlockAchievement]
+  );
+
+  /** 衝突シミュレーターで天体が置かれたとき（キャンバスから呼ばれます） */
+  const handleImpactorLaunched = useCallback(
+    (impactorId: ImpactorId) => {
+      recordAchievement({ type: "place-impactor", impactorId });
+    },
+    [recordAchievement]
+  );
 
   const handleCloseCelestialBody = useCallback(() => {
     setFocusedBodyId(null);
@@ -1407,7 +1465,8 @@ export function App() {
 
   const handleRestoreImpact = useCallback(() => {
     setRestoreImpactSeq((prev) => prev + 1);
-  }, []);
+    unlockAchievement("restore-solar-system");
+  }, [unlockAchievement]);
 
   const handleToggleInspector = useCallback(() => {
     if (focusedBodyId !== null) {
@@ -1429,6 +1488,60 @@ export function App() {
 
   const activeImpactorId: ImpactorId | null =
     isImpactAimMode && isTargetRealSolarSystem ? selectedImpactorId : null;
+
+  // 実績：視点の移動先や表示モードから判定する実績です。
+  // プリセットボタン・視点スライダー・学習ガイドなど、どの操作で移っても同じ条件で達成するよう、操作ではなく「移動先の視点」で判定します。
+  useEffect(() => {
+    const pose = cameraPoseTarget;
+    const isNearEarthView =
+      pose.cosmicLevel < 0.5 &&
+      pose.groundBlend < 0.5 &&
+      pose.eclipticViewBlend < 0.5 &&
+      pose.sunCenterBlend < 0.5 &&
+      pose.solarSystemBlend < 0.5;
+    if (isNearEarthView && pose.eclipticBlend >= 0.95) {
+      unlockAchievement("view-ecliptic-plane");
+    }
+    if (pose.groundBlend > 0.5) {
+      unlockAchievement("ground-sky");
+      // シドニーの地上で南の空を向いたとき（南十字星が見える向き）
+      if (selectedCityId === "sydney" && activePresetButton === "tokyoSouth") {
+        unlockAchievement("southern-cross");
+      }
+    }
+    if (isMoonDistanceMode) {
+      unlockAchievement("moon-phases");
+    }
+    if (pose.eclipticViewBlend > 0.5) {
+      unlockAchievement("zodiac-from-earth");
+    }
+    if (isTargetRealSolarSystem) {
+      unlockAchievement("real-solar-system");
+      if (pose.jupiterFocusBlend > 0.5) {
+        unlockAchievement("jupiter-moons");
+      }
+    }
+    // cosmicLevel：1 = 近傍恒星、2 = 天の川銀河 … 7 = 観測可能な宇宙
+    if (pose.cosmicLevel >= 2) {
+      unlockAchievement("reach-milky-way");
+    }
+    if (pose.cosmicLevel >= 7) {
+      unlockAchievement("reach-observable-universe");
+    }
+  }, [
+    cameraPoseTarget,
+    selectedCityId,
+    activePresetButton,
+    isMoonDistanceMode,
+    isTargetRealSolarSystem,
+    unlockAchievement,
+  ]);
+
+  useEffect(() => {
+    if (isAnnualMotionMode) {
+      unlockAchievement("annual-motion");
+    }
+  }, [isAnnualMotionMode, unlockAchievement]);
   const selectedImpactorSpec = IMPACTOR_MAP[selectedImpactorId];
 
   return (
@@ -1451,7 +1564,10 @@ export function App() {
         activeImpactorId={activeImpactorId}
         restoreImpactSeq={restoreImpactSeq}
         onImpactStatusChange={setImpactStatus}
+        onImpactorLaunched={handleImpactorLaunched}
       />
+
+      <AchievementToast toast={achievements.currentToast} />
 
       <div className="ui-hud-layout">
         <HeaderBar
@@ -1503,6 +1619,8 @@ export function App() {
               onSetImpactAimMode={handleSetImpactAimMode}
               canRestoreImpact={impactStatus.canRestore}
               onRestoreImpact={handleRestoreImpact}
+              achievementState={achievements.state}
+              onResetAchievements={achievements.reset}
             />
           )}
         </div>
@@ -1511,7 +1629,7 @@ export function App() {
           isPlaying={isPlaying}
           onTogglePlay={handleTogglePlay}
           speedMultiplier={speedMultiplier}
-          onChangeSpeed={setSpeedMultiplier}
+          onChangeSpeed={handleChangeSpeedByUser}
           currentDate={currentDate}
           onSetDate={applyNewDate}
           onSelectSeason={handleSelectSeason}

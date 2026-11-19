@@ -418,6 +418,74 @@ J2000.0 の平均軌道要素（NASA JPL / Astronomical Almanac 準拠）を用�
 | **15. なぜ冥王星は「惑星」ではなく「準惑星」なの？** | 視点：`"solarFullOblique"`（3D確認ボタン）<br>IAU 2006 惑星の3条件（①太陽公転 `○` / ②重力でほぼ球形 `○` / ③軌道周辺の他天体排除 `✕`）を解説 | 冥王星が①②を満たしつつ③だけ満たさない点と、約 $17.2^\circ$ 傾斜・細長い楕円軌道を3Dで確認 |
 | **16. 宇宙の階層：近傍恒星・天の川銀河から観測可能な宇宙へ** | 7段階プリセット（`"nearbyStars"` → `"milkyWay"` → `"milkyWayAndromeda"` → `"localGroup"` → `"galaxyCluster"` → `"laniakea"` → `"observableUniverse"`）へ連続ズームアウト | 近傍恒星の3D奥行きから天の川銀河・局部銀河群・おとめ座銀河団・ラニアケア超銀河団・観測可能な宇宙（約930億光年）までの7階層を一望 |
 
+### 3.8 実績（体験チェックリスト）
+
+アプリで体験してほしい操作を22個の実績としてまとめ、達成状況をユーザーのブラウザに保存する機能。未達成の実績も「やること」を表示し、次に試す操作の道案内とする。定義は [src/achievements/definitions.ts](../src/achievements/definitions.ts)、判定は [src/App.tsx](../src/App.tsx)、表示は [src/components/AchievementList.tsx](../src/components/AchievementList.tsx) と [src/components/AchievementToast.tsx](../src/components/AchievementToast.tsx) が受け持つ。
+
+#### 表示
+
+- **一覧**：観察パネルの4つ目のタブ「実績」（トロフィーのアイコン）
+  - 進捗（`n/22`）と進捗バー
+  - 7分類ごとの実績名、やること、達成済みの印
+  - 「〇種類」の実績は、未達成のあいだ今の累計（例：`2/5`）を表示
+- **達成通知**：達成した瞬間に、画面上部の中央へ「実績解除：（実績名）」を約3秒表示して自動で消去
+  - 同時に複数達成した場合は、1件ずつ順番に表示
+  - クリック・タップは通知の下の画面へ素通り（3D 画面の操作を妨げない）
+  - 幅 640px 以下では、右上のボタン列と重ならないようボタン列の下に表示
+- **記録を消す**：「実績」タブの最下部のボタン。確認ダイアログで「OK」を選ぶと、保存データと表示中の通知をすべて消去
+
+#### 実績一覧と達成条件
+
+視点に関する実績は、操作の種類（プリセットボタン・視点スライダー・学習ガイド）ではなく、カメラの移動先の視点（`cameraPoseTarget`）で判定する。どの操作で移っても、同じ条件で達成とするため。
+
+| 分類 | 実績名（id） | 達成条件 |
+|---|---|---|
+| 地球の自転・昼夜 | 真横から見る地球（`view-ecliptic-plane`） | 地球・月の近くの視点で、移動先が公転面（水平）側（`eclipticBlend` ≥ 0.95）。視点スライダーの右端付近、公転面の視点ボタン、学習ガイドのどれでも達成 |
+| 地球の自転・昼夜 | 時間を早送り（`speed-up-time`） | 画面下の倍速ボタンで `1日/s`（86400倍）以上を選択。視点ボタンや衝突シミュレーターによる自動の速度変更では未達成 |
+| 地球の自転・昼夜 | 季節を旅する（`jump-to-season`） | 季節ボタン（春分・夏至・秋分・冬至）を押下 |
+| 地球の自転・昼夜 | 白夜と極夜（`polar-day-night`） | 学習ガイドの実験 `summer-midnight-sun` または `winter-polar-night` を実行 |
+| 地上から見る | 地上に降り立つ（`ground-sky`） | 移動先が地上視点（`groundBlend` > 0.5） |
+| 地上から見る | 南十字星（`southern-cross`） | 観察地点がシドニーで、地上の南の空の視点（`tokyoSouth`）を選択中。学習ガイドの `sydney-southern-cross` でも達成 |
+| 地上から見る | 星の年周運動（`annual-motion`） | 年周運動モード（毎日21時）が ON |
+| 月・金星・食 | 月の満ち欠け（`moon-phases`） | 移動先が月の距離の視点（月の視点ボタン）、または学習ガイドの `moon-orbit-observe` を実行 |
+| 月・金星・食 | 明けの明星・宵の明星（`venus-orbit`） | 学習ガイドの `venus-orbit-observe` を実行 |
+| 月・金星・食 | 皆既日食（`total-solar-eclipse`） | 学習ガイドの `solar-eclipse-total` を実行 |
+| 月・金星・食 | 皆既月食（`total-lunar-eclipse`） | 学習ガイドの `lunar-eclipse-total` を実行 |
+| 太陽系・星座 | 黄道13星座（`zodiac-from-earth`） | 移動先が地球から黄道を見る視点（`eclipticViewBlend` > 0.5） |
+| 太陽系・星座 | リアル太陽系（`real-solar-system`） | 移動先がリアル太陽系（`isRealSolarSystemPose`） |
+| 太陽系・星座 | ガリレオ衛星（`jupiter-moons`） | 移動先がリアル太陽系の木星の視点（`jupiterFocusBlend` > 0.5） |
+| 太陽系・星座 | 四季の星座（`seasonal-constellations`） | 学習ガイドの `seasonal-spring` / `seasonal-summer` / `seasonal-autumn` / `seasonal-winter` のいずれかを実行 |
+| 天体を調べる | 天体図鑑（`open-body-card`） | 3D 画面の天体をタップして解説カードを表示 |
+| 天体を調べる | 天体博士（`open-five-body-cards`） | 解説カードを開いた天体が、累計で異なる5種類 |
+| 宇宙の大きさ | 銀河の外へ（`reach-milky-way`） | 移動先の宇宙の階層（`cosmicLevel`）が2（天の川銀河）以上 |
+| 宇宙の大きさ | 宇宙の果て（`reach-observable-universe`） | 移動先の宇宙の階層が7（観測可能な宇宙） |
+| 天体衝突シミュレーター | はじめての衝突実験（`place-impactor`） | 天体を1個置く（タップまたはドラッグで発射） |
+| 天体衝突シミュレーター | 重力の実験家（`place-five-impactor-types`） | 置いた天体の種類が、累計で異なる5種類 |
+| 天体衝突シミュレーター | 太陽系の復活（`restore-solar-system`） | 「復活」ボタンを押下 |
+
+- 一度達成した実績は、もう一度条件を満たしても達成日時を更新せず、通知も再表示しない
+- 累計（解説カードを開いた天体、置いた天体の種類）は、同じ id を重複して数えない
+
+#### 保存形式
+
+ブラウザの `localStorage` に、キー `polaris.achievements.v1` で JSON を保存する（[src/achievements/storage.ts](../src/achievements/storage.ts)）。記録はそのブラウザだけに残り、他の端末やブラウザとは共有しない。
+
+| 項目 | 型 | 内容 |
+|---|---|---|
+| `version` | `1` | 保存形式の版 |
+| `unlocked` | `{ [実績id]: 文字列 }` | 達成した実績と達成日時（ISO 8601 形式、例：`2026-11-19T10:08:41.313Z`） |
+| `progress.openedBodyIds` | 文字列の配列 | 解説カードを開いた天体の id（重複なし） |
+| `progress.placedImpactorIds` | 文字列の配列 | 衝突シミュレーターで置いた天体の種類の id（重複なし） |
+
+- 保存のタイミング：実績の達成または累計の更新があった操作の直後
+- 読み込みのタイミング：アプリの起動時に1回
+
+#### 失敗時の動作
+
+- **`localStorage` が使えない場合**（プライベートブラウズ、サイトデータの無効化など）：読み書きの例外を捕捉して、空の状態で動作を継続。実績はその画面を開いている間だけ記録
+- **保存データが壊れている場合**：JSON として読めないデータは空の状態として扱い、次の保存で上書き
+- **一部が不正な場合**：未知の実績 id、文字列でない達成日時、文字列でない累計の要素、重複した要素を捨て、正しい部分だけを読み込み
+
 ---
 
 ## 4. 技術構成・ファイル役割・テスト方針
@@ -454,6 +522,11 @@ J2000.0 の平均軌道要素（NASA JPL / Astronomical Almanac 準拠）を用�
 | `src/astronomy/seasonalStars.ts` | 四季の大三角・四辺形・北斗七星・冬のダイヤモンドおよび主要15恒星（IAU J2000.0 座標・等級・距離・色）と春夏秋冬21時ガイド日時 |
 | `src/astronomy/impactPhysics.ts` | リアル太陽系N体万有引力・天体衝突シミュレーター用の10種投入天体（小惑星・氷彗星・月サイズ・火星サイズ・木星サイズ・赤色矮星・太陽クラス恒星・青色超巨星・中性子星・ブラックホール）（何個でも同時に投入可能）と太陽系全15天体のN体相互重力積分・投入天体どうしを含む天体間相互衝突解決・先読み軌道予測 |
 | `src/astronomy/__tests__/calculations.test.ts` | 天文計算・N体万有引力軌道予測エンジンの単体テスト（Vitest 15件） |
+| `src/achievements/definitions.ts` | 実績22個（7分類）の id・実績名・やること、および累計の目標数（5種類）の定義 |
+| `src/achievements/achievementState.ts` | 操作（即達成・解説カードを開く・天体を置く）から、新しく達成した実績と累計を求める純関数 |
+| `src/achievements/storage.ts` | 達成状況の `localStorage` への保存・消去と、壊れたデータを安全に扱う読み込み |
+| `src/achievements/useAchievements.ts` | 達成状況、達成通知の列（約3秒ずつ順番に表示）、記録の消去を管理する React フック |
+| `src/achievements/__tests__/achievements.test.ts` | 実績の達成・重複達成の防止・累計・保存データ読み込みの単体テスト（Vitest 4件） |
 | `src/scene/earthTexture.ts` | Natural Earth 50m データからの等距円筒図法テクスチャ（宇宙リアル・陸マスク・夜景ライト）生成 |
 | `src/scene/moonTexture.ts` | 月の海（嵐の大洋・雨の海・静かの海など）とクレーターを描くプロシージャル等距円筒図法テクスチャ生成 |
 | `src/scene/venusTexture.ts` | 金星の硫酸雲・帯模様を描くプロシージャル雲テクスチャ生成 |
@@ -465,7 +538,9 @@ J2000.0 の平均軌道要素（NASA JPL / Astronomical Almanac 準拠）を用�
 | `src/components/HeaderBar.tsx` | 画面右上の観察パネル開閉アイコンボタン、1本指操作モード（視点移動 ⇄ 天体を狙う）切替、「天体を狙う」モード中の天体種類ボタン列と置いた天体の数、「復活」ボタン |
 | `src/components/CelestialBodyCard.tsx` | 天体・恒星・銀河タップ時に画面右側（スマホ縦画面では下側）へ表示する SVG イラスト・基本データ・日本語＆中学英語解説カード |
 | `src/components/CelestialPhaseDiagram.tsx` | 月・金星の満ち欠けおよび日食・月食のリアルタイム SVG 描画コンポーネント |
-| `src/components/InspectorPanel.tsx` | アイコンタブ（`視点・表示` / `地点・天体` / `学習ガイド` 全16カード開閉式）の観察パネル |
+| `src/components/InspectorPanel.tsx` | アイコンタブ（`視点・表示` / `地点・天体` / `学習ガイド` 全16カード開閉式 / `実績`）の観察パネル |
+| `src/components/AchievementList.tsx` | 観察パネル「実績」タブの進捗（n/22）・分類ごとの実績一覧・「記録を消す」ボタン |
+| `src/components/AchievementToast.tsx` | 実績達成時に画面上部へ約3秒表示する通知（クリックは素通り） |
 | `src/components/TimeControlBar.tsx` | 再生/一時停止アイコン、現在時刻同期アイコン、年周運動（毎日21時固定）トグル、7段階倍速、速度連動タイムスライダー、季節プリセット |
 | `src/styles/app.css` | 宇宙テーマのダークグラス UI と重なり防止レスポンシブレイアウト |
 | `src/App.tsx` / `src/main.tsx` | 全体状態管理、アニメーション進行ループ、DOM マウント処理 |
@@ -482,6 +557,7 @@ J2000.0 の平均軌道要素（NASA JPL / Astronomical Almanac 準拠）を用�
   - 1恒星日経過時の GMST $360^\circ$ 回転と 1太陽日との約 $0.9856^\circ$（約3分56秒）差の再現
   - 月の黄緯が白道傾斜（$\pm 5.15^\circ$）の範囲に収まること、および 1恒星月での黄経復帰と 1朔望月での月相角復帰の検証
   - 天体衝突シミュレーターの衝突予測、投入天体どうしの吸収、すでに置いた天体の重力が予測に入ることと予測で実際の状態が変わらないことの検証
+  - 実績の達成と重複達成の防止、累計（異なる5種類）の判定、保存データの読み込み（壊れた JSON・未知の id・型違い・`localStorage` が使えない場合）の検証
 - **TypeScript 型チェック（`npm run typecheck` / `tsc --noEmit`）**：`strict: true` 条件下での型定義とモジュール境界の整合性確認
 - **ビルド確認（`npm run build` / `tsc --noEmit && vite build`）**：型チェック後の Vite 本番バンドル生成成功の確認
 - **対象外とする過剰テスト**：Three.js の WebGL ピクセルスナップショットテストおよび網羅的 UI E2E 自動テストの除外（3D 表示は開発サーバー `npm run dev` での目視確認に限定）

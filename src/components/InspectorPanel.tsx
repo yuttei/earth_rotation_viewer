@@ -10,6 +10,7 @@ import {
   Settings,
   Sparkles,
   Sun,
+  Trophy,
 } from "lucide-react";
 import {
   CameraPreset,
@@ -27,8 +28,10 @@ import {
   ImpactorId,
 } from "../astronomy/impactPhysics";
 import { CelestialPhaseDiagram } from "./CelestialPhaseDiagram";
+import { AchievementList } from "./AchievementList";
+import { AchievementState } from "../achievements/achievementState";
 
-type InspectorTab = "city" | "display" | "guide";
+type InspectorTab = "city" | "display" | "guide" | "achievements";
 
 export type GuideExperimentId =
   | "counterclockwise"
@@ -95,6 +98,10 @@ interface InspectorPanelProps {
   onSetImpactAimMode: (aimMode: boolean) => void;
   canRestoreImpact: boolean;
   onRestoreImpact: () => void;
+  /** 実績の達成状況 */
+  achievementState: AchievementState;
+  /** 実績の記録を消す */
+  onResetAchievements: () => void;
 }
 
 const LAYER_LABELS: Array<{ key: keyof DisplayLayers; label: string }> = [
@@ -111,7 +118,7 @@ const LAYER_LABELS: Array<{ key: keyof DisplayLayers; label: string }> = [
 
 /**
  * 画面右側に配置する観察インスペクターパネルです。
- * 「視点・表示」「地点・天体」「学習ガイド」の3タブで視点設定、月・金星の満ち欠け、学習実験を切り替えられます。
+ * 「視点・表示」「地点・天体」「学習ガイド」「実績」の4タブで、視点設定、月・金星の満ち欠け、学習実験、実績の一覧を切り替えます。
  */
 export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   isOpen,
@@ -137,6 +144,8 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   onSetImpactAimMode,
   canRestoreImpact,
   onRestoreImpact,
+  achievementState,
+  onResetAchievements,
 }) => {
   // 視点移動を観察パネル内からすぐ操作できるよう「視点・表示」を初期タブにします。
   const [activeTab, setActiveTab] = useState<InspectorTab>("display");
@@ -228,9 +237,26 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
         >
           <BookOpen size={16} />
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "achievements"}
+          aria-label="実績"
+          title="実績"
+          className={`inspector-tab-btn ${activeTab === "achievements" ? "is-active" : ""}`}
+          onClick={() => setActiveTab("achievements")}
+        >
+          <Trophy size={16} />
+        </button>
       </div>
 
       <div className="inspector-body">
+        {activeTab === "achievements" && (
+          <AchievementList
+            state={achievementState}
+            onReset={onResetAchievements}
+          />
+        )}
         {activeTab === "city" && (
           <>
             <div className="section-card">

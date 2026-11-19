@@ -665,7 +665,7 @@ export interface CosmicScaleRig {
 }
 
 /**
- * 宇宙の4階層（天の川銀河・天の川＆アンドロメダ・局部銀河群・おとめ座銀河団）の
+ * 宇宙の7階層（近傍恒星・天の川銀河・天の川＆アンドロメダ・局部銀河群・おとめ座銀河団・ラニアケア超銀河団・観測可能な宇宙）の
  * 3D ステージ群をまとめて生成します。
  */
 export function createCosmicScaleRig(starTexture: THREE.Texture): CosmicScaleRig {
@@ -1009,7 +1009,7 @@ export function createCosmicScaleRig(starTexture: THREE.Texture): CosmicScaleRig
   stage1Mats.push({ mat: mwScaleRing.mat, baseOpacity: 0.22 });
 
   // =========================================================================
-  // Stage 2 (cosmicLevel = 2): 天の川銀河とアンドロメダ銀河（約250万光年）
+  // Stage 3 (cosmicLevel = 3): 天の川銀河とアンドロメダ銀河（約250万光年）
   // =========================================================================
   const stage2Group = new THREE.Group();
   root.add(stage2Group);
@@ -1085,7 +1085,7 @@ export function createCosmicScaleRig(starTexture: THREE.Texture): CosmicScaleRig
   stage2Mats.push({ mat: pairLineMat, baseOpacity: 0.55 });
 
   // =========================================================================
-  // Stage 3 (cosmicLevel = 3): 局部銀河群（直径 約1,000万光年・50個以上の銀河）
+  // Stage 4 (cosmicLevel = 4): 局部銀河群（直径 約1,000万光年・50個以上の銀河）
   // =========================================================================
   const stage3Group = new THREE.Group();
   root.add(stage3Group);
@@ -1262,7 +1262,7 @@ export function createCosmicScaleRig(starTexture: THREE.Texture): CosmicScaleRig
   allMats.push(lgHitMat);
 
   // =========================================================================
-  // Stage 4 (cosmicLevel = 4): おとめ座銀河団（約5,400万光年）＆ 宇宙の大規模構造
+  // Stage 5 (cosmicLevel = 5): おとめ座銀河団（約5,400万光年）＆ 宇宙の大規模構造
   // =========================================================================
   const stage4Group = new THREE.Group();
   root.add(stage4Group);
@@ -1481,7 +1481,7 @@ export function createCosmicScaleRig(starTexture: THREE.Texture): CosmicScaleRig
   const gaStage4HitMesh = createClusterHitSphere(greatAttractorPos, 6.8);
 
   // =========================================================================
-  // Stage 5 (cosmicLevel = 5): ラニアケア超銀河団（直径 約5.2億光年・約10万銀河）
+  // Stage 6 (cosmicLevel = 6): ラニアケア超銀河団（直径 約5.2億光年・約10万銀河）
   // =========================================================================
   const stage5Group = new THREE.Group();
   root.add(stage5Group);
@@ -1717,7 +1717,7 @@ export function createCosmicScaleRig(starTexture: THREE.Texture): CosmicScaleRig
   allMats.push(gaShapleyMat);
   stage5Mats.push({ mat: gaShapleyMat, baseOpacity: 0.5 });
 
-  // Stage 5 タップ用ヒット球
+  // Stage 6 タップ用ヒット球
   const createStage5Hit = (pos: THREE.Vector3, radius: number) => {
     const g = new THREE.SphereGeometry(radius, 12, 10);
     const m = new THREE.MeshBasicMaterial({
@@ -1737,7 +1737,7 @@ export function createCosmicScaleRig(starTexture: THREE.Texture): CosmicScaleRig
   const laniakeaHitMesh = createStage5Hit(new THREE.Vector3(0, 0, 0), 22.0);
 
   // =========================================================================
-  // Stage 6 (cosmicLevel = 6): 観測可能な宇宙（直径 約930億光年・コズミック・ウェブ＆CMB）
+  // Stage 7 (cosmicLevel = 7): 観測可能な宇宙（直径 約930億光年・コズミック・ウェブ＆CMB）
   // =========================================================================
   const stage6Group = new THREE.Group();
   root.add(stage6Group);
@@ -1944,7 +1944,7 @@ export function createCosmicScaleRig(starTexture: THREE.Texture): CosmicScaleRig
   allMats.push(univCenterMat);
   stage6Mats.push({ mat: univCenterMat, baseOpacity: 0.98 });
 
-  // Stage 6 タップ用ヒット球（中心のラニアケア＋観測可能な宇宙全体）
+  // Stage 7 タップ用ヒット球（中心のラニアケア＋観測可能な宇宙全体）
   const univCenterHitGeo = new THREE.SphereGeometry(4.2, 12, 10);
   const univCenterHitMat = new THREE.MeshBasicMaterial({
     transparent: true,
@@ -1967,7 +1967,7 @@ export function createCosmicScaleRig(starTexture: THREE.Texture): CosmicScaleRig
   allGeos.push(univHitGeo);
   allMats.push(univHitMat);
 
-  // 各ステージのフェード重み（cosmicLevel = 1〜6 の周辺で滑らかに重なるテント関数）
+  // 各ステージのフェード重み（cosmicLevel = 1〜7 の周辺で滑らかに重なるテント関数）
   const stageWeight = (level: number, center: number): number => {
     const d = Math.abs(level - center);
     if (d >= 0.92) return 0;

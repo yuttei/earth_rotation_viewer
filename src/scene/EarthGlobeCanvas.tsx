@@ -95,7 +95,7 @@ export interface CameraPoseTarget {
   eclipticFixedLon: number;
   /** 黄道ビューの上下チルト（黄緯方向の仰角・ラジアン） */
   eclipticViewLatRad: number;
-  /** 銀河・大規模構造スケール段階（0 = 太陽系まで, 1 = 天の川銀河, 2 = 天の川＆アンドロメダ, 3 = 局部銀河群, 4 = おとめ座銀河団, 5 = ラニアケア超銀河団, 6 = 観測可能な宇宙） */
+  /** 銀河・大規模構造スケール段階（0 = 太陽系まで, 1 = 近傍恒星, 2 = 天の川銀河, 3 = 天の川＆アンドロメダ, 4 = 局部銀河群, 5 = おとめ座銀河団, 6 = ラニアケア超銀河団, 7 = 観測可能な宇宙） */
   cosmicLevel: number;
   /** トランジションにかける時間（秒）。プリセット移動時はゆっくり長めに設定します */
   durationSec: number;
@@ -2936,11 +2936,17 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       const hideSolarForCosmic = cLevel >= 0.9;
       const hideSolarBadgesForCosmic = cLevel >= 0.3;
 
+      // 異なる宇宙階層（cosmicLevel）を跨ぐトランジション中のみカメラ距離変化を光学的に補償します。
+      // 同一階層内でのプリセット再選択時は補償を無効にし、遷移完了時のスケール瞬間ジャンプを防ぎます。
+      const isCosmicStageTransition =
+        anim.active &&
+        Math.abs(anim.from.cosmicLevel - anim.to.cosmicLevel) > 0.01;
+
       // 太陽系→近傍恒星・銀河へズームアウトする際、カメラ距離変化を相殺しつつ太陽系全体を原点 (0,0,0) へ指数関数的に縮小します。
       let solarWorldScale = 1.0;
       if (!hideSolarForCosmic && cLevel > 0.001) {
         const exitT = THREE.MathUtils.clamp(cLevel / 0.9, 0, 1);
-        const distComp = anim.active
+        const distComp = isCosmicStageTransition
           ? curPose.distance / Math.max(1.5, anim.solarRefDist)
           : 1.0;
         solarWorldScale = Math.max(
@@ -2956,7 +2962,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         cLevel,
         totalTimeSec,
         curPose.distance,
-        anim.active,
+        isCosmicStageTransition,
         Math.round(anim.from.cosmicLevel),
         anim.from.distance
       );

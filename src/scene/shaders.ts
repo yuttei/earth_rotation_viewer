@@ -8,11 +8,13 @@ import * as THREE from "three";
 
 const EARTH_VERTEX_SHADER = /* glsl */ `
   varying vec2 vUv;
+  varying vec3 vLocalNormal;
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
 
   void main() {
     vUv = uv;
+    vLocalNormal = normalize(position);
     // 法線と頂点座標をワールド空間（地球が自転した後の向き）に変換します。
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vWorldPosition = worldPos.xyz;
@@ -28,13 +30,55 @@ const EARTH_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uSunDirection;
   uniform float uShowTerminatorHighlight;
   uniform vec4 uSolarEclipseSpot;
+  uniform vec3 uImpactDir;
+  uniform vec4 uImpactParams; // x: craterRad, y: heat(0..1), z: crackIntensity(0..1), w: shockAngleRad
+  uniform vec3 uImpactColor;
+  uniform float uImpactTime;
 
   varying vec2 vUv;
+  varying vec3 vLocalNormal;
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
 
+  float impactHash(vec3 p) {
+    p = fract(p * 0.1031);
+    p += dot(p, p.yzx + 33.33);
+    return fract((p.x + p.y) * p.z);
+  }
+
+  float impactNoise(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float n000 = impactHash(i);
+    float n100 = impactHash(i + vec3(1.0, 0.0, 0.0));
+    float n010 = impactHash(i + vec3(0.0, 1.0, 0.0));
+    float n110 = impactHash(i + vec3(1.0, 1.0, 0.0));
+    float n001 = impactHash(i + vec3(0.0, 0.0, 1.0));
+    float n101 = impactHash(i + vec3(1.0, 0.0, 1.0));
+    float n011 = impactHash(i + vec3(0.0, 1.0, 1.0));
+    float n111 = impactHash(i + vec3(1.0, 1.0, 1.0));
+    float nx00 = mix(n000, n100, f.x);
+    float nx10 = mix(n010, n110, f.x);
+    float nx01 = mix(n001, n101, f.x);
+    float nx11 = mix(n011, n111, f.x);
+    return mix(mix(nx00, nx10, f.y), mix(nx01, nx11, f.y), f.z);
+  }
+
+  float impactFbm(vec3 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 4; i++) {
+      v += a * impactNoise(p);
+      p = p * 2.12 + vec3(1.9, 5.4, 3.1);
+      a *= 0.5;
+    }
+    return v;
+  }
+
   void main() {
     vec3 normal = normalize(vWorldNormal);
+    vec3 localN = normalize(vLocalNormal);
     vec3 sunDir = normalize(uSunDirection);
     vec3 viewDir = normalize(cameraPosition - vWorldPosition);
 
@@ -91,10 +135,55 @@ const EARTH_FRAGMENT_SHADER = /* glsl */ `
       finalColor = mix(finalColor, vec3(0.98, 0.74, 0.35), lineBand * 0.45);
     }
 
-    // 地球外周の大気リムライト（フレネル反射）
+    // 天体衝突ダメージ表現（クレーター傷・焦げ跡・衝撃波リング・惑星全体のマグマ亀裂）
+    float impactHeat = uImpactParams.y;
+    float crackLevel = uImpactParams.z;
+    if (impactHeat > 0.002 || crackLevel > 0.002) {
+      vec3 impDir = normalize(uImpactDir);
+      float ang = acos(clamp(dot(localN, impDir), -1.0, 1.0));
+      float n1 = impactFbm(localN * 6.5 + vec3(uImpactTime * 0.12));
+      float n2 = impactFbm(localN * 14.0 - vec3(uImpactTime * 0.18));
+      float craterRad = max(0.05, uImpactParams.x);
+      float jaggedAng = ang + (n1 - 0.5) * craterRad * 0.42;
+
+      // 1) クレーター周辺の焦げ跡（イジェクタ・ブラスト痕）
+      float scorch = (1.0 - smoothstep(craterRad * 0.7, craterRad * 2.1, jaggedAng)) * impactHeat;
+      vec3 charredCrust = vec3(0.07, 0.045, 0.04);
+      finalColor = mix(finalColor, charredCrust, clamp(scorch * 0.88, 0.0, 0.92));
+
+      // 2) クレーター内部の灼熱マグマ溜まりと白熱リム
+      float moltenCore = (1.0 - smoothstep(craterRad * 0.18, craterRad * 0.98, jaggedAng)) * impactHeat;
+      float craterRim = exp(-pow((jaggedAng - craterRad * 0.92) / max(0.04, craterRad * 0.22), 2.0)) * impactHeat;
+      float pulse = 0.86 + 0.14 * sin(uImpactTime * 4.5 + n2 * 8.0);
+      vec3 hotCoreCol = mix(uImpactColor, vec3(1.0, 0.97, 0.84), smoothstep(0.35, 0.95, moltenCore * n1 * 1.6));
+      finalColor = mix(finalColor, hotCoreCol * 1.45 * pulse, clamp(moltenCore * 1.15, 0.0, 1.0));
+      finalColor += uImpactColor * craterRim * 0.95;
+
+      // 3) 地表を伝わる衝撃波リング（地球の裏側まで走る圧縮波）
+      float shockAng = uImpactParams.w;
+      if (shockAng > 0.02 && shockAng < 3.25) {
+        float ringWave = exp(-pow((ang - shockAng) / 0.11, 2.0)) * (1.0 - shockAng / 3.3);
+        finalColor += mix(uImpactColor, vec3(1.0, 0.98, 0.92), 0.6) * ringWave * impactHeat * 1.5;
+      }
+
+      // 4) 中〜超大規模衝突時の惑星規模マグマ亀裂（テクトニック・クラック）
+      if (crackLevel > 0.01) {
+        float ridgeA = 1.0 - abs(impactNoise(localN * 5.2 + vec3(n1 * 1.4)) * 2.0 - 1.0);
+        float ridgeB = 1.0 - abs(impactNoise(localN * 11.5 - vec3(n2 * 1.2)) * 2.0 - 1.0);
+        float crackNet = pow(max(ridgeA, ridgeB * 0.88), 6.5);
+        float spreadMask = 1.0 - smoothstep(0.25, mix(1.0, 3.25, crackLevel), ang);
+        float crackGlow = clamp(crackNet * spreadMask * crackLevel * 2.4, 0.0, 1.0);
+        vec3 lavaVein = mix(vec3(0.95, 0.16, 0.03), vec3(1.0, 0.92, 0.55), crackGlow);
+        finalColor = mix(finalColor, charredCrust * 0.9, spreadMask * crackLevel * 0.52);
+        finalColor += lavaVein * crackGlow * 1.85 * pulse;
+      }
+    }
+
+    // 地球外周の大気リムライト（フレネル反射：衝突時は灼熱色に変化）
     float fresnel = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.4);
     float sunFacingRim = smoothstep(-0.35, 0.65, ndotl);
-    finalColor += vec3(0.28, 0.62, 1.0) * fresnel * mix(0.22, 0.65, sunFacingRim) * 0.85;
+    vec3 rimCol = mix(vec3(0.28, 0.62, 1.0), uImpactColor, clamp(crackLevel * 0.85, 0.0, 0.9));
+    finalColor += rimCol * fresnel * mix(0.22, 0.65, sunFacingRim) * (0.85 + crackLevel * 0.9);
 
     gl_FragColor = vec4(finalColor, 1.0);
   }
@@ -114,6 +203,8 @@ const ATMOSPHERE_VERTEX_SHADER = /* glsl */ `
 
 const ATMOSPHERE_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uSunDirection;
+  uniform float uImpactHeat;
+  uniform vec3 uImpactColor;
 
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
@@ -126,9 +217,11 @@ const ATMOSPHERE_FRAGMENT_SHADER = /* glsl */ `
     // 裏面描画（BackSide）のため、視線と逆向きの法線で縁の輝きを計算します。
     float intensity = pow(max(0.0, 0.68 - dot(normal, -viewDir)), 3.2);
     float daySide = smoothstep(-0.4, 0.7, dot(normal, sunDir));
-    float alpha = intensity * mix(0.25, 0.95, daySide) * 0.55;
+    float baseAlpha = intensity * mix(0.25, 0.95, daySide) * 0.55;
+    float hotAlpha = intensity * uImpactHeat * 0.95;
+    vec3 col = mix(vec3(0.26, 0.60, 1.0), uImpactColor, clamp(uImpactHeat, 0.0, 1.0));
 
-    gl_FragColor = vec4(0.26, 0.60, 1.0, alpha);
+    gl_FragColor = vec4(col, clamp(baseAlpha + hotAlpha, 0.0, 1.0));
   }
 `;
 
@@ -140,6 +233,10 @@ export interface EarthMaterialBundle {
     uSunDirection: { value: THREE.Vector3 };
     uShowTerminatorHighlight: { value: number };
     uSolarEclipseSpot: { value: THREE.Vector4 };
+    uImpactDir: { value: THREE.Vector3 };
+    uImpactParams: { value: THREE.Vector4 };
+    uImpactColor: { value: THREE.Vector3 };
+    uImpactTime: { value: number };
   };
 }
 
@@ -156,6 +253,10 @@ export function createEarthMaterial(
     uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
     uShowTerminatorHighlight: { value: 1 },
     uSolarEclipseSpot: { value: new THREE.Vector4(1, 0, 0, 0) },
+    uImpactDir: { value: new THREE.Vector3(0, 0, 1) },
+    uImpactParams: { value: new THREE.Vector4(0.35, 0, 0, 0) },
+    uImpactColor: { value: new THREE.Vector3(1.0, 0.45, 0.1) },
+    uImpactTime: { value: 0 },
   };
 
   const material = new THREE.ShaderMaterial({
@@ -337,6 +438,9 @@ const MOON_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uSunDirection;
   uniform vec3 uLunarEclipse;
   uniform float uSolarEclipseSilhouette;
+  uniform vec3 uMoonImpactDir;
+  uniform vec4 uMoonImpactParams; // x: craterRad, y: heat, z: crackLevel, w: earthMagmaGlow
+  uniform vec3 uMoonImpactColor;
 
   varying vec2 vUv;
   varying vec3 vWorldNormal;
@@ -385,12 +489,34 @@ const MOON_FRAGMENT_SHADER = /* glsl */ `
     vec3 earthshine = mix(baseEarthshine, darkSilhouette, uSolarEclipseSilhouette);
 
     vec3 finalColor = mix(earthshine, sunlit, dayMask);
+
+    // 地球がマグマ化・爆発した際の真っ赤な照り返し（月の地球向き面が赤く照らされます）
+    if (uMoonImpactParams.w > 0.01) {
+      float earthFacing = smoothstep(-0.15, 0.85, localN.x);
+      finalColor += uMoonImpactColor * earthFacing * uMoonImpactParams.w * 0.78;
+    }
+
+    // 月本体への直撃クレーター・灼熱ひび割れ表現
+    if (uMoonImpactParams.y > 0.005 || uMoonImpactParams.z > 0.005) {
+      vec3 mImpDir = normalize(uMoonImpactDir);
+      float ang = acos(clamp(dot(localN, mImpDir), -1.0, 1.0));
+      float cRad = max(0.08, uMoonImpactParams.x);
+      float scorch = (1.0 - smoothstep(cRad * 0.65, cRad * 1.9, ang)) * uMoonImpactParams.y;
+      float molten = (1.0 - smoothstep(cRad * 0.15, cRad * 0.95, ang)) * uMoonImpactParams.y;
+      finalColor = mix(finalColor, vec3(0.05, 0.04, 0.04), clamp(scorch * 0.85, 0.0, 0.9));
+      finalColor = mix(finalColor, mix(uMoonImpactColor, vec3(1.0, 0.96, 0.8), molten) * 1.5, clamp(molten, 0.0, 1.0));
+      if (uMoonImpactParams.z > 0.01) {
+        float crackWave = pow(abs(sin(localN.x * 22.0 + localN.y * 17.0) * sin(localN.z * 19.0 - localN.x * 13.0)), 6.0);
+        finalColor += uMoonImpactColor * crackWave * uMoonImpactParams.z * 2.2;
+      }
+    }
+
     gl_FragColor = vec4(finalColor, 1.0);
   }
 `;
 
 /**
- * 月本体用の ShaderMaterial（太陽光による満ち欠け＋地球照＋月食の本影/半影/赤銅色表現）を生成します。
+ * 月本体用の ShaderMaterial（太陽光による満ち欠け＋地球照＋月食の本影/半影/赤銅色＋衝突ダメージ表現）を生成します。
  */
 export function createMoonMaterial(moonMap: THREE.Texture): {
   material: THREE.ShaderMaterial;
@@ -399,6 +525,9 @@ export function createMoonMaterial(moonMap: THREE.Texture): {
     uSunDirection: { value: THREE.Vector3 };
     uLunarEclipse: { value: THREE.Vector3 };
     uSolarEclipseSilhouette: { value: number };
+    uMoonImpactDir: { value: THREE.Vector3 };
+    uMoonImpactParams: { value: THREE.Vector4 };
+    uMoonImpactColor: { value: THREE.Vector3 };
   };
 } {
   const uniforms = {
@@ -406,6 +535,9 @@ export function createMoonMaterial(moonMap: THREE.Texture): {
     uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
     uLunarEclipse: { value: new THREE.Vector3(0, 0, 0) },
     uSolarEclipseSilhouette: { value: 0 },
+    uMoonImpactDir: { value: new THREE.Vector3(1, 0, 0) },
+    uMoonImpactParams: { value: new THREE.Vector4(0.4, 0, 0, 0) },
+    uMoonImpactColor: { value: new THREE.Vector3(1.0, 0.45, 0.1) },
   };
   const material = new THREE.ShaderMaterial({
     uniforms,
@@ -432,6 +564,9 @@ const VENUS_VERTEX_SHADER = /* glsl */ `
 const VENUS_FRAGMENT_SHADER = /* glsl */ `
   uniform sampler2D uVenusMap;
   uniform vec3 uSunDirection;
+  uniform vec3 uImpactDir;
+  uniform vec4 uImpactParams; // x: craterRad, y: heat, z: crackLevel, w: unused
+  uniform vec3 uImpactColor;
 
   varying vec2 vUv;
   varying vec3 vWorldNormal;
@@ -457,23 +592,43 @@ const VENUS_FRAGMENT_SHADER = /* glsl */ `
     vec3 nightSide = albedo * vec3(0.09, 0.08, 0.07) + vec3(0.02, 0.018, 0.015);
     vec3 finalColor = mix(nightSide, sunlit, dayMask);
 
+    if (uImpactParams.y > 0.005 || uImpactParams.z > 0.005) {
+      vec3 impDir = normalize(uImpactDir);
+      float ang = acos(clamp(dot(normal, impDir), -1.0, 1.0));
+      float cRad = max(0.08, uImpactParams.x);
+      float scorch = (1.0 - smoothstep(cRad * 0.65, cRad * 1.9, ang)) * uImpactParams.y;
+      float molten = (1.0 - smoothstep(cRad * 0.15, cRad * 0.95, ang)) * uImpactParams.y;
+      finalColor = mix(finalColor, vec3(0.06, 0.04, 0.03), clamp(scorch * 0.85, 0.0, 0.9));
+      finalColor = mix(finalColor, mix(uImpactColor, vec3(1.0, 0.96, 0.82), molten) * 1.5, clamp(molten, 0.0, 1.0));
+      if (uImpactParams.z > 0.01) {
+        float crackWave = pow(abs(sin(normal.x * 20.0 + normal.y * 16.0) * sin(normal.z * 18.0 - normal.x * 14.0)), 6.0);
+        finalColor += uImpactColor * crackWave * uImpactParams.z * 2.2;
+      }
+    }
+
     gl_FragColor = vec4(finalColor, 1.0);
   }
 `;
 
 /**
- * 金星本体用の ShaderMaterial（分厚い雲の拡散反射・大気リム光・満ち欠け表現）を生成します。
+ * 金星本体用の ShaderMaterial（分厚い雲の拡散反射・大気リム光・満ち欠け＋衝突ダメージ表現）を生成します。
  */
 export function createVenusMaterial(venusMap: THREE.Texture): {
   material: THREE.ShaderMaterial;
   uniforms: {
     uVenusMap: { value: THREE.Texture };
     uSunDirection: { value: THREE.Vector3 };
+    uImpactDir: { value: THREE.Vector3 };
+    uImpactParams: { value: THREE.Vector4 };
+    uImpactColor: { value: THREE.Vector3 };
   };
 } {
   const uniforms = {
     uVenusMap: { value: venusMap },
     uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
+    uImpactDir: { value: new THREE.Vector3(1, 0, 0) },
+    uImpactParams: { value: new THREE.Vector4(0.4, 0, 0, 0) },
+    uImpactColor: { value: new THREE.Vector3(1.0, 0.45, 0.1) },
   };
   const material = new THREE.ShaderMaterial({
     uniforms,
@@ -498,6 +653,9 @@ const PLANET_FRAGMENT_SHADER = /* glsl */ `
   uniform sampler2D uMap;
   uniform vec3 uSunDirection;
   uniform float uAmbientBoost;
+  uniform vec3 uImpactDir;
+  uniform vec4 uImpactParams; // x: craterRad, y: heat, z: crackLevel, w: unused
+  uniform vec3 uImpactColor;
 
   varying vec2 vUv;
   varying vec3 vWorldNormal;
@@ -515,6 +673,20 @@ const PLANET_FRAGMENT_SHADER = /* glsl */ `
     vec3 nightSide = albedo * uAmbientBoost;
     vec3 color = mix(nightSide, sunlit, dayMask);
 
+    if (uImpactParams.y > 0.005 || uImpactParams.z > 0.005) {
+      vec3 impDir = normalize(uImpactDir);
+      float ang = acos(clamp(dot(normal, impDir), -1.0, 1.0));
+      float cRad = max(0.08, uImpactParams.x);
+      float scorch = (1.0 - smoothstep(cRad * 0.65, cRad * 1.9, ang)) * uImpactParams.y;
+      float molten = (1.0 - smoothstep(cRad * 0.15, cRad * 0.95, ang)) * uImpactParams.y;
+      color = mix(color, vec3(0.05, 0.04, 0.04), clamp(scorch * 0.85, 0.0, 0.9));
+      color = mix(color, mix(uImpactColor, vec3(1.0, 0.96, 0.82), molten) * 1.5, clamp(molten, 0.0, 1.0));
+      if (uImpactParams.z > 0.01) {
+        float crackWave = pow(abs(sin(normal.x * 20.0 + normal.y * 16.0) * sin(normal.z * 18.0 - normal.x * 14.0)), 6.0);
+        color += uImpactColor * crackWave * uImpactParams.z * 2.2;
+      }
+    }
+
     gl_FragColor = vec4(color, 1.0);
   }
 `;
@@ -531,12 +703,18 @@ export function createPlanetMaterial(
     uMap: { value: THREE.Texture };
     uSunDirection: { value: THREE.Vector3 };
     uAmbientBoost: { value: number };
+    uImpactDir: { value: THREE.Vector3 };
+    uImpactParams: { value: THREE.Vector4 };
+    uImpactColor: { value: THREE.Vector3 };
   };
 } {
   const uniforms = {
     uMap: { value: map },
     uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
     uAmbientBoost: { value: ambientBoost },
+    uImpactDir: { value: new THREE.Vector3(1, 0, 0) },
+    uImpactParams: { value: new THREE.Vector4(0.4, 0, 0, 0) },
+    uImpactColor: { value: new THREE.Vector3(1.0, 0.45, 0.1) },
   };
   const material = new THREE.ShaderMaterial({
     uniforms,
@@ -553,10 +731,14 @@ export function createAtmosphereMaterial(): {
   material: THREE.ShaderMaterial;
   uniforms: {
     uSunDirection: { value: THREE.Vector3 };
+    uImpactHeat: { value: number };
+    uImpactColor: { value: THREE.Vector3 };
   };
 } {
   const uniforms = {
     uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
+    uImpactHeat: { value: 0 },
+    uImpactColor: { value: new THREE.Vector3(1.0, 0.45, 0.1) },
   };
 
   const material = new THREE.ShaderMaterial({

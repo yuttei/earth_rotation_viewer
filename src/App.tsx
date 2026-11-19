@@ -23,7 +23,10 @@ import {
 import {
   CameraPoseTarget,
   EarthGlobeCanvas,
+  ImpactStatus,
+  isRealSolarSystemPose,
 } from "./scene/EarthGlobeCanvas";
+import { IMPACTOR_MAP, ImpactorId } from "./astronomy/impactPhysics";
 import { HeaderBar } from "./components/HeaderBar";
 import { TimeControlBar } from "./components/TimeControlBar";
 import {
@@ -463,6 +466,17 @@ export function App() {
     null
   );
   const [layers, setLayers] = useState<DisplayLayers>(DEFAULT_LAYERS);
+  // 天体衝突シミュレーター：選択中の天体、1本指での「天体を狙う」モードON/OFF、「すぐ復活」連番、現在の状態
+  const [selectedImpactorId, setSelectedImpactorId] =
+    useState<ImpactorId>("asteroid");
+  const [isImpactAimMode, setIsImpactAimMode] = useState<boolean>(false);
+  const [restoreImpactSeq, setRestoreImpactSeq] = useState<number>(0);
+  const [impactStatus, setImpactStatus] = useState<ImpactStatus>({
+    phase: "idle",
+    labelJa: "",
+    canRestore: false,
+    liveImpactorCount: 0,
+  });
   const [isAnnualMotionMode, setIsAnnualMotionMode] = useState<boolean>(false);
   const isAnnualMotionRef = useRef<boolean>(false);
   isAnnualMotionRef.current = isAnnualMotionMode;
@@ -1320,6 +1334,81 @@ export function App() {
     setFocusedBodyId(null);
   }, []);
 
+  // 衝突シミュレーターはリアル太陽系モード専用：まだリアル太陽系にいない場合は内〜外惑星が見渡せる斜め俯瞰へ滑らかに移動します。
+  const ensureSunEarthOrbitViewForImpact = useCallback(() => {
+    setIsAnnualMotionMode(false);
+    setCameraPoseTarget((prev) => {
+      if (isRealSolarSystemPose(prev)) {
+        return prev;
+      }
+      return {
+        yaw: 0,
+        pitch: degToRad(26),
+        distance: 165.0,
+        eclipticBlend: 1,
+        sunCenterBlend: 1,
+        groundBlend: 0,
+        groundAzimuth: prev.groundAzimuth,
+        groundElevation: prev.groundElevation,
+        solarSystemBlend: 1,
+        jupiterFocusBlend: 0,
+        ...ECLIPTIC_OFF_DEFAULTS,
+        durationSec: prev.cosmicLevel > 0.1 ? 3.4 : 2.6,
+        seq: prev.seq + 1,
+      };
+    });
+    setLayers((prev) => ({
+      ...prev,
+      moonAndOrbit: true,
+      venusAndOrbit: true,
+    }));
+    setSpeedMultiplier((prev) => (prev < 86400 ? 86400 : prev));
+  }, []);
+
+  const handleSetImpactAimMode = useCallback(
+    (nextAimMode: boolean) => {
+      setIsImpactAimMode(nextAimMode);
+      if (nextAimMode) {
+        setFocusedBodyId(null);
+        ensureSunEarthOrbitViewForImpact();
+      }
+    },
+    [ensureSunEarthOrbitViewForImpact]
+  );
+
+  const handleToggleImpactAimMode = useCallback(() => {
+    setIsImpactAimMode((prev) => {
+      const next = !prev;
+      if (next) {
+        setFocusedBodyId(null);
+        ensureSunEarthOrbitViewForImpact();
+      }
+      return next;
+    });
+  }, [ensureSunEarthOrbitViewForImpact]);
+
+  const handleSelectImpactor = useCallback(
+    (impactorId: ImpactorId) => {
+      setSelectedImpactorId(impactorId);
+      setIsImpactAimMode(true);
+      setFocusedBodyId(null);
+      ensureSunEarthOrbitViewForImpact();
+
+      // 狭い画面では観察パネルを閉じて、3D 画面で直接狙えるようにします。
+      if (
+        typeof window !== "undefined" &&
+        (window.innerWidth < 1024 || window.innerHeight < 540)
+      ) {
+        setIsInspectorOpen(false);
+      }
+    },
+    [ensureSunEarthOrbitViewForImpact]
+  );
+
+  const handleRestoreImpact = useCallback(() => {
+    setRestoreImpactSeq((prev) => prev + 1);
+  }, []);
+
   const handleToggleInspector = useCallback(() => {
     if (focusedBodyId !== null) {
       setFocusedBodyId(null);
@@ -1328,6 +1417,19 @@ export function App() {
     }
     setIsInspectorOpen((prev) => !prev);
   }, [focusedBodyId]);
+
+  // 天体衝突シミュレーターはリアル太陽系モード専用です。
+  // プリセット・視点スライダー・学習ガイドなど、どの操作で移動先がリアル太陽系の外になっても、ここ1か所で狙うモードを切ります。
+  const isTargetRealSolarSystem = isRealSolarSystemPose(cameraPoseTarget);
+  useEffect(() => {
+    if (isImpactAimMode && !isTargetRealSolarSystem) {
+      setIsImpactAimMode(false);
+    }
+  }, [isImpactAimMode, isTargetRealSolarSystem]);
+
+  const activeImpactorId: ImpactorId | null =
+    isImpactAimMode && isTargetRealSolarSystem ? selectedImpactorId : null;
+  const selectedImpactorSpec = IMPACTOR_MAP[selectedImpactorId];
 
   return (
     <div className="app-shell">
@@ -1346,12 +1448,23 @@ export function App() {
         isInspectorOpen={isInspectorOpen && focusedBodyId === null}
         focusedBodyId={focusedBodyId}
         onSelectCelestialBody={handleSelectCelestialBody}
+        activeImpactorId={activeImpactorId}
+        restoreImpactSeq={restoreImpactSeq}
+        onImpactStatusChange={setImpactStatus}
       />
 
       <div className="ui-hud-layout">
         <HeaderBar
           isInspectorOpen={isInspectorOpen && focusedBodyId === null}
           onToggleInspector={handleToggleInspector}
+          isImpactAimMode={isImpactAimMode}
+          onToggleImpactAimMode={handleToggleImpactAimMode}
+          selectedImpactorLabel={`${selectedImpactorSpec.symbol} ${selectedImpactorSpec.nameJa}`}
+          selectedImpactorId={selectedImpactorId}
+          onSelectImpactor={handleSelectImpactor}
+          liveImpactorCount={impactStatus.liveImpactorCount}
+          canRestoreImpact={impactStatus.canRestore}
+          onRestoreImpact={handleRestoreImpact}
         />
 
         <div className="hud-middle">
@@ -1384,6 +1497,12 @@ export function App() {
               layers={layers}
               onToggleLayer={handleToggleLayer}
               onRunGuideExperiment={handleRunGuideExperiment}
+              selectedImpactorId={selectedImpactorId}
+              isImpactAimMode={isImpactAimMode}
+              onSelectImpactor={handleSelectImpactor}
+              onSetImpactAimMode={handleSetImpactAimMode}
+              canRestoreImpact={impactStatus.canRestore}
+              onRestoreImpact={handleRestoreImpact}
             />
           )}
         </div>

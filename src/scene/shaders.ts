@@ -2,8 +2,8 @@ import * as THREE from "three";
 
 /**
  * 地球本体と大気ハローに使うカスタム GLSL シェーダーを生成するモジュールです。
- * 昼夜の滑らかな薄明（トワイライト）表現や、夜側の街明かりの点灯、
- * 「宇宙リアル」と「天文図解」の2つのビジュアルモードを1つの地球儀で切り替えられます。
+ * 宇宙リアル表現として、昼夜の滑らかな薄明（トワイライト）、海面の鏡面反射、
+ * 夜側の街明かりの点灯、大気リムライトを描画します。
  */
 
 const EARTH_VERTEX_SHADER = /* glsl */ `
@@ -26,7 +26,6 @@ const EARTH_FRAGMENT_SHADER = /* glsl */ `
   uniform sampler2D uDayMap;
   uniform sampler2D uMaskMap;
   uniform vec3 uSunDirection;
-  uniform float uIsDiagram;
   uniform float uShowTerminatorHighlight;
 
   varying vec2 vUv;
@@ -47,52 +46,44 @@ const EARTH_FRAGMENT_SHADER = /* glsl */ `
     float ndotl = dot(normal, sunDir);
 
     // 昼と夜の滑らかな遷移（薄明帯の表現）
-    float twilightWidth = mix(0.14, 0.07, uIsDiagram);
+    float twilightWidth = 0.14;
     float dayFactor = smoothstep(-twilightWidth * 0.75, twilightWidth, ndotl);
 
-    // 昼側の拡散光（リアルモードでは立体感ある陰影、図解モードでは均一で見やすく）
+    // 昼側の拡散光（立体感ある陰影）
     float diffuse = max(ndotl, 0.0);
     float realisticShade = mix(0.68, 1.15, pow(diffuse, 0.65));
-    float diagramShade = mix(0.92, 1.06, diffuse);
-    vec3 dayColor = baseColor * mix(realisticShade, diagramShade, uIsDiagram);
+    vec3 dayColor = baseColor * realisticShade;
 
-    // 海面だけの太陽鏡面反射（リアルモード時のみ上品なハイライトを追加）
+    // 海面だけの太陽鏡面反射（上品なハイライトを追加）
     vec3 halfVec = normalize(sunDir + viewDir);
     float specBase = pow(max(dot(normal, halfVec), 0.0), 42.0);
-    float oceanSpecular = specBase * (1.0 - landMask) * smoothstep(0.0, 0.25, ndotl) * (1.0 - uIsDiagram);
+    float oceanSpecular = specBase * (1.0 - landMask) * smoothstep(0.0, 0.25, ndotl);
     dayColor += vec3(0.45, 0.65, 0.85) * oceanSpecular * 0.35;
 
     // 夜側の色（完全に黒く潰さず、輪郭と地形が視認できる濃紺にする）
-    vec3 realisticNight = baseColor * vec3(0.14, 0.19, 0.30) + vec3(0.018, 0.032, 0.068);
-    vec3 diagramNight = baseColor * vec3(0.32, 0.39, 0.54) + vec3(0.015, 0.025, 0.06);
-    vec3 nightColor = mix(realisticNight, diagramNight, uIsDiagram);
+    vec3 nightColor = baseColor * vec3(0.14, 0.19, 0.30) + vec3(0.018, 0.032, 0.068);
 
     // 夜側に入った地域で都市の街明かりを点灯させる
     float nightVisibility = smoothstep(0.04, -0.18, ndotl);
-    vec3 lightTint = mix(vec3(1.0, 0.76, 0.38), vec3(1.0, 0.88, 0.55), uIsDiagram * 0.5);
-    float lightStrength = mix(1.25, 0.55, uIsDiagram);
-    nightColor += lightTint * cityLight * nightVisibility * lightStrength;
+    nightColor += vec3(1.0, 0.76, 0.38) * cityLight * nightVisibility * 1.25;
 
     // 昼と夜を合成
     vec3 finalColor = mix(nightColor, dayColor, dayFactor);
 
     // 昼夜境界付近の薄明（朝焼け・夕焼け）の散乱光
     float twilightBand = exp(-pow(ndotl * 12.0, 2.0));
-    vec3 twilightTint = mix(vec3(0.95, 0.44, 0.18), vec3(0.42, 0.80, 1.0), uIsDiagram);
-    finalColor += twilightTint * twilightBand * mix(0.18, 0.12, uIsDiagram);
+    finalColor += vec3(0.95, 0.44, 0.18) * twilightBand * 0.18;
 
     // 昼夜境界線（ターミネーター）の補助強調ライン
     if (uShowTerminatorHighlight > 0.5) {
       float lineBand = smoothstep(0.020, 0.002, abs(ndotl));
-      vec3 lineTint = mix(vec3(0.98, 0.74, 0.35), vec3(0.38, 0.88, 1.0), uIsDiagram);
-      finalColor = mix(finalColor, lineTint, lineBand * mix(0.45, 0.72, uIsDiagram));
+      finalColor = mix(finalColor, vec3(0.98, 0.74, 0.35), lineBand * 0.45);
     }
 
     // 地球外周の大気リムライト（フレネル反射）
     float fresnel = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.4);
     float sunFacingRim = smoothstep(-0.35, 0.65, ndotl);
-    vec3 rimColor = mix(vec3(0.28, 0.62, 1.0), vec3(0.45, 0.82, 1.0), uIsDiagram);
-    finalColor += rimColor * fresnel * mix(0.22, 0.65, sunFacingRim) * mix(0.85, 0.45, uIsDiagram);
+    finalColor += vec3(0.28, 0.62, 1.0) * fresnel * mix(0.22, 0.65, sunFacingRim) * 0.85;
 
     gl_FragColor = vec4(finalColor, 1.0);
   }
@@ -112,7 +103,6 @@ const ATMOSPHERE_VERTEX_SHADER = /* glsl */ `
 
 const ATMOSPHERE_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uSunDirection;
-  uniform float uIsDiagram;
 
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
@@ -125,10 +115,9 @@ const ATMOSPHERE_FRAGMENT_SHADER = /* glsl */ `
     // 裏面描画（BackSide）のため、視線と逆向きの法線で縁の輝きを計算します。
     float intensity = pow(max(0.0, 0.68 - dot(normal, -viewDir)), 3.2);
     float daySide = smoothstep(-0.4, 0.7, dot(normal, sunDir));
-    float alpha = intensity * mix(0.25, 0.95, daySide) * mix(0.55, 0.25, uIsDiagram);
+    float alpha = intensity * mix(0.25, 0.95, daySide) * 0.55;
 
-    vec3 glowColor = mix(vec3(0.26, 0.60, 1.0), vec3(0.40, 0.80, 1.0), uIsDiagram);
-    gl_FragColor = vec4(glowColor, alpha);
+    gl_FragColor = vec4(0.26, 0.60, 1.0, alpha);
   }
 `;
 
@@ -138,7 +127,6 @@ export interface EarthMaterialBundle {
     uDayMap: { value: THREE.Texture };
     uMaskMap: { value: THREE.Texture };
     uSunDirection: { value: THREE.Vector3 };
-    uIsDiagram: { value: number };
     uShowTerminatorHighlight: { value: number };
   };
 }
@@ -154,7 +142,6 @@ export function createEarthMaterial(
     uDayMap: { value: initialDayMap },
     uMaskMap: { value: maskMap },
     uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
-    uIsDiagram: { value: 0 },
     uShowTerminatorHighlight: { value: 1 },
   };
 
@@ -516,12 +503,10 @@ export function createAtmosphereMaterial(): {
   material: THREE.ShaderMaterial;
   uniforms: {
     uSunDirection: { value: THREE.Vector3 };
-    uIsDiagram: { value: number };
   };
 } {
   const uniforms = {
     uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
-    uIsDiagram: { value: 0 },
   };
 
   const material = new THREE.ShaderMaterial({
@@ -551,7 +536,6 @@ const TOKYO_SKY_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uUpWorld;
   uniform vec3 uSunDirWorld;
   uniform float uOpacity;
-  uniform float uIsDiagram;
 
   varying vec3 vSkyDir;
 
@@ -591,7 +575,7 @@ const TOKYO_SKY_FRAGMENT_SHADER = /* glsl */ `
     skyColor = mix(skyColor, twilightColor, twilightFactor * 0.85);
 
     // 昼間は青空で背景の星を自然に隠し、夜は透明にして実際の3D星空と北極星を見せます。
-    float maxDayAlpha = mix(0.95, 0.56, uIsDiagram);
+    float maxDayAlpha = 0.95;
     float nightAlpha = mix(0.06, 0.26, horizonGlow);
     float alpha = mix(nightAlpha, maxDayAlpha, dayFactor);
     alpha = clamp(alpha + twilightFactor * (0.28 + 0.45 * horizonGlow), 0.0, 0.97);
@@ -611,14 +595,12 @@ export function createTokyoSkyMaterial(): {
     uUpWorld: { value: THREE.Vector3 };
     uSunDirWorld: { value: THREE.Vector3 };
     uOpacity: { value: number };
-    uIsDiagram: { value: number };
   };
 } {
   const uniforms = {
     uUpWorld: { value: new THREE.Vector3(0, 1, 0) },
     uSunDirWorld: { value: new THREE.Vector3(1, 0, 0) },
     uOpacity: { value: 0 },
-    uIsDiagram: { value: 0 },
   };
 
   const material = new THREE.ShaderMaterial({

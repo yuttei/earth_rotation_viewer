@@ -2,9 +2,6 @@
  * 天文計算・3D表示・UI全体で共有する型定義をまとめたファイルです。
  */
 
-/** 地球の見た目（ビジュアルモード）の種類 */
-export type VisualStyle = "realistic" | "diagram";
-
 /** 基準にする座標系（何を画面内で固定して見せるか） */
 export type ReferenceFrame = "solar" | "sidereal";
 

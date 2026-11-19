@@ -10,10 +10,8 @@ import countriesTopoJson from "world-atlas/countries-50m.json";
  */
 
 export interface EarthTextures {
-  /** 宇宙リアルモード用の地球表面カラーテクスチャ */
+  /** 宇宙リアル用の地球表面カラーテクスチャ */
   realisticMap: THREE.CanvasTexture;
-  /** 天文図解モード用のクリーンな地球表面カラーテクスチャ */
-  diagramMap: THREE.CanvasTexture;
   /** R=陸マスク, G=夜間の街灯り を格納したデータテクスチャ */
   maskMap: THREE.CanvasTexture;
   /** 不要になったGPUリソースを解放する関数 */
@@ -323,39 +321,7 @@ export function createEarthTextures(maxTextureSize = 4096): EarthTextures {
   rCtx.lineWidth = Math.max(0.75, width / 3072);
   strokeBorders(rCtx, bordersMesh, width, height);
 
-  // 2. 天文図解モードのテクスチャ（明快な教材ビジュアル）
-  const diagramCanvas = document.createElement("canvas");
-  diagramCanvas.width = width;
-  diagramCanvas.height = height;
-  const dCtx = diagramCanvas.getContext("2d")!;
-
-  const diagramOcean = dCtx.createLinearGradient(0, 0, 0, height);
-  diagramOcean.addColorStop(0.0, "#0f2342");
-  diagramOcean.addColorStop(0.5, "#11294b");
-  diagramOcean.addColorStop(1.0, "#0e203c");
-  dCtx.fillStyle = diagramOcean;
-  dCtx.fillRect(0, 0, width, height);
-
-  dCtx.beginPath();
-  traceLandFeatureCollection(dCtx, landGeo, width, height);
-  const diagramLand = dCtx.createLinearGradient(0, 0, 0, height);
-  diagramLand.addColorStop(0.0, "#5098aa");
-  diagramLand.addColorStop(0.16, "#327a8b");
-  diagramLand.addColorStop(0.5, "#2b6f80");
-  diagramLand.addColorStop(0.86, "#327a8b");
-  diagramLand.addColorStop(1.0, "#5098aa");
-  dCtx.fillStyle = diagramLand;
-  dCtx.fill("evenodd");
-
-  dCtx.strokeStyle = "rgba(125, 211, 252, 0.72)";
-  dCtx.lineWidth = Math.max(1.25, width / 1600);
-  dCtx.stroke();
-
-  dCtx.strokeStyle = "rgba(186, 230, 253, 0.24)";
-  dCtx.lineWidth = Math.max(0.8, width / 2560);
-  strokeBorders(dCtx, bordersMesh, width, height);
-
-  // 3. マスクテクスチャ（R = 陸地マスク, G = 夜間都市ライト）
+  // 2. マスクテクスチャ（R = 陸地マスク, G = 夜間都市ライト）
   const maskCanvas = document.createElement("canvas");
   maskCanvas.width = width;
   maskCanvas.height = height;
@@ -394,11 +360,6 @@ export function createEarthTextures(maxTextureSize = 4096): EarthTextures {
   realisticMap.anisotropy = 8;
   realisticMap.needsUpdate = true;
 
-  const diagramMap = new THREE.CanvasTexture(diagramCanvas);
-  diagramMap.colorSpace = THREE.SRGBColorSpace;
-  diagramMap.anisotropy = 8;
-  diagramMap.needsUpdate = true;
-
   const maskMap = new THREE.CanvasTexture(maskCanvas);
   maskMap.colorSpace = THREE.NoColorSpace;
   maskMap.anisotropy = 4;
@@ -406,11 +367,9 @@ export function createEarthTextures(maxTextureSize = 4096): EarthTextures {
 
   return {
     realisticMap,
-    diagramMap,
     maskMap,
     dispose: () => {
       realisticMap.dispose();
-      diagramMap.dispose();
       maskMap.dispose();
     },
   };

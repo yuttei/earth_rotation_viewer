@@ -318,146 +318,14 @@ input {
   pointer-events: none;
 }
 
-/* 上部ヘッダー */
+/* 上部ヘッダー（右上・観察パネル開閉ボタンのみ配置して 3D 領域を広く確保） */
 .header-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
+  justify-content: flex-end;
+  gap: 8px;
   pointer-events: none;
   flex-shrink: 0;
-}
-
-.header-card {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 14px;
-  border-radius: var(--radius-lg);
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  backdrop-filter: blur(16px);
-  box-shadow: var(--shadow-glass);
-}
-
-.brand-block {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.brand-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(99, 102, 241, 0.25));
-  border: 1px solid rgba(125, 211, 252, 0.35);
-  color: #bae6fd;
-  flex-shrink: 0;
-}
-
-.brand-title-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.brand-code {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  color: var(--accent-sky);
-}
-
-.brand-title {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-}
-
-.brand-subtitle {
-  margin: 2px 0 0;
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.telemetry-strip {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 8px 14px;
-  border-radius: var(--radius-lg);
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  backdrop-filter: blur(16px);
-  box-shadow: var(--shadow-glass);
-}
-
-.telemetry-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.telemetry-label {
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-.telemetry-value {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-  white-space: nowrap;
-}
-
-.telemetry-divider {
-  width: 1px;
-  height: 24px;
-  background: rgba(148, 163, 184, 0.2);
-}
-
-.pole-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  border: 1px solid transparent;
-  white-space: nowrap;
-}
-
-.pole-badge.polar-day {
-  background: rgba(251, 191, 36, 0.16);
-  border-color: rgba(251, 191, 36, 0.4);
-  color: #fde68a;
-}
-
-.pole-badge.polar-night {
-  background: rgba(99, 102, 241, 0.18);
-  border-color: rgba(129, 140, 248, 0.42);
-  color: #c7d2fe;
-}
-
-.pole-badge.equinox-transition {
-  background: rgba(56, 189, 248, 0.16);
-  border-color: rgba(56, 189, 248, 0.42);
-  color: #bae6fd;
 }
 
 .header-actions {
@@ -467,46 +335,11 @@ input {
   gap: 8px;
 }
 
-.segmented-pill {
-  display: inline-flex;
-  padding: 3px;
-  border-radius: 12px;
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  backdrop-filter: blur(16px);
-  box-shadow: var(--shadow-glass);
-}
-
-.segmented-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 10px;
-  border: none;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background-color 0.16s ease, color 0.16s ease;
-}
-
-.segmented-btn:hover {
-  color: var(--text-primary);
-}
-
-.segmented-btn.is-active {
-  background: rgba(56, 189, 248, 0.22);
-  color: #e0f2fe;
-}
-
 .icon-toggle-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 11px;
+  padding: 8px 12px;
   border-radius: 12px;
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
@@ -525,94 +358,15 @@ input {
   background: var(--panel-bg-strong);
 }
 
-/* 中央領域：左列に視点移動＋凡例、右側にインスペクター（高さを自動フィット） */
+/* 中央領域：右側に観察パネルのみ配置 */
 .hud-middle {
   flex: 1;
   min-height: 0;
   display: flex;
   align-items: flex-end;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   pointer-events: none;
-}
-
-.hud-left-column {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 10px;
-  pointer-events: none;
-}
-
-.view-transition-card {
-  pointer-events: auto;
-  width: 288px;
-  max-height: 100%;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 9px 11px;
-  border-radius: var(--radius-md);
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  backdrop-filter: blur(16px);
-  box-shadow: var(--shadow-glass);
-}
-
-.view-transition-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.view-transition-header.is-clickable {
-  cursor: pointer;
-  user-select: none;
-}
-
-.view-transition-header-right {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.view-collapse-chevron {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-secondary);
-}
-
-.view-transition-card.is-mobile-collapsed {
-  padding: 7px 11px;
-  gap: 0;
-}
-
-.view-transition-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #e2e8f0;
-  white-space: nowrap;
-}
-
-.view-transition-badge {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: rgba(56, 189, 248, 0.16);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  color: #bae6fd;
-  white-space: nowrap;
 }
 
 .view-slider-wrap {
@@ -826,70 +580,6 @@ input {
   background: rgba(251, 191, 36, 0.22);
   color: #fef3c7;
   box-shadow: 0 0 14px rgba(251, 191, 36, 0.22);
-}
-
-.hud-legend {
-  pointer-events: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 13px;
-  border-radius: var(--radius-md);
-  background: rgba(8, 14, 28, 0.68);
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  backdrop-filter: blur(12px);
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--text-secondary);
-  max-width: 332px;
-}
-
-.legend-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.legend-swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.legend-swatch.ccw {
-  background: var(--accent-cyan);
-  box-shadow: 0 0 8px rgba(34, 211, 238, 0.7);
-}
-
-.legend-swatch.sun {
-  background: var(--accent-gold);
-  box-shadow: 0 0 8px rgba(251, 191, 36, 0.75);
-}
-
-.legend-swatch.ecliptic {
-  border: 2px solid #f59e0b;
-  background: rgba(245, 158, 11, 0.25);
-}
-
-.legend-swatch.moon {
-  border: 2px solid #cbd5e1;
-  background: rgba(203, 213, 225, 0.28);
-}
-
-.legend-swatch.venus {
-  border: 2px solid #fde68a;
-  background: rgba(253, 230, 138, 0.3);
-}
-
-.legend-swatch.equinox {
-  background: #c084fc;
-  box-shadow: 0 0 8px rgba(192, 132, 252, 0.7);
-}
-
-.legend-swatch.arctic {
-  border: 1.5px dashed #7dd3fc;
-  background: transparent;
 }
 
 /* 右側インスペクターパネル */
@@ -1401,12 +1091,6 @@ input {
   color: var(--text-secondary);
 }
 
-@media (max-height: 860px), (max-width: 1240px) {
-  .hud-legend {
-    display: none;
-  }
-}
-
 /* タブレット横向き（iPad A16 横: 1180×820 等） */
 @media (max-width: 1280px) and (min-width: 1024px) {
   .ui-hud-layout {
@@ -1417,63 +1101,13 @@ input {
     gap: 8px;
   }
 
-  .header-bar {
-    gap: 8px;
-    flex-wrap: nowrap;
-  }
-
-  .header-card {
-    padding: 7px 11px;
-    gap: 8px;
-    flex-shrink: 1;
-    min-width: 0;
-  }
-
-  .brand-subtitle {
-    display: none;
-  }
-
-  .brand-icon {
-    width: 28px;
-    height: 28px;
-  }
-
-  .brand-title {
-    font-size: 13px;
-  }
-
-  .telemetry-strip {
-    padding: 6px 11px;
-    gap: 8px;
-    flex-wrap: nowrap;
-  }
-
-  .telemetry-value {
-    font-size: 11.5px;
-  }
-
-  .pole-badge {
-    font-size: 10.5px;
-    padding: 3px 8px;
-  }
-
-  .segmented-btn {
-    padding: 5px 8px;
-    font-size: 11.5px;
-  }
-
   .icon-toggle-btn {
-    padding: 7px 10px;
+    padding: 7px 11px;
     font-size: 11.5px;
-  }
-
-  .view-transition-card {
-    width: 272px;
-    padding: 8px 10px;
   }
 
   .inspector-panel {
-    width: 304px;
+    width: 312px;
   }
 
   .time-control-bar {
@@ -1492,55 +1126,14 @@ input {
     gap: 10px;
   }
 
-  .header-bar {
-    gap: 8px;
-  }
-
-  .header-card {
-    flex: 1 1 auto;
-    padding: 8px 12px;
-  }
-
-  .brand-subtitle {
-    display: none;
-  }
-
-  .telemetry-strip {
-    order: 3;
-    width: 100%;
-    justify-content: space-between;
-    padding: 7px 14px;
-    gap: 10px;
-  }
-
-  .header-actions {
-    order: 2;
-    flex-shrink: 0;
-  }
-
   .hud-middle {
-    flex-direction: row;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  .hud-left-column {
-    height: auto;
-    max-height: 100%;
-    width: auto;
-  }
-
-  .view-transition-card {
-    width: 296px;
-    max-height: 62dvh;
-    overflow-y: auto;
+    justify-content: flex-end;
+    align-items: stretch;
   }
 
   .inspector-panel {
-    width: 340px;
+    width: 344px;
     max-height: 100%;
-    align-self: stretch;
   }
 
   .time-control-bar {
@@ -1569,92 +1162,21 @@ input {
     gap: 6px;
   }
 
-  .header-bar {
-    gap: 6px;
-  }
-
-  .header-card {
-    flex: 1 1 auto;
-    padding: 6px 10px;
-    border-radius: 12px;
-  }
-
-  .brand-icon {
-    width: 24px;
-    height: 24px;
-    border-radius: 7px;
-  }
-
-  .brand-code {
-    font-size: 10px;
-  }
-
-  .brand-title {
-    font-size: 12.5px;
-  }
-
-  .brand-subtitle {
-    display: none;
-  }
-
-  .telemetry-strip {
-    width: 100%;
-    padding: 5px 10px;
-    gap: 6px 10px;
-    justify-content: space-between;
-    border-radius: 12px;
-  }
-
-  .telemetry-label {
-    font-size: 9px;
-  }
-
-  .telemetry-value {
-    font-size: 11px;
-  }
-
-  .telemetry-divider,
-  .pole-badge {
-    display: none;
-  }
-
-  .header-actions {
-    width: 100%;
-    justify-content: space-between;
-    gap: 6px;
-  }
-
-  .segmented-btn {
-    padding: 5px 8px;
-    font-size: 11px;
-  }
-
   .icon-toggle-btn {
-    padding: 6px 10px;
-    font-size: 11px;
+    padding: 6px 11px;
+    font-size: 11.5px;
   }
 
   .hud-middle {
     flex-direction: column;
     align-items: stretch;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: 6px;
-  }
-
-  .hud-left-column {
-    height: auto;
-    width: 100%;
-  }
-
-  .view-transition-card {
-    width: 100%;
-    max-height: 48dvh;
-    overflow-y: auto;
   }
 
   .inspector-panel {
     width: 100%;
-    max-height: 52dvh;
+    max-height: 58dvh;
   }
 
   .inspector-panel.is-collapsed {
@@ -1717,73 +1239,20 @@ input {
     gap: 6px;
   }
 
-  .header-bar {
-    flex-wrap: nowrap;
-    gap: 6px;
-  }
-
-  .header-card {
-    flex: 0 1 auto;
-    padding: 4px 8px;
-    border-radius: 10px;
-  }
-
-  .brand-icon {
-    width: 22px;
-    height: 22px;
-  }
-
-  .brand-title,
-  .brand-subtitle {
-    display: none;
-  }
-
-  .telemetry-strip {
-    order: 0;
-    width: auto;
-    flex: 1 1 auto;
-    padding: 4px 9px;
-    gap: 8px;
-    border-radius: 10px;
-  }
-
-  .telemetry-label,
-  .telemetry-divider,
-  .pole-badge {
-    display: none;
-  }
-
-  .telemetry-value {
-    font-size: 11px;
-  }
-
-  .header-actions {
-    order: 0;
-    width: auto;
-    gap: 6px;
-  }
-
-  .segmented-btn,
   .icon-toggle-btn {
-    padding: 4px 8px;
+    padding: 5px 9px;
     font-size: 11px;
   }
 
   .hud-middle {
     flex-direction: row;
-    align-items: flex-start;
-    justify-content: space-between;
-  }
-
-  .view-transition-card {
-    width: 264px;
-    max-height: 58dvh;
+    align-items: stretch;
+    justify-content: flex-end;
   }
 
   .inspector-panel {
     width: 316px;
     max-height: 100%;
-    align-self: stretch;
   }
 
   .inspector-panel.is-collapsed {

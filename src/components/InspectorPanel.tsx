@@ -22,7 +22,9 @@ import {
   VenusState,
 } from "../types/astronomy";
 import {
+  formatDateTimeParts,
   formatHoursToClock,
+  getSeasonLabelJa,
   observeCity,
   SEASON_PRESETS,
 } from "../astronomy/calculations";
@@ -48,6 +50,7 @@ export type GuideExperimentId =
 
 interface InspectorPanelProps {
   isOpen: boolean;
+  currentDate: Date;
   solarState: SolarSystemState;
   moonState: MoonState;
   venusState: VenusState;
@@ -87,6 +90,7 @@ const LAYER_LABELS: Array<{ key: keyof DisplayLayers; label: string }> = [
  */
 export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   isOpen,
+  currentDate,
   solarState,
   moonState,
   venusState,
@@ -107,7 +111,17 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   onToggleLayer,
   onRunGuideExperiment,
 }) => {
-  const [activeTab, setActiveTab] = useState<InspectorTab>("city");
+  // 視点移動を観察パネル内からすぐ操作できるよう「視点・表示」を初期タブにします。
+  const [activeTab, setActiveTab] = useState<InspectorTab>("display");
+
+  const { utcText, jstText } = formatDateTimeParts(currentDate);
+  const seasonLabel = getSeasonLabelJa(solarState.sunEclipticLongitudeDeg);
+  const declSign = solarState.subsolarLatDeg >= 0 ? "+" : "";
+  const poleStateLabel = {
+    "polar-day": "北極：白夜（ずっと昼）",
+    "polar-night": "北極：極夜（ずっと夜）",
+    "equinox-transition": "北極：昼夜の境界付近",
+  }[solarState.northPoleDaylightState];
 
   const selectedCity =
     cities.find((c) => c.id === selectedCityId) ?? cities[0];
@@ -223,22 +237,22 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
         <button
           type="button"
           role="tab"
-          aria-selected={activeTab === "city"}
-          className={`inspector-tab-btn ${activeTab === "city" ? "is-active" : ""}`}
-          onClick={() => setActiveTab("city")}
-        >
-          <MapPin size={13} />
-          地点・天体
-        </button>
-        <button
-          type="button"
-          role="tab"
           aria-selected={activeTab === "display"}
           className={`inspector-tab-btn ${activeTab === "display" ? "is-active" : ""}`}
           onClick={() => setActiveTab("display")}
         >
           <Layers size={13} />
           視点・表示
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "city"}
+          className={`inspector-tab-btn ${activeTab === "city" ? "is-active" : ""}`}
+          onClick={() => setActiveTab("city")}
+        >
+          <MapPin size={13} />
+          地点・天体
         </button>
         <button
           type="button"
@@ -255,6 +269,34 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
       <div className="inspector-body">
         {activeTab === "city" && (
           <>
+            <div className="section-card">
+              <h2 className="section-title">
+                <Sun size={13} />
+                観測日時・季節
+              </h2>
+              <div className="observation-metrics">
+                <div className="metric-box" style={{ gridColumn: "span 2" }}>
+                  <div className="metric-label">日本時間 (JST) / UTC</div>
+                  <div className="metric-val" style={{ fontSize: 12 }}>
+                    {jstText}{" "}
+                    <span style={{ opacity: 0.58 }}>/ {utcText.slice(11)}</span>
+                  </div>
+                </div>
+                <div className="metric-box">
+                  <div className="metric-label">太陽赤緯・季節</div>
+                  <div className="metric-val" style={{ fontSize: 12.5 }}>
+                    {declSign}
+                    {solarState.subsolarLatDeg.toFixed(1)}° ({seasonLabel})
+                  </div>
+                </div>
+                <div className="metric-box">
+                  <div className="metric-label">北極点の状態</div>
+                  <div className="metric-val" style={{ fontSize: 11.5 }}>
+                    {poleStateLabel.replace("北極：", "")}
+                  </div>
+                </div>
+              </div>
+            </div>
             {isEclipticSkyMode && zodiacStatusCard}
             {isRealSolarSystemMode && solarSystemOverviewCard}
             <div className="section-card">

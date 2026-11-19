@@ -10,7 +10,6 @@ import {
   SolarSystemBodyState,
   SolarSystemState,
   VenusState,
-  VisualStyle,
 } from "../types/astronomy";
 import {
   EARTH_AXIAL_TILT_DEG,
@@ -105,8 +104,6 @@ interface EarthGlobeCanvasProps {
   selectedCityId: string;
   /** 都市選択時のコールバック */
   onSelectCity: (cityId: string) => void;
-  /** ビジュアルモード（宇宙リアル / 天文図解） */
-  visualStyle: VisualStyle;
   /** 基準座標系（太陽方向固定 / 恒星・春分点固定） */
   referenceFrame: ReferenceFrame;
   /** 目標カメラ姿勢（プリセット・連続スライダーから渡されます） */
@@ -358,9 +355,9 @@ function updateFloatingBadgeAtPosition(
   let y = (-projected.y * 0.5 + 0.5) * hostH;
 
   if (clampToScreen) {
-    const maxX = isInspectorOpen && hostW > 860 ? hostW - 416 : hostW - 86;
-    x = Math.max(60, Math.min(maxX, x));
-    y = Math.max(84, Math.min(hostH - 86, y));
+    const maxX = isInspectorOpen && hostW >= 601 ? hostW - 360 : hostW - 60;
+    x = Math.max(56, Math.min(maxX, x));
+    y = Math.max(52, Math.min(hostH - 86, y));
   } else if (x < 12 || x > hostW - 12 || y < 12 || y > hostH - 12) {
     badgeEl.style.display = "none";
     return;
@@ -383,7 +380,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   cities,
   selectedCityId,
   onSelectCity,
-  visualStyle,
   referenceFrame,
   cameraPoseTarget,
   onCameraUserDrag,
@@ -417,7 +413,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     galileanMoons,
     cities,
     selectedCityId,
-    visualStyle,
     referenceFrame,
     layers,
     isInspectorOpen,
@@ -430,7 +425,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     galileanMoons,
     cities,
     selectedCityId,
-    visualStyle,
     referenceFrame,
     layers,
     isInspectorOpen,
@@ -1968,7 +1962,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         galileanMoons: curGalilean,
         cities: curCities,
         selectedCityId: curSelectedId,
-        visualStyle: curStyle,
         referenceFrame: curFrame,
         layers: curLayers,
         isInspectorOpen: curInspectorOpen,
@@ -2158,8 +2151,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       atmosphereBundle.uniforms.uSunDirection.value.copy(sunDirWorld);
       moonBundle.uniforms.uSunDirection.value.copy(sunDirWorld);
 
-      // 2. 左視点カード（288px）と右観察パネル（318px）の中央に収まるよう水平オフセットを補間
-      const targetOffsetX = curInspectorOpen && hostW > 860 ? 16 : 0;
+      // 2. 右側観察パネルが開いているとき、左側の広い空間の中央へ地球・軌道が収まるよう水平オフセットを補間
+      const targetOffsetX = curInspectorOpen && hostW >= 1024 ? 154 : 0;
       currentOffsetX += (targetOffsetX - currentOffsetX) * (1 - Math.exp(-9 * dt));
       if (Math.abs(currentOffsetX) > 0.5) {
         camera.setViewOffset(hostW, hostH, currentOffsetX, 0, hostW, hostH);
@@ -2456,15 +2449,9 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       }
       camera.updateMatrixWorld(true);
 
-      // 4. ビジュアルモードと補助レイヤー表示設定を適用
-      const isDiagram = curStyle === "diagram";
-      earthBundle.uniforms.uDayMap.value = isDiagram
-        ? textures.diagramMap
-        : textures.realisticMap;
-      earthBundle.uniforms.uIsDiagram.value = isDiagram ? 1.0 : 0.0;
+      // 4. 補助レイヤー表示設定を適用（宇宙リアル固定）
       earthBundle.uniforms.uShowTerminatorHighlight.value =
         curLayers.terminatorGuide ? 1.0 : 0.0;
-      atmosphereBundle.uniforms.uIsDiagram.value = isDiagram ? 1.0 : 0.0;
 
       const isGroundView = g >= 0.55;
       const isEclipticSkyView = eBlend >= 0.55;
@@ -2493,7 +2480,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       tokyoSkyBundle.uniforms.uUpWorld.value.copy(tokyoUpWorld);
       tokyoSkyBundle.uniforms.uSunDirWorld.value.copy(sunDirWorld);
       tokyoSkyBundle.uniforms.uOpacity.value = skyOpacity;
-      tokyoSkyBundle.uniforms.uIsDiagram.value = isDiagram ? 1.0 : 0.0;
 
       tokyoGroundGroup.visible = groundOpacity > 0.01;
       tokyoGroundBundle.uniforms.uSunElevation.value = tokyoSunElev;
@@ -2559,8 +2545,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         curSolar.sunEclipticLongitudeDeg
       );
       const groundNightZodiacFactor = isGroundView
-        ? THREE.MathUtils.clamp((-tokyoSunElev + 0.08) * 3.5, 0, 1) *
-          (isDiagram ? 1.0 : 0.72)
+        ? THREE.MathUtils.clamp((-tokyoSunElev + 0.08) * 3.5, 0, 1) * 0.72
         : 0;
       const zodiacVisibilityFactor = curLayers.zodiacConstellations
         ? Math.max(eBlend, groundNightZodiacFactor)

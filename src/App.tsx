@@ -16,7 +16,6 @@ import {
   CameraPreset,
   DisplayLayers,
   ReferenceFrame,
-  VisualStyle,
 } from "./types/astronomy";
 import {
   CameraPoseTarget,
@@ -28,7 +27,6 @@ import {
   GuideExperimentId,
   InspectorPanel,
 } from "./components/InspectorPanel";
-import { ViewTransitionWidget } from "./components/ViewTransitionWidget";
 
 const DEFAULT_LAYERS: DisplayLayers = {
   graticule: true,
@@ -315,7 +313,6 @@ export function App() {
   const [speedMultiplier, setSpeedMultiplier] = useState<number>(1800);
 
   const [selectedCityId, setSelectedCityId] = useState<string>("tokyo");
-  const [visualStyle, setVisualStyle] = useState<VisualStyle>("realistic");
   const [referenceFrame, setReferenceFrame] = useState<ReferenceFrame>("solar");
 
   const [activePresetButton, setActivePresetButton] =
@@ -594,6 +591,15 @@ export function App() {
           setSpeedMultiplier((prev) => (prev >= 86400 ? 1800 : prev));
         }
       }
+
+      // スマホ・タブレット縦画面では観察パネルから視点を選んだ直後にパネルを閉じて3D移動を見やすくします。
+      if (
+        adjustSpeedAutomatically &&
+        typeof window !== "undefined" &&
+        (window.innerWidth < 1024 || window.innerHeight < 540)
+      ) {
+        setIsInspectorOpen(false);
+      }
     },
     []
   );
@@ -865,7 +871,6 @@ export function App() {
         cities={OBSERVATION_CITIES}
         selectedCityId={selectedCityId}
         onSelectCity={setSelectedCityId}
-        visualStyle={visualStyle}
         referenceFrame={referenceFrame}
         cameraPoseTarget={cameraPoseTarget}
         onCameraUserDrag={handleCameraUserDrag}
@@ -875,58 +880,14 @@ export function App() {
 
       <div className="ui-hud-layout">
         <HeaderBar
-          currentDate={currentDate}
-          solarState={solarState}
-          visualStyle={visualStyle}
-          onChangeVisualStyle={setVisualStyle}
-          referenceFrame={referenceFrame}
           isInspectorOpen={isInspectorOpen}
           onToggleInspector={() => setIsInspectorOpen((prev) => !prev)}
         />
 
         <div className="hud-middle">
-          <div className="hud-left-column">
-            <ViewTransitionWidget
-              transitionRatio={viewTransitionRatio}
-              onChangeTransitionRatio={handleChangeViewTransitionRatio}
-              activePreset={activePresetButton}
-              onSelectPreset={handleSelectCameraPreset}
-            />
-
-            <div className="hud-legend" aria-label="図解の凡例">
-              <div className="legend-row">
-                <span className="legend-swatch ccw" />
-                <span>シアン矢印：反時計回りの自転 ／ 各地の「東」</span>
-              </div>
-              <div className="legend-row">
-                <span className="legend-swatch sun" />
-                <span>ゴールド矢印：太陽光の向き（昼の側）</span>
-              </div>
-              <div className="legend-row">
-                <span className="legend-swatch ecliptic" />
-                <span>オレンジリング：黄道面（公転面・公転軌道）</span>
-              </div>
-              <div className="legend-row">
-                <span className="legend-swatch venus" />
-                <span>シャンパン色リング：金星の公転軌道（内惑星）</span>
-              </div>
-              <div className="legend-row">
-                <span className="legend-swatch moon" />
-                <span>銀白リング：月の公転軌道（白道・約5.1°傾斜）</span>
-              </div>
-              <div className="legend-row">
-                <span className="legend-swatch arctic" />
-                <span>水色破線：北極圏 (66.6°N・白夜と極夜の境界)</span>
-              </div>
-              <div className="legend-row">
-                <span className="legend-swatch equinox" />
-                <span>紫破線：春分点方向 (♈・恒星基準の方向)</span>
-              </div>
-            </div>
-          </div>
-
           <InspectorPanel
             isOpen={isInspectorOpen}
+            currentDate={currentDate}
             solarState={solarState}
             moonState={moonState}
             venusState={venusState}

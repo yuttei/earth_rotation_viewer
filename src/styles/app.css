@@ -385,8 +385,9 @@ input {
 /* 上部ヘッダー（右上・観察パネル開閉ボタンのみ配置して 3D 領域を広く確保） */
 .header-bar {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-start;
   gap: 8px;
   pointer-events: none;
   flex-shrink: 0;
@@ -1687,4 +1688,207 @@ input {
     padding: 4px 7px;
     font-size: 10.5px;
   }
+}
+
+/* =========================================================================
+   万有引力・天体衝突シミュレーター UI & エフェクト
+   ========================================================================= */
+
+.three-canvas-host.is-impact-aim,
+.three-canvas-host.is-impact-aim:active {
+  cursor: crosshair;
+}
+
+.impact-flash-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  mix-blend-mode: screen;
+  transition: opacity 0.06s linear;
+}
+
+.icon-toggle-btn.is-mode-switch {
+  font-size: 11.5px;
+  padding: 7px 11px;
+}
+
+.icon-toggle-btn.is-mode-switch.is-aim-active {
+  border-color: rgba(251, 191, 36, 0.72);
+  background: rgba(34, 24, 10, 0.88);
+  color: #fef3c7;
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.28);
+}
+
+/* 「天体を狙う」モード中に出る、天体の種類を切り替える小さなボタン列 */
+.impact-quick-picker {
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  max-width: min(100%, 420px);
+  padding: 5px 6px;
+  border-radius: 12px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-glass);
+}
+
+.impact-quick-btn {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: rgba(15, 23, 42, 0.55);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.impact-quick-btn:hover {
+  border-color: var(--panel-border-strong);
+}
+
+.impact-quick-btn.is-active {
+  background: rgba(34, 24, 10, 0.88);
+}
+
+.impact-quick-count {
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.icon-toggle-btn.is-restore-chip {
+  border-color: rgba(52, 211, 153, 0.65);
+  background: rgba(6, 78, 59, 0.65);
+  color: #a7f3d0;
+  font-size: 11.5px;
+  padding: 7px 10px;
+}
+
+.impact-section-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.impact-section-hint strong {
+  color: #fde68a;
+  font-weight: 600;
+}
+
+.impact-tier-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.impact-tier-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #94a3b8;
+}
+
+.impact-tier-label.is-tier-1 {
+  color: #7dd3fc;
+}
+
+.impact-tier-label.is-tier-2 {
+  color: #fbbf24;
+}
+
+.impact-tier-label.is-tier-3 {
+  color: #d8b4fe;
+}
+
+.impact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.impact-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 8px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(8, 14, 29, 0.72);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.16s ease;
+}
+
+.impact-btn:hover {
+  border-color: rgba(125, 211, 252, 0.55);
+  background: rgba(15, 25, 48, 0.88);
+}
+
+.impact-btn.is-active {
+  background: rgba(30, 22, 14, 0.88);
+}
+
+.impact-btn.is-tier-3.is-active {
+  background: rgba(28, 14, 42, 0.9);
+}
+
+.impact-btn-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+}
+
+.impact-btn-symbol {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.impact-btn-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.impact-btn-sub {
+  font-size: 10px;
+  line-height: 1.3;
+  color: #94a3b8;
+}
+
+.impact-panel-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.impact-action-btn {
+  flex: 1;
+}
+
+.impact-action-btn.is-restore {
+  border-color: rgba(52, 211, 153, 0.55);
+  background: rgba(6, 78, 59, 0.36);
+  color: #a7f3d0;
+}
+
+.impact-action-btn.is-exit {
+  border-color: rgba(248, 113, 113, 0.5);
+  background: rgba(69, 10, 10, 0.35);
+  color: #fecaca;
 }

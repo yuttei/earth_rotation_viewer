@@ -47,6 +47,19 @@ import {
   CosmicBadgeId,
   createCosmicScaleRig,
 } from "./cosmicScale";
+import {
+  IMPACTOR_MAP,
+  ImpactorId,
+  SOLAR_TARGET_SPECS,
+  SolarImpactTargetId,
+} from "../astronomy/impactPhysics";
+import {
+  ImpactFrameOutput,
+  ImpactSimPhase,
+  ImpactSystemRig,
+  SolarBaselineBodyInput,
+  createImpactSystemRig,
+} from "./impactSystem";
 import { createEarthTextures, EarthTextures } from "./earthTexture";
 import { createMoonTexture } from "./moonTexture";
 import { createVenusTexture } from "./venusTexture";
@@ -132,6 +145,21 @@ interface EarthGlobeCanvasProps {
   focusedBodyId: CelestialBodyId | null;
   /** 3D空間上の天体または天体ラベルをタップしたときのコールバック */
   onSelectCelestialBody: (bodyId: CelestialBodyId) => void;
+  /** 天体衝突シミュレーターで選択中の天体（未選択なら null ＝ 通常のカメラ操作） */
+  activeImpactorId: ImpactorId | null;
+  /** 「すぐ復活」ボタンが押されるたびに増える連番（0 は未操作） */
+  restoreImpactSeq: number;
+  /** 衝突シミュレーターの状態（飛行中・爆発中・復活中など）が変わったときの通知 */
+  onImpactStatusChange?: (status: ImpactStatus) => void;
+}
+
+/** 画面上部の発射モード表示に使う、衝突シミュレーターの現在状態 */
+export interface ImpactStatus {
+  phase: ImpactSimPhase;
+  labelJa: string;
+  canRestore: boolean;
+  /** 今置かれている投入天体の数 */
+  liveImpactorCount: number;
 }
 
 interface CameraSnapshot {
@@ -410,8 +438,15 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   isInspectorOpen,
   focusedBodyId,
   onSelectCelestialBody,
+  activeImpactorId,
+  restoreImpactSeq,
+  onImpactStatusChange,
 }) => {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  // 衝突の瞬間に画面全体を光らせるフラッシュ用の要素（React の再描画なしで直接 style を更新します）
+  const impactFlashRef = useRef<HTMLDivElement | null>(null);
+  // 衝突シミュレーターの 3D 演出リグ（Three.js のセットアップ内で生成して保持します）
+  const impactRigRef = useRef<ImpactSystemRig | null>(null);
   const labelButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const seasonBadgeRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
   const compassBadgeRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
@@ -455,6 +490,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     isInspectorOpen,
     focusedBodyId,
     onSelectCelestialBody,
+    activeImpactorId,
+    onImpactStatusChange,
   });
   latestPropsRef.current = {
     solarState,
@@ -468,7 +505,23 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     isInspectorOpen,
     focusedBodyId,
     onSelectCelestialBody,
+    activeImpactorId,
+    onImpactStatusChange,
   };
+
+  // 「すぐ復活」ボタンが押されたら、置いた天体をすべて消し、太陽系の全天体をぬるっと元通りにする演出を始めます。
+  useEffect(() => {
+    if (restoreImpactSeq > 0) {
+      impactRigRef.current?.triggerSmoothRestore();
+    }
+  }, [restoreImpactSeq]);
+
+  // 「視点移動」モードに切り替えたら、ドラッグ途中の予測軌道プレビューのみ消します（飛行・爆発演出はそのまま継続）。
+  useEffect(() => {
+    if (activeImpactorId === null) {
+      impactRigRef.current?.cancelAimPreview();
+    }
+  }, [activeImpactorId]);
 
   // 天体タップ時の滑らかなズームイン／ズームアウト（および閉じたときの元の視点への復帰）を管理します。
   const bodyFocusRef = useRef<{
@@ -1645,7 +1698,12 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       {
         root: THREE.Group;
         spinMesh: THREE.Mesh;
-        uniforms: { uSunDirection: { value: THREE.Vector3 } };
+        uniforms: {
+          uSunDirection: { value: THREE.Vector3 };
+          uImpactDir: { value: THREE.Vector3 };
+          uImpactParams: { value: THREE.Vector4 };
+          uImpactColor: { value: THREE.Vector3 };
+        };
         material: THREE.ShaderMaterial;
         baseSize: number;
       }
@@ -1961,6 +2019,17 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       atmosphereBundle.material
     );
     earthGroup.add(atmosphereMesh);
+
+    // 6b. リアル太陽系・N体万有引力＆天体衝突シミュレーター
+    // solarWorldGroup の子にすることで、太陽＋水金地火木土天海冥＋月＋木星4衛星すべてと同じ太陽中心座標系で動作します。
+    const impactRig = createImpactSystemRig(
+      starTexture,
+      moonTexture,
+      planetTextures.mars,
+      planetTextures.jupiter
+    );
+    solarWorldGroup.add(impactRig.root);
+    impactRigRef.current = impactRig;
 
     // 経緯線・北極圏・地軸
     const graticuleGroup = new THREE.Group();
@@ -2446,6 +2515,264 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       return matched ? matched.id : null;
     };
 
+    // ---------------------------------------------------------------------
+    // リアル太陽系・N体万有引力＆天体衝突シミュレーターの「タップで落下／ドラッグで投げ込み」操作
+    // ---------------------------------------------------------------------
+    // 太陽系全15天体の毎フレームの基準位置・表示半径スナップショット（solarWorldGroup 座標）
+    const solarBaselineList: SolarBaselineBodyInput[] = SOLAR_TARGET_SPECS.map(
+      (s) => ({
+        id: s.id,
+        pos: new THREE.Vector3(),
+        radius: s.baseRadius,
+      })
+    );
+    const solarBaselineMap = new Map<
+      SolarImpactTargetId,
+      SolarBaselineBodyInput
+    >();
+    for (const item of solarBaselineList) {
+      solarBaselineMap.set(item.id, item);
+    }
+
+    // 画面に今描かれている太陽系天体の位置と大きさです（天体を押したかどうかの判定に使います）。
+    // N体計算で軌道が乱れた後は、本来の公転位置（solarBaselineList）と描かれている位置がずれるため、別に持ちます。
+    const displayedSolarTargets: Array<
+      SolarBaselineBodyInput & { visible: boolean }
+    > = SOLAR_TARGET_SPECS.map((s) => ({
+      id: s.id,
+      pos: new THREE.Vector3(),
+      radius: s.baseRadius,
+      visible: true,
+    }));
+
+    // 狙いの状態をまとめて保持します（すべて solarWorldGroup 太陽中心のワールド座標）。
+    const impactAim = {
+      active: false,
+      targetBodyId: null as SolarImpactTargetId | null,
+      targetBodyPos: new THREE.Vector3(),
+      planeY: 0,
+      spawnWorld: new THREE.Vector3(),
+      downPlaneWorld: new THREE.Vector3(),
+      aimVel: new THREE.Vector3(),
+      tapVel: new THREE.Vector3(),
+    };
+    const aimPlane = new THREE.Plane();
+    const aimPlaneNormal = new THREE.Vector3();
+    const aimPlaneCenter = new THREE.Vector3();
+    const aimCamForward = new THREE.Vector3();
+    const aimTmpWorld = new THREE.Vector3();
+
+    /** 画面上の位置からレイ（視線）を作ります。 */
+    const setRayFromClient = (clientX: number, clientY: number): boolean => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      pointerNdc.set(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1
+      );
+      raycaster.setFromCamera(pointerNdc, camera);
+      return true;
+    };
+
+    /**
+     * 画面レイが太陽系全15天体のいずれかを指しているか（またはすぐ近くを通っているか）を判定します。
+     */
+    const findClosestSolarTargetAtRay = (): SolarBaselineBodyInput | null => {
+      let best: SolarBaselineBodyInput | null = null;
+      let bestDistAlongRay = Infinity;
+      const ray = raycaster.ray;
+      for (const b of displayedSolarTargets) {
+        // 衝突で消えた天体は狙えません
+        if (!b.visible) continue;
+        const toBody = aimTmpWorld.copy(b.pos).sub(ray.origin);
+        const proj = toBody.dot(ray.direction);
+        if (proj <= 0.1) continue;
+        const perpSq = Math.max(0, toBody.lengthSq() - proj * proj);
+        const pickR = Math.max(1.15, b.radius * 1.75);
+        if (perpSq <= pickR * pickR && proj < bestDistAlongRay) {
+          bestDistAlongRay = proj;
+          best = b;
+        }
+      }
+      return best;
+    };
+
+    /**
+     * 太陽系の公転面（高さ Y = planeY の水平面）と画面レイの交点を
+     * solarWorldGroup 座標で求めます。
+     */
+    const projectToAimPlaneWorld = (
+      clientX: number,
+      clientY: number,
+      planeY: number,
+      out: THREE.Vector3
+    ): boolean => {
+      if (!setRayFromClient(clientX, clientY)) return false;
+      camera.getWorldDirection(aimCamForward);
+      aimPlaneCenter.set(0, planeY, 0);
+      if (Math.abs(raycaster.ray.direction.y) >= 0.12) {
+        aimPlaneNormal.set(0, 1, 0);
+      } else {
+        aimPlaneNormal
+          .set(0, 1, 0)
+          .lerp(aimCamForward.clone().negate(), 0.35)
+          .normalize();
+      }
+      aimPlane.setFromNormalAndCoplanarPoint(aimPlaneNormal, aimPlaneCenter);
+      const hit = raycaster.ray.intersectPlane(aimPlane, aimTmpWorld);
+      if (!hit) return false;
+      out.copy(aimTmpWorld);
+      out.y = planeY;
+      return true;
+    };
+
+    /** ドラッグ距離 d から初速度の大きさを滑らかに算出します。 */
+    const computeThrowSpeedFromDragDist = (dragDist: number): number => {
+      return Math.min(
+        48.0,
+        0.52 * dragDist + 1.85 * Math.sqrt(Math.max(0, dragDist))
+      );
+    };
+
+    /**
+     * 狙いを開始します。
+     * 太陽系15天体のいずれかの上を押した場合はその天体のすぐ外側に出現させ、
+     * 宇宙空間を押した場合はその座標にそのまま出現させます（タップ時は初速ゼロでN体万有引力のみ）。
+     */
+    const beginImpactAim = (
+      impactorId: ImpactorId,
+      clientX: number,
+      clientY: number
+    ): boolean => {
+      const spec = IMPACTOR_MAP[impactorId];
+      if (!setRayFromClient(clientX, clientY)) return false;
+
+      const hitBody = findClosestSolarTargetAtRay();
+      if (hitBody) {
+        impactAim.targetBodyId = hitBody.id;
+        impactAim.targetBodyPos.copy(hitBody.pos);
+        impactAim.planeY = hitBody.pos.y;
+        projectToAimPlaneWorld(
+          clientX,
+          clientY,
+          impactAim.planeY,
+          impactAim.downPlaneWorld
+        );
+        const offsetDir = impactAim.downPlaneWorld
+          .clone()
+          .sub(hitBody.pos);
+        offsetDir.y = 0;
+        if (offsetDir.lengthSq() < 1e-4) {
+          offsetDir.set(1, 0, 0.4).normalize();
+        } else {
+          offsetDir.normalize();
+        }
+        const clearance =
+          hitBody.radius * 1.9 + spec.visualRadius * 1.45 + 1.4;
+        impactAim.spawnWorld
+          .copy(hitBody.pos)
+          .addScaledVector(offsetDir, clearance);
+      } else {
+        impactAim.targetBodyId = null;
+        impactAim.planeY = 0;
+        if (
+          !projectToAimPlaneWorld(
+            clientX,
+            clientY,
+            0,
+            impactAim.downPlaneWorld
+          )
+        ) {
+          return false;
+        }
+        impactAim.spawnWorld.copy(impactAim.downPlaneWorld);
+      }
+
+      impactAim.tapVel.set(0, 0, 0);
+      impactAim.aimVel.set(0, 0, 0);
+      impactAim.active = true;
+
+      impactRig.updateAimPreview(
+        impactorId,
+        impactAim.spawnWorld,
+        impactAim.tapVel,
+        solarBaselineList
+      );
+      return true;
+    };
+
+    /** ドラッグ中：引っぱった向きと長さ（またはドラッグ先の太陽系天体）から初速度を決め、N体予測軌道を更新します。 */
+    const updateImpactAim = (
+      impactorId: ImpactorId,
+      clientX: number,
+      clientY: number
+    ) => {
+      if (!setRayFromClient(clientX, clientY)) return;
+      const spec = IMPACTOR_MAP[impactorId];
+      const hoverBody = findClosestSolarTargetAtRay();
+
+      if (!projectToAimPlaneWorld(clientX, clientY, impactAim.planeY, aimTmpWorld)) {
+        return;
+      }
+
+      if (
+        impactAim.targetBodyId !== null &&
+        aimTmpWorld.distanceTo(impactAim.targetBodyPos) >
+          (solarBaselineMap.get(impactAim.targetBodyId)?.radius ?? 1.0) * 1.5 +
+            spec.visualRadius
+      ) {
+        // 天体の上から外側へ引っ張った場合：その天体へ向けたスリングショット投げ込み
+        impactAim.spawnWorld.copy(aimTmpWorld);
+        const pullVec = impactAim.targetBodyPos.clone().sub(aimTmpWorld);
+        const pullDist = pullVec.length();
+        const speed = computeThrowSpeedFromDragDist(pullDist);
+        impactAim.aimVel
+          .copy(pullVec)
+          .divideScalar(Math.max(1e-4, pullDist))
+          .multiplyScalar(speed);
+      } else if (
+        hoverBody &&
+        hoverBody.pos.distanceTo(impactAim.spawnWorld) >
+          hoverBody.radius + spec.visualRadius
+      ) {
+        // 宇宙空間から特定の太陽系天体（冥王星など黄道面から傾いた天体も含む）の上へドラッグした場合：その天体の3D座標方向へ狙いを合わせます
+        const toTarget = hoverBody.pos.clone().sub(impactAim.spawnWorld);
+        const dist = toTarget.length();
+        const speed = computeThrowSpeedFromDragDist(dist);
+        impactAim.aimVel
+          .copy(toTarget)
+          .divideScalar(Math.max(1e-4, dist))
+          .multiplyScalar(speed);
+      } else {
+        // 宇宙空間で自由にドラッグした場合：ドラッグ方向へ初速度を与えます
+        const dragVec = aimTmpWorld.clone().sub(impactAim.spawnWorld);
+        const dragDist = dragVec.length();
+        if (dragDist < 0.08) {
+          impactAim.aimVel.set(0, 0, 0);
+        } else {
+          const speed = computeThrowSpeedFromDragDist(dragDist);
+          impactAim.aimVel
+            .copy(dragVec)
+            .divideScalar(dragDist)
+            .multiplyScalar(speed);
+        }
+      }
+
+      impactRig.updateAimPreview(
+        impactorId,
+        impactAim.spawnWorld,
+        impactAim.aimVel,
+        solarBaselineList
+      );
+    };
+
+    /** 狙いを取り消します（2本指操作に切り替わったときなど）。 */
+    const cancelImpactAim = () => {
+      if (!impactAim.active) return;
+      impactAim.active = false;
+      impactRig.cancelAimPreview();
+    };
+
     const onContextMenu = (ev: MouseEvent) => {
       ev.preventDefault();
     };
@@ -2468,6 +2795,21 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       lastTwoFingerMid = m ? { x: m.midX, y: m.midY } : null;
       lastTwoFingerAngle = m ? m.angle : null;
       renderer.domElement.setPointerCapture(ev.pointerId);
+
+      // 発射モード中：1本指（左クリック）で押したら狙いを開始し、2本目の指が来たら取り消します。
+      const curImpactorId = latestPropsRef.current.activeImpactorId;
+      if (curImpactorId !== null) {
+        if (activePointers.size >= 2) {
+          cancelImpactAim();
+        } else if (
+          ev.button === 0 &&
+          !ev.shiftKey &&
+          !ev.altKey &&
+          bodyFocusRef.current.targetBlend <= 0.5
+        ) {
+          beginImpactAim(curImpactorId, ev.clientX, ev.clientY);
+        }
+      }
     };
 
     const onPointerMove = (ev: PointerEvent) => {
@@ -2479,6 +2821,17 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       pointerMovedDist += Math.hypot(dx, dy);
       prevPt.x = ev.clientX;
       prevPt.y = ev.clientY;
+
+      // 発射モードで狙い中のドラッグは、カメラを回さずに投げる向きと強さを決めます。
+      if (impactAim.active) {
+        const curImpactorId = latestPropsRef.current.activeImpactorId;
+        if (curImpactorId === null) {
+          cancelImpactAim();
+        } else if (pointerMovedDist >= 8) {
+          updateImpactAim(curImpactorId, ev.clientX, ev.clientY);
+        }
+        return;
+      }
 
       const anim = cameraAnimRef.current;
       const focus = bodyFocusRef.current;
@@ -2631,6 +2984,35 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       lastTwoFingerAngle = m ? m.angle : null;
       if (renderer.domElement.hasPointerCapture(ev.pointerId)) {
         renderer.domElement.releasePointerCapture(ev.pointerId);
+      }
+
+      // 発射モードで狙い中に指を離したら、天体を発射します。
+      if (impactAim.active) {
+        const curImpactorId = latestPropsRef.current.activeImpactorId;
+        const canLaunch =
+          ev.type === "pointerup" &&
+          activePointers.size === 0 &&
+          !pointerHadMultiTouch &&
+          curImpactorId !== null;
+        impactAim.active = false;
+        if (!canLaunch || curImpactorId === null) {
+          impactRig.cancelAimPreview();
+          return;
+        }
+        // ほとんど動かさなかった場合は「タップ」として、タップした場所へ落とします。
+        const launchVel =
+          pointerMovedDist < 10 ? impactAim.tapVel : impactAim.aimVel;
+        impactRig.launchImpactor(
+          curImpactorId,
+          impactAim.spawnWorld,
+          launchVel,
+          solarBaselineList
+        );
+        return;
+      }
+      // 発射モード中は、左クリックのタップで天体の詳細カードを開かないようにします。
+      if (latestPropsRef.current.activeImpactorId !== null) {
+        return;
       }
       // ドラッグせずに天体を短くタップ／クリックした場合は、その天体にズームして詳細カードを開きます。
       if (
@@ -2808,6 +3190,101 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     const rollQuat = new THREE.Quaternion();
     let lastMoonBadgeText = "";
     let lastPolarisBadgeText = "";
+
+    /** 衝突シミュレーターの結果を、地球・大気・月・金星・リアル太陽系全惑星のシェーダーへ渡します。 */
+    const applyImpactToEarthAndMoonShaders = (impOut: ImpactFrameOutput) => {
+      const eu = earthBundle.uniforms;
+      eu.uImpactDir.value.copy(impOut.earthImpactLocalDir);
+      eu.uImpactParams.value.set(
+        impOut.earthCraterRadius,
+        impOut.earthDamageHeat,
+        impOut.earthCrackIntensity,
+        impOut.earthShockAngleRad
+      );
+      eu.uImpactColor.value.copy(impOut.earthImpactColor);
+      eu.uImpactTime.value = totalTimeSec;
+
+      atmosphereBundle.uniforms.uImpactHeat.value = impOut.atmosphereHeat;
+      atmosphereBundle.uniforms.uImpactColor.value.copy(impOut.earthImpactColor);
+
+      const mu = moonBundle.uniforms;
+      mu.uMoonImpactDir.value.copy(impOut.moonImpactLocalDir);
+      mu.uMoonImpactParams.value.set(
+        impOut.moonCraterRadius,
+        impOut.moonDamageHeat,
+        impOut.moonCrackIntensity,
+        impOut.moonEarthMagmaGlow
+      );
+      mu.uMoonImpactColor.value.copy(impOut.bodyStates.moon.impactColor);
+
+      const vSt = impOut.bodyStates.venus;
+      const vu = venusBundle.uniforms;
+      vu.uImpactDir.value.copy(vSt.impactDir);
+      vu.uImpactParams.value.set(
+        vSt.craterRadius,
+        vSt.damageHeat,
+        vSt.crackIntensity,
+        0
+      );
+      vu.uImpactColor.value.copy(vSt.impactColor);
+
+      for (const [pId, entry] of extraPlanetMap.entries()) {
+        const pSt = impOut.bodyStates[pId];
+        if (!pSt) continue;
+        entry.uniforms.uImpactDir.value.copy(pSt.impactDir);
+        entry.uniforms.uImpactParams.value.set(
+          pSt.craterRadius,
+          pSt.damageHeat,
+          pSt.crackIntensity,
+          0
+        );
+        entry.uniforms.uImpactColor.value.copy(pSt.impactColor);
+      }
+
+      // 地球が粉砕・吸い込まれるときは、本体と大気を小さくしていきます。
+      const earthScale = Math.max(0.001, impOut.earthScaleFactor);
+      earthMesh.scale.setScalar(earthScale);
+      atmosphereMesh.scale.setScalar(earthScale);
+    };
+
+    // 状態通知は値が変わったときだけ React 側へ送ります（毎フレームの再描画を防ぐため）。
+    let lastImpactPhase: ImpactSimPhase = "idle";
+    let lastImpactLabel = "";
+    let lastImpactCanRestore = false;
+    let lastImpactorCount = 0;
+    let lastFlashOpacity = -1;
+
+    /** 画面フラッシュの明るさ・色と、上部 HUD へのステータス通知を更新します。 */
+    const updateImpactFlashAndStatus = (impOut: ImpactFrameOutput) => {
+      const flashEl = impactFlashRef.current;
+      const opacity = Math.round(impOut.screenFlashOpacity * 100) / 100;
+      if (flashEl && opacity !== lastFlashOpacity) {
+        flashEl.style.opacity = opacity.toFixed(2);
+        if (opacity > 0) {
+          const c = impOut.screenFlashColorCss;
+          flashEl.style.background = `radial-gradient(circle at 50% 50%, rgba(${c}, 0.95) 0%, rgba(${c}, 0.55) 38%, rgba(${c}, 0.12) 78%, rgba(${c}, 0) 100%)`;
+        }
+        lastFlashOpacity = opacity;
+      }
+
+      if (
+        impOut.phase !== lastImpactPhase ||
+        impOut.statusLabelJa !== lastImpactLabel ||
+        impOut.canTriggerRestore !== lastImpactCanRestore ||
+        impOut.liveImpactorCount !== lastImpactorCount
+      ) {
+        lastImpactPhase = impOut.phase;
+        lastImpactLabel = impOut.statusLabelJa;
+        lastImpactCanRestore = impOut.canTriggerRestore;
+        lastImpactorCount = impOut.liveImpactorCount;
+        latestPropsRef.current.onImpactStatusChange?.({
+          phase: impOut.phase,
+          labelJa: impOut.statusLabelJa,
+          canRestore: impOut.canTriggerRestore,
+          liveImpactorCount: impOut.liveImpactorCount,
+        });
+      }
+    };
 
     const renderFrame = (now: number) => {
       animFrameId = requestAnimationFrame(renderFrame);
@@ -3433,6 +3910,160 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       }
       realSolarSystemGroup.updateMatrixWorld(true);
 
+      // 3b. 太陽系全15天体の本来の座標・表示半径スナップショットを更新し、N体万有引力・衝突シミュレーターを1フレーム進めます
+      const setBaseline = (
+        id: SolarImpactTargetId,
+        x: number,
+        y: number,
+        z: number,
+        r: number
+      ) => {
+        const entry = solarBaselineMap.get(id);
+        if (entry) {
+          entry.pos.set(x, y, z);
+          entry.radius = r;
+        }
+      };
+      setBaseline("sun", 0, 0, 0, SUN_RADIUS * sunScale);
+      setBaseline(
+        "earth",
+        earthOrbitPos.x,
+        earthOrbitPos.y,
+        earthOrbitPos.z,
+        1.0
+      );
+      setBaseline(
+        "moon",
+        earthOrbitPos.x + moonSpaceLocalPos.x * moonSystemScale,
+        earthOrbitPos.y + moonSpaceLocalPos.y * moonSystemScale,
+        earthOrbitPos.z + moonSpaceLocalPos.z * moonSystemScale,
+        Math.max(0.22, MOON_RADIUS * moonSystemScale * moonScale)
+      );
+      setBaseline(
+        "venus",
+        venusSpacePos.x,
+        venusSpacePos.y,
+        venusSpacePos.z,
+        VENUS_RADIUS
+      );
+      for (const [pId, entry] of extraPlanetMap.entries()) {
+        setBaseline(
+          pId,
+          entry.root.position.x,
+          entry.root.position.y,
+          entry.root.position.z,
+          entry.root.scale.x
+        );
+      }
+      const jupScale = extraPlanetMap.get("jupiter")?.root.scale.x ?? 3.1;
+      for (const gm of GALILEAN_MOONS) {
+        const mEntry = jupiterGalileanMeshes.get(gm.id);
+        if (!mEntry) continue;
+        mEntry.mesh.getWorldPosition(tmpWorldPos);
+        if (solarWorldScale > 1e-4) {
+          tmpWorldPos.divideScalar(solarWorldScale);
+        }
+        setBaseline(
+          gm.id,
+          tmpWorldPos.x,
+          tmpWorldPos.y,
+          tmpWorldPos.z,
+          Math.max(0.2, gm.visualRadiusFactor * jupScale)
+        );
+      }
+
+      const impOut = impactRig.update(
+        dt,
+        totalTimeSec,
+        solarBaselineList,
+        earthQuat,
+        moonMesh.rotation.y
+      );
+      applyImpactToEarthAndMoonShaders(impOut);
+      earthTiltGroup.rotation.z = impOut.earthAxisWobbleRad;
+      impactRig.root.visible = !hideSolarForCosmic && g < 0.5;
+      updateImpactFlashAndStatus(impOut);
+
+      // 天体を押したかどうかの判定用に、今描かれている位置（N体計算中はその結果）を記録します
+      for (const target of displayedSolarTargets) {
+        const base = solarBaselineMap.get(target.id);
+        const st = impOut.bodyStates[target.id];
+        if (!base) continue;
+        target.pos.copy(impOut.isNBodyActive ? st.worldPos : base.pos);
+        target.radius = base.radius;
+        target.visible = !impOut.isNBodyActive || st.scaleFactor > 0.01;
+      }
+
+      // N体シミュレーション中（または「ぬるっと復活」復元中）は全15天体の座標と消滅/復元スケールをN体計算結果で更新します
+      if (impOut.isNBodyActive && g < 0.5) {
+        const sunSt = impOut.bodyStates.sun;
+        sunMesh.position.copy(sunSt.worldPos);
+        sunMesh.scale.multiplyScalar(Math.max(0.001, sunSt.scaleFactor));
+        sunCoronaMesh.position.copy(sunSt.worldPos);
+        sunCoronaMesh.scale.multiplyScalar(Math.max(0.001, sunSt.scaleFactor));
+
+        const earthSt = impOut.bodyStates.earth;
+        earthOrbitPos.copy(earthSt.worldPos);
+        earthSystemGroup.position.copy(earthOrbitPos);
+
+        const moonSt = impOut.bodyStates.moon;
+        moonMesh.position
+          .copy(moonSt.worldPos)
+          .sub(earthOrbitPos)
+          .divideScalar(Math.max(0.01, moonSystemScale));
+        moonMesh.scale.setScalar(
+          moonScale * Math.max(0.001, moonSt.scaleFactor)
+        );
+        moonMesh.visible = moonSt.scaleFactor > 0.01;
+
+        const venusSt = impOut.bodyStates.venus;
+        venusSpacePos.copy(venusSt.worldPos);
+        venusMesh.position.copy(venusSpacePos);
+        venusMesh.scale.multiplyScalar(Math.max(0.001, venusSt.scaleFactor));
+        venusGlowSprite.position.copy(venusSpacePos);
+
+        for (const [pId, entry] of extraPlanetMap.entries()) {
+          const pSt = impOut.bodyStates[pId];
+          if (!pSt) continue;
+          entry.root.position.copy(pSt.worldPos);
+          entry.root.scale.multiplyScalar(Math.max(0.001, pSt.scaleFactor));
+          entry.root.visible = pSt.scaleFactor > 0.01;
+          if (pId === "jupiter") {
+            jupiterWorldPos.copy(pSt.worldPos);
+          }
+          // 太陽自身が動いた場合も各惑星の昼夜向きが太陽を向くよう更新
+          entry.uniforms.uSunDirection.value
+            .copy(sunSt.worldPos)
+            .sub(pSt.worldPos)
+            .normalize();
+        }
+        earthSystemGroup.updateMatrixWorld(true);
+        realSolarSystemGroup.updateMatrixWorld(true);
+
+        if (jupiterMoonsGroup) {
+          for (const gm of GALILEAN_MOONS) {
+            const mEntry = jupiterGalileanMeshes.get(gm.id);
+            const gSt = impOut.bodyStates[gm.id];
+            if (!mEntry || !gSt) continue;
+            tmpWorldPos.copy(gSt.worldPos).multiplyScalar(solarWorldScale);
+            jupiterMoonsGroup.worldToLocal(tmpWorldPos);
+            mEntry.mesh.position.copy(tmpWorldPos);
+            mEntry.mesh.scale.setScalar(Math.max(0.001, gSt.scaleFactor));
+            mEntry.mesh.visible = gSt.scaleFactor > 0.01;
+          }
+          realSolarSystemGroup.updateMatrixWorld(true);
+        }
+      } else {
+        moonMesh.visible = true;
+        for (const entry of extraPlanetMap.values()) {
+          entry.root.visible = true;
+        }
+        for (const mEntry of jupiterGalileanMeshes.values()) {
+          mEntry.mesh.scale.setScalar(1);
+          mEntry.mesh.visible = true;
+        }
+      }
+
       // 遠方星空・黄道13星座天球・カシオペア座の位置を更新します（地球中心ビュー・地上視点では視差ゼロの地球中心へ配置）。
       const starExpansion = Math.max(
         1.0 + 21.0 * Math.max(s, cBlend * 0.45),
@@ -3732,6 +4363,22 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         camera.quaternion.slerp(focusCamQuat, fBlend);
       }
 
+      // 衝突の規模に応じたカメラシェイク（複数の sin 波を重ねて不規則に揺らします）
+      if (impOut.cameraShake > 0.002) {
+        const shakeAmp =
+          impOut.cameraShake *
+          0.028 *
+          Math.max(2.0, camera.position.distanceTo(earthOrbitPos));
+        const t = totalTimeSec;
+        const jx = Math.sin(t * 61.0) * 0.6 + Math.sin(t * 37.3 + 1.7) * 0.4;
+        const jy = Math.sin(t * 53.0 + 0.9) * 0.6 + Math.sin(t * 29.1 + 2.3) * 0.4;
+        camRightVec.set(1, 0, 0).applyQuaternion(camera.quaternion);
+        camUpVec.set(0, 1, 0).applyQuaternion(camera.quaternion);
+        camera.position
+          .addScaledVector(camRightVec, jx * shakeAmp)
+          .addScaledVector(camUpVec, jy * shakeAmp);
+      }
+
       camera.up.set(0, 1, 0).applyQuaternion(camera.quaternion);
       camForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
 
@@ -3836,12 +4483,20 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
 
       // 地上・黄道ビューへ降りきった後は地球本体の球面メッシュを隠して、内側が映り込むのを防ぎます（地球フォーカス時は必ず表示）。
       const focusingEarth = fBlend > 0.05 && focus.activeId === "earth";
-      sunMesh.visible = !hideSolarForCosmic;
-      sunCoronaMesh.visible = !hideSolarForCosmic;
+      const sunImpactAlive = impOut.bodyStates.sun.scaleFactor > 0.01;
+      sunMesh.visible = sunImpactAlive && !hideSolarForCosmic;
+      sunCoronaMesh.visible = sunImpactAlive && !hideSolarForCosmic;
+      // 天体衝突で地球が消滅している間は、地球本体・大気・経緯線・都市を隠します。
+      const earthImpactAlive = impOut.earthScaleFactor > 0.01;
+      const earthImpactIntact = impOut.earthScaleFactor > 0.3;
       earthMesh.visible =
-        !hideSolarForCosmic && (focusingEarth || (g < 0.78 && eBlend < 0.52));
+        earthImpactAlive &&
+        !hideSolarForCosmic &&
+        (focusingEarth || (g < 0.78 && eBlend < 0.52));
       atmosphereMesh.visible =
-        !hideSolarForCosmic && (focusingEarth || (g < 0.48 && eBlend < 0.35));
+        earthImpactAlive &&
+        !hideSolarForCosmic &&
+        (focusingEarth || (g < 0.48 && eBlend < 0.35));
 
       // 月の観察距離では、太陽光線矢印と「☀ 太陽」バッジが白道リングの外側に来るよう滑らかに押し出します。
       const moonBeamFactor = THREE.MathUtils.clamp(
@@ -3853,6 +4508,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       sunBeamRoot.updateMatrixWorld(true);
 
       graticuleGroup.visible =
+        earthImpactIntact &&
         !hideSolarForCosmic &&
         curLayers.graticule &&
         g < 0.45 &&
@@ -3878,7 +4534,11 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         !isOrbitOverview &&
         !isGroundView &&
         !isEclipticSkyView;
-      citiesGroup.visible = !hideSolarForCosmic && curLayers.cities && isEarthCloseup;
+      citiesGroup.visible =
+        earthImpactIntact &&
+        !hideSolarForCosmic &&
+        curLayers.cities &&
+        isEarthCloseup;
       starsGroup.visible = true;
       // リアル太陽系モードでも地球の衛星（月）を保持し、遠方全体俯瞰時だけ小さなリングが潰れないよう整理します。
       moonSystemGroup.visible =
@@ -3898,7 +4558,9 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         isMoonView;
       venusOrbitGroup.visible =
         !hideSolarForCosmic && curLayers.venusAndOrbit && isSimpleOrbitOverview;
+      const venusImpactAlive = impOut.bodyStates.venus.scaleFactor > 0.01;
       venusMesh.visible =
+        venusImpactAlive &&
         !hideSolarForCosmic &&
         (curLayers.venusAndOrbit || isRealSolarSystem) &&
         (isOrbitOverview || isGroundView || isEclipticSkyView);
@@ -4123,7 +4785,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         const btn = labelButtonRefs.current.get(cityId);
         if (!btn) continue;
 
-        if (!curLayers.cities || !isEarthCloseup) {
+        if (!curLayers.cities || !isEarthCloseup || !earthImpactIntact) {
           btn.style.display = "none";
           continue;
         }
@@ -4732,6 +5394,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       tokyoGroundBundle.material.dispose();
       skylineMat.dispose();
       cosmicRig.dispose();
+      impactRig.dispose();
+      impactRigRef.current = null;
       renderer.dispose();
       if (renderer.domElement.parentNode === host) {
         host.removeChild(renderer.domElement);
@@ -4741,7 +5405,17 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
 
   return (
     <div className="viewport-stage">
-      <div ref={hostRef} className="three-canvas-host" />
+      <div
+        ref={hostRef}
+        className={`three-canvas-host ${
+          activeImpactorId !== null ? "is-impact-aim" : ""
+        }`}
+      />
+      <div
+        ref={impactFlashRef}
+        className="impact-flash-overlay"
+        aria-hidden="true"
+      />
       <div className="city-overlay-layer" aria-label="3D空間のラベル">
         {cities.map((city) => {
           const isSelected = city.id === selectedCityId;

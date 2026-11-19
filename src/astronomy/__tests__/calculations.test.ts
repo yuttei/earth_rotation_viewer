@@ -2,6 +2,15 @@ import { describe, expect, it } from "vitest";
 import { OBSERVATION_CITIES } from "../../data/cities";
 import type { City } from "../../types/astronomy";
 import {
+  IMPACTOR_MAP,
+  IMPACTOR_SPECS,
+  SOLAR_TARGET_SPECS,
+  SolarImpactorEntry,
+  createSolarNBodyEntriesFromSnapshot,
+  predictSolarNBodyTrajectory,
+  resolveSolarNBodyCollisions,
+} from "../impactPhysics";
+import {
   EARTH_AXIAL_TILT_DEG,
   SEASON_PRESETS,
   SIDEREAL_DAY_SECONDS,
@@ -615,5 +624,111 @@ describe("天文計算エンジン (calculations)", () => {
         summerState.gmstRad
       )
     ).toBeGreaterThan(55);
+  });
+
+  it("リアル太陽系N体万有引力・天体衝突シミュレーターの全10種投入天体（複数同時投入を含む）と太陽系15天体の相互衝突・軌道乱れが正しく動作する", () => {
+    expect(IMPACTOR_SPECS).toHaveLength(10);
+    expect(SOLAR_TARGET_SPECS).toHaveLength(15);
+    expect(IMPACTOR_MAP.redDwarf.isStar).toBe(true);
+    expect(IMPACTOR_MAP.sunStar.isStar).toBe(true);
+    expect(IMPACTOR_MAP.blueSupergiant.isStar).toBe(true);
+    expect(IMPACTOR_MAP.neutronStar.isNeutronStar).toBe(true);
+    expect(IMPACTOR_MAP.blackHole.isBlackHole).toBe(true);
+
+    // 太陽系15天体の初期スナップショットを作成
+    const snapshot = SOLAR_TARGET_SPECS.map((s, idx) => ({
+      id: s.id,
+      pos: {
+        x: s.id === "sun" ? 0 : s.semiMajorAxisScene || idx * 5,
+        y: 0,
+        z: 0,
+      },
+      radius: s.baseRadius,
+    }));
+
+    // 1) 木星 (x = 5.2044 * 13.5 ≈ 70.26) のすぐ近くへ小惑星を置くと、木星への衝突が予測される
+    const jupX = 5.2044 * 13.5;
+    const startBodies = createSolarNBodyEntriesFromSnapshot(snapshot);
+    const hitJupiter = predictSolarNBodyTrajectory(
+      startBodies,
+      [],
+      "asteroid",
+      { x: jupX + 4.8, y: 0, z: 0 },
+      { x: -6.0, y: 0, z: 0 },
+      120,
+      0.036
+    );
+    expect(hitJupiter.hitTargets.some((t) => t.id === "jupiter")).toBe(true);
+
+    // 2) 青色超巨星を内惑星付近に投入すると、惑星たちの軌道が大きく乱れる予測軌跡が算出される
+    const starPerturb = predictSolarNBodyTrajectory(
+      startBodies,
+      [],
+      "blueSupergiant",
+      { x: 10.0, y: 0, z: 6.0 },
+      { x: 0, y: 0, z: 0 },
+      80,
+      0.036
+    );
+    expect(Object.keys(starPerturb.perturbedPaths).length).toBeGreaterThan(3);
+
+    // 3) 軌道が乱れて太陽系天体同士（例：金星と地球）が接触すると、天体間相互衝突が発生し運動量が保存・合成される
+    const bodies = createSolarNBodyEntriesFromSnapshot(snapshot);
+    bodies.venus.pos = { ...bodies.earth.pos, x: bodies.earth.pos.x - 0.5 };
+    const mutualEvents = resolveSolarNBodyCollisions(bodies, []);
+    expect(mutualEvents.length).toBeGreaterThanOrEqual(1);
+    expect(bodies.venus.alive).toBe(false);
+    expect(bodies.earth.alive).toBe(true);
+
+    // 4) 複数の投入天体を同時に置ける：ぶつかった投入天体同士は強いほう（ブラックホール）が弱いほうを吸収する
+    const makeImpactor = (
+      uid: number,
+      specId: SolarImpactorEntry["specId"],
+      x: number
+    ): SolarImpactorEntry => ({
+      uid,
+      specId,
+      pos: { x, y: 30, z: 0 },
+      vel: { x: 0, y: 0, z: 0 },
+      gravityGM: IMPACTOR_MAP[specId].gravityGM,
+      radius: IMPACTOR_MAP[specId].visualRadius,
+      alive: true,
+    });
+    const asteroidA = makeImpactor(1, "asteroid", 0);
+    const blackHoleB = makeImpactor(2, "blackHole", 0.3);
+    const impEvents = resolveSolarNBodyCollisions(
+      createSolarNBodyEntriesFromSnapshot(snapshot),
+      [asteroidA, blackHoleB]
+    );
+    expect(impEvents).toHaveLength(1);
+    expect(impEvents[0].primaryImpactorUid).toBe(2);
+    expect(impEvents[0].effectSpecId).toBe("blackHole");
+    expect(asteroidA.alive).toBe(false);
+    expect(blackHoleB.alive).toBe(true);
+
+    // 5) すでに飛んでいる天体の重力も予測に入り、予測計算は本物の状態を書き換えない
+    const existingBlackHole = makeImpactor(3, "blackHole", 12);
+    const withoutExisting = predictSolarNBodyTrajectory(
+      startBodies,
+      [],
+      "asteroid",
+      { x: 0, y: 30, z: 0 },
+      { x: 0, y: 0, z: 0 },
+      20
+    );
+    const withExisting = predictSolarNBodyTrajectory(
+      startBodies,
+      [existingBlackHole],
+      "asteroid",
+      { x: 0, y: 30, z: 0 },
+      { x: 0, y: 0, z: 0 },
+      20
+    );
+    const lastWithout = withoutExisting.impactorPath[withoutExisting.impactorPath.length - 1];
+    const lastWith = withExisting.impactorPath[withExisting.impactorPath.length - 1];
+    // ブラックホール（x = 12）のほうへ引き寄せられるので、x 座標が大きくなる
+    expect(lastWith.x).toBeGreaterThan(lastWithout.x + 0.5);
+    expect(existingBlackHole.pos).toEqual({ x: 12, y: 30, z: 0 });
+    expect(startBodies.earth.pos.x).toBeCloseTo(13.5);
   });
 });

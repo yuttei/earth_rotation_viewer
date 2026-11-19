@@ -22,6 +22,10 @@ import {
   VenusState,
 } from "../types/astronomy";
 import { SEASON_PRESETS } from "../astronomy/calculations";
+import {
+  IMPACTOR_SPECS,
+  ImpactorId,
+} from "../astronomy/impactPhysics";
 import { CelestialPhaseDiagram } from "./CelestialPhaseDiagram";
 
 type InspectorTab = "city" | "display" | "guide";
@@ -85,6 +89,12 @@ interface InspectorPanelProps {
   layers: DisplayLayers;
   onToggleLayer: (key: keyof DisplayLayers) => void;
   onRunGuideExperiment: (id: GuideExperimentId) => void;
+  selectedImpactorId: ImpactorId;
+  isImpactAimMode: boolean;
+  onSelectImpactor: (id: ImpactorId) => void;
+  onSetImpactAimMode: (aimMode: boolean) => void;
+  canRestoreImpact: boolean;
+  onRestoreImpact: () => void;
 }
 
 const LAYER_LABELS: Array<{ key: keyof DisplayLayers; label: string }> = [
@@ -121,6 +131,12 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   layers,
   onToggleLayer,
   onRunGuideExperiment,
+  selectedImpactorId,
+  isImpactAimMode,
+  onSelectImpactor,
+  onSetImpactAimMode,
+  canRestoreImpact,
+  onRestoreImpact,
 }) => {
   // 視点移動を観察パネル内からすぐ操作できるよう「視点・表示」を初期タブにします。
   const [activeTab, setActiveTab] = useState<InspectorTab>("display");
@@ -261,6 +277,91 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                   </div>
                 </div>
               </div>
+            </div>
+
+            <div className="section-card impact-simulator-card">
+              <h2 className="section-title">
+                <Orbit size={13} />
+                万有引力・天体衝突シミュレーター
+              </h2>
+
+              <div className="view-group-block">
+                <span className="view-group-label">1本指ドラッグの操作モード</span>
+                <div
+                  className="option-btn-group two-col"
+                  role="group"
+                  aria-label="1本指操作モードの切り替え"
+                >
+                  <button
+                    type="button"
+                    className={`choice-btn ${!isImpactAimMode ? "is-active" : ""}`}
+                    onClick={() => onSetImpactAimMode(false)}
+                  >
+                    視点を移動
+                  </button>
+                  <button
+                    type="button"
+                    className={`choice-btn ${isImpactAimMode ? "is-active" : ""}`}
+                    onClick={() => onSetImpactAimMode(true)}
+                  >
+                    天体を狙う
+                  </button>
+                </div>
+              </div>
+
+              <div className="impact-grid">
+                {IMPACTOR_SPECS.map((spec) => {
+                  const isSelected = selectedImpactorId === spec.id;
+                  const isActiveAim = isSelected && isImpactAimMode;
+                  return (
+                    <button
+                      key={spec.id}
+                      type="button"
+                      className={`impact-btn ${isSelected ? "is-active" : ""}`}
+                      style={
+                        isActiveAim
+                          ? {
+                              borderColor: spec.accentColor,
+                              boxShadow: `0 0 18px ${spec.accentColor}44`,
+                            }
+                          : isSelected
+                          ? {
+                              borderColor: `${spec.accentColor}88`,
+                            }
+                          : undefined
+                      }
+                      aria-pressed={isActiveAim}
+                      onClick={() => onSelectImpactor(spec.id)}
+                    >
+                      <div className="impact-btn-header">
+                        <span
+                          className="impact-btn-symbol"
+                          style={{ color: spec.accentColor }}
+                        >
+                          {spec.symbol}
+                        </span>
+                        <span className="impact-btn-name">{spec.nameJa}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {canRestoreImpact && (
+                <div className="impact-panel-actions">
+                  <button
+                    type="button"
+                    className="choice-btn impact-action-btn is-restore"
+                    onClick={onRestoreImpact}
+                  >
+                    <RotateCcw
+                      size={11}
+                      style={{ marginRight: 4, verticalAlign: -1 }}
+                    />
+                    すぐ復活させる
+                  </button>
+                </div>
+              )}
             </div>
           </>
         )}

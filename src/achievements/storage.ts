@@ -1,4 +1,10 @@
-import { AchievementState, createEmptyAchievementState } from "./achievementState";
+import {
+  AchievementEvent,
+  AchievementState,
+  AchievementUpdateResult,
+  applyAchievementEvent,
+  createEmptyAchievementState,
+} from "./achievementState";
 import { isAchievementId } from "./definitions";
 
 /**
@@ -35,15 +41,31 @@ export function getBrowserStorage(): AchievementStorage | null {
 export function loadAchievementState(
   storage: AchievementStorage | null
 ): AchievementState {
-  const empty = createEmptyAchievementState();
-  if (!storage) return empty;
+  return readStoredAchievementState(storage) ?? createEmptyAchievementState();
+}
+
+/**
+ * 保存データを読み込みます。loadAchievementState との違いは、
+ * 「localStorage そのものが使えない（読めない）」ときに空の状態ではなく null を返す点です。
+ * null なら「保存データは頼れないので、画面が持っている状態を使う」と判断できます。
+ */
+export function readStoredAchievementState(
+  storage: AchievementStorage | null
+): AchievementState | null {
+  if (!storage) return null;
 
   let raw: string | null = null;
   try {
     raw = storage.getItem(ACHIEVEMENT_STORAGE_NAME);
   } catch {
-    return empty;
+    return null;
   }
+  return parseAchievementState(raw);
+}
+
+/** 保存データの文字列を、安全に実績の状態へ変換します（読めない部分は捨てます）。 */
+function parseAchievementState(raw: string | null): AchievementState {
+  const empty = createEmptyAchievementState();
   if (!raw) return empty;
 
   let parsed: unknown;
@@ -90,7 +112,10 @@ export function saveAchievementState(
   }
 }
 
-/** 保存データを消します。消せなかった場合は false を返します。 */
+/**
+ * 保存データを消します。消せなかった場合は false を返します。
+ * 削除に失敗したときは、代わりに「空の状態」を上書き保存して、古い記録が読み直しで復活しないようにします。
+ */
 export function clearAchievementState(
   storage: AchievementStorage | null
 ): boolean {
@@ -99,8 +124,30 @@ export function clearAchievementState(
     storage.removeItem(ACHIEVEMENT_STORAGE_NAME);
     return true;
   } catch {
-    return false;
+    return saveAchievementState(storage, createEmptyAchievementState());
   }
+}
+
+/**
+ * 出来事を1つ記録します（保存データの読み直し → 反映 → 保存）。
+ *
+ * 同じアプリを複数のタブで開いていると、画面が持っている状態は古い可能性があります。
+ * そこで反映の直前に保存データを読み直し、その最新の内容に出来事を加えてから保存します。
+ * こうすると、ほかのタブで増えた実績を上書きして消したり、ほかのタブの「記録を消す」を取り消したりしません。
+ * localStorage が使えないときだけ、画面が持っている状態（fallbackState）を土台にします。
+ */
+export function recordAchievementEventWithStorage(
+  storage: AchievementStorage | null,
+  fallbackState: AchievementState,
+  event: AchievementEvent,
+  nowIso: string
+): AchievementUpdateResult {
+  const latest = readStoredAchievementState(storage) ?? fallbackState;
+  const result = applyAchievementEvent(latest, event, nowIso);
+  if (result.state !== latest) {
+    saveAchievementState(storage, result.state);
+  }
+  return result;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

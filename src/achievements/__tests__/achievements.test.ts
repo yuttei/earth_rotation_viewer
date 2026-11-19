@@ -7,7 +7,9 @@ import { ACHIEVEMENTS } from "../definitions";
 import {
   ACHIEVEMENT_STORAGE_NAME,
   AchievementStorage,
+  clearAchievementState,
   loadAchievementState,
+  recordAchievementEventWithStorage,
   saveAchievementState,
 } from "../storage";
 
@@ -63,6 +65,24 @@ describe("実績機能 (achievements)", () => {
     }
     expect(state.progress.placedImpactorIds).toHaveLength(5);
     expect(unlockedOrder).toEqual(["place-impactor", "place-five-impactor-types"]);
+  });
+
+  it("複数タブで開いても、保存データを読み直してから反映するので、ほかのタブの記録や消去を上書きしない", () => {
+    const storage = createMemoryStorage();
+    // タブA が開いた時点の状態（まだ何も達成していない）
+    const staleTabA = createEmptyAchievementState();
+
+    // タブB で「地上に降り立つ」を達成して保存
+    recordAchievementEventWithStorage(storage, createEmptyAchievementState(), { type: "unlock", id: "ground-sky" }, NOW);
+
+    // 古い状態のタブA で別の実績を達成しても、タブB の記録が残る
+    const tabA = recordAchievementEventWithStorage(storage, staleTabA, { type: "unlock", id: "annual-motion" }, LATER);
+    expect(Object.keys(loadAchievementState(storage).unlocked).sort()).toEqual(["annual-motion", "ground-sky"]);
+
+    // タブB で「記録を消す」をしたあと、古い状態のタブA が操作しても、消した記録は復活しない
+    clearAchievementState(storage);
+    recordAchievementEventWithStorage(storage, tabA.state, { type: "unlock", id: "speed-up-time" }, LATER);
+    expect(Object.keys(loadAchievementState(storage).unlocked)).toEqual(["speed-up-time"]);
   });
 
   it("保存した状態を読み込め、壊れた保存データや未知の id は安全に無視する", () => {

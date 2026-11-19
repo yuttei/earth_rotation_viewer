@@ -582,8 +582,19 @@ export function App() {
     };
     setIsCustomTimeTransition(false);
     setTransitioningSeasonId(seasonId);
-    unlockAchievement("jump-to-season");
-  }, [unlockAchievement]);
+  }, []);
+
+  /**
+   * ユーザーが画面下の季節ボタンを押したとき。
+   * 学習ガイドの実験も内部で handleSelectSeason を使うため、実績「季節を旅する」はこのボタン経由のときだけ達成にします。
+   */
+  const handleSelectSeasonByUser = useCallback(
+    (seasonId: SeasonPreset["id"]) => {
+      handleSelectSeason(seasonId);
+      unlockAchievement("jump-to-season");
+    },
+    [handleSelectSeason, unlockAchievement]
+  );
 
   const handleTogglePlay = useCallback(() => {
     setIsPlaying((prev) => {
@@ -1632,7 +1643,7 @@ export function App() {
           onChangeSpeed={handleChangeSpeedByUser}
           currentDate={currentDate}
           onSetDate={applyNewDate}
-          onSelectSeason={handleSelectSeason}
+          onSelectSeason={handleSelectSeasonByUser}
           transitioningSeasonId={transitioningSeasonId}
           onResetToNow={handleResetToNow}
           isAnnualMotionMode={isAnnualMotionMode}

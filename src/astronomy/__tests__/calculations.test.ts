@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { OBSERVATION_CITIES } from "../../data/cities";
+import {
+  BODY_RADIUS_EARTH,
+  REAL_SOLAR_SUN_RADIUS,
+  realSolarDisplayRadius,
+} from "../bodySizes";
 import type { City } from "../../types/astronomy";
 import {
   IMPACTOR_MAP,
   IMPACTOR_SPECS,
+  SOLAR_TARGET_MAP,
   SOLAR_TARGET_SPECS,
   SolarImpactorEntry,
   createSolarNBodyEntriesFromSnapshot,
@@ -635,15 +641,16 @@ describe("天文計算エンジン (calculations)", () => {
     expect(IMPACTOR_MAP.neutronStar.isNeutronStar).toBe(true);
     expect(IMPACTOR_MAP.blackHole.isBlackHole).toBe(true);
 
-    // 太陽系15天体の初期スナップショットを作成
-    const snapshot = SOLAR_TARGET_SPECS.map((s, idx) => ({
-      id: s.id,
-      pos: {
-        x: s.id === "sun" ? 0 : s.semiMajorAxisScene || idx * 5,
-        y: 0,
-        z: 0,
-      },
-    }));
+    // 太陽系15天体の初期スナップショットを作成（衛星は母惑星の外側に並べる）
+    const snapshot = SOLAR_TARGET_SPECS.map((s) => {
+      const parentX = s.parentId
+        ? SOLAR_TARGET_MAP[s.parentId].semiMajorAxisScene
+        : 0;
+      return {
+        id: s.id,
+        pos: { x: parentX + s.semiMajorAxisScene, y: 0, z: 0 },
+      };
+    });
 
     // 1) 木星 (x = 5.2044 * 13.5 ≈ 70.26) のすぐ近くへ小惑星を置くと、木星への衝突が予測される
     const jupX = 5.2044 * 13.5;
@@ -677,7 +684,7 @@ describe("天文計算エンジン (calculations)", () => {
 
     // 3) 軌道が乱れて太陽系天体同士（例：金星と地球）が接触すると、天体間相互衝突が発生し運動量が保存・合成される
     const bodies = createSolarNBodyEntriesFromSnapshot(snapshot);
-    bodies.venus.pos = { ...bodies.earth.pos, x: bodies.earth.pos.x - 0.5 };
+    bodies.venus.pos = { ...bodies.earth.pos, x: bodies.earth.pos.x - 0.3 };
     const mutualEvents = resolveSolarNBodyCollisions(bodies, []);
     expect(mutualEvents.length).toBeGreaterThanOrEqual(1);
     expect(bodies.venus.alive).toBe(false);
@@ -698,7 +705,7 @@ describe("天文計算エンジン (calculations)", () => {
       alive: true,
     });
     const asteroidA = makeImpactor(1, "asteroid", 0);
-    const blackHoleB = makeImpactor(2, "blackHole", 0.3);
+    const blackHoleB = makeImpactor(2, "blackHole", 0.2);
     const impEvents = resolveSolarNBodyCollisions(
       createSolarNBodyEntriesFromSnapshot(snapshot),
       [asteroidA, blackHoleB]
@@ -733,5 +740,38 @@ describe("天文計算エンジン (calculations)", () => {
     expect(lastWith.x).toBeGreaterThan(lastWithout.x + 0.5);
     expect(existingBlackHole.pos).toEqual({ x: 12, y: 30, z: 0 });
     expect(startBodies.earth.pos.x).toBeCloseTo(13.5);
+
+    // 6) 1ステップで地球を飛び越えるほど速い天体も、ステップの間の移動（線分）で判定して衝突を見逃さない
+    const sweepBodies = createSolarNBodyEntriesFromSnapshot(snapshot);
+    const ep = sweepBodies.earth.pos;
+    sweepBodies.earth.prevPos = { ...ep };
+    const fastAsteroid = makeImpactor(4, "asteroid", 0);
+    fastAsteroid.prevPos = { x: ep.x - 2, y: ep.y, z: ep.z };
+    fastAsteroid.pos = { x: ep.x + 2, y: ep.y, z: ep.z };
+    const sweepEvents = resolveSolarNBodyCollisions(sweepBodies, [fastAsteroid]);
+    expect(sweepEvents.some((e) => e.primaryId === "earth")).toBe(true);
+    // 衝突点は地球の表面（中心から地球の半径の位置）
+    expect(Math.abs(sweepEvents[0].contactPoint.x - ep.x)).toBeCloseTo(
+      sweepBodies.earth.radius,
+      6
+    );
+  });
+  it("リアル太陽系モードの惑星の表示半径が実際の半径の比を保ち、太陽は木星より大きく水星の近日点より内側に収まる", () => {
+    // 惑星どうしの大きさの比は実際と同じ（例：木星 ÷ 地球 = 11.21）
+    expect(
+      realSolarDisplayRadius("jupiter") / realSolarDisplayRadius("earth")
+    ).toBeCloseTo(BODY_RADIUS_EARTH.jupiter / BODY_RADIUS_EARTH.earth, 6);
+    expect(
+      realSolarDisplayRadius("pluto") / realSolarDisplayRadius("mars")
+    ).toBeCloseTo(BODY_RADIUS_EARTH.pluto / BODY_RADIUS_EARTH.mars, 6);
+    // 木星はこれまでと同じ 3.1、太陽は木星より大きく、水星の近日点（0.307 AU × 13.5）より内側
+    expect(realSolarDisplayRadius("jupiter")).toBeCloseTo(3.1, 6);
+    expect(REAL_SOLAR_SUN_RADIUS).toBeGreaterThan(realSolarDisplayRadius("jupiter"));
+    expect(REAL_SOLAR_SUN_RADIUS + realSolarDisplayRadius("mercury")).toBeLessThan(
+      0.307 * 13.5
+    );
+    // 衝突判定の半径も表示半径と同じ値
+    expect(SOLAR_TARGET_MAP.earth.baseRadius).toBeCloseTo(realSolarDisplayRadius("earth"), 6);
+    expect(SOLAR_TARGET_MAP.sun.baseRadius).toBe(REAL_SOLAR_SUN_RADIUS);
   });
 });

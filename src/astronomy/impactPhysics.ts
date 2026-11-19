@@ -7,6 +7,13 @@
  * 投入天体は種類を問わず何個でも同時に置けて、投入天体同士も互いに引き合い、ぶつかると合体します。
  */
 
+import {
+  REAL_SOLAR_SUN_RADIUS,
+  SIMPLE_MODE_MOON_ORBIT_RADIUS,
+  realSolarDisplayRadius,
+} from "./bodySizes";
+import { GALILEAN_MOONS } from "./solarSystem";
+
 export type ImpactorId =
   | "asteroid"
   | "comet"
@@ -60,7 +67,11 @@ export interface ImpactorSpec {
   symbol: string;
   /** UIアクセントカラー */
   accentColor: string;
-  /** 3D表示基準半径（地球半径 = 1.0 基準） */
+  /**
+   * 3D表示と衝突判定の半径（シーン単位。リアル太陽系モードの地球の半径は約 0.277）。
+   * 月サイズ・火星サイズ・木星サイズは惑星と同じ実比率、恒星は太陽と同じ別縮尺、
+   * 小惑星・氷彗星・中性子星・ブラックホールは実寸では見えないため、見える最小限の大きさにしています。
+   */
   visualRadius: number;
   /** 衝突・重力演出上の相対質量（地球 = 1.0 基準） */
   relativeMass: number;
@@ -99,7 +110,7 @@ export const IMPACTOR_SPECS: ImpactorSpec[] = [
     tierLabelJa: "小天体：クレーター傷・局所爆発",
     symbol: "☄",
     accentColor: "#fb923c",
-    visualRadius: 0.22,
+    visualRadius: 0.05,
     relativeMass: 0.0008,
     gravityGM: 0.12,
     survivesMoonImpact: false,
@@ -122,7 +133,7 @@ export const IMPACTOR_SPECS: ImpactorSpec[] = [
     tierLabelJa: "小天体：氷蒸気クレーター",
     symbol: "❄",
     accentColor: "#38bdf8",
-    visualRadius: 0.24,
+    visualRadius: 0.055,
     relativeMass: 0.0005,
     gravityGM: 0.08,
     survivesMoonImpact: false,
@@ -145,7 +156,7 @@ export const IMPACTOR_SPECS: ImpactorSpec[] = [
     tierLabelJa: "惑星級：地殻崩壊・マグマ化",
     symbol: "🌑",
     accentColor: "#f59e0b",
-    visualRadius: 0.42,
+    visualRadius: realSolarDisplayRadius("moon"),
     relativeMass: 0.05,
     gravityGM: 8.5,
     survivesMoonImpact: true,
@@ -168,7 +179,7 @@ export const IMPACTOR_SPECS: ImpactorSpec[] = [
     tierLabelJa: "惑星級：惑星崩壊・軌道乱れ",
     symbol: "♂",
     accentColor: "#f87171",
-    visualRadius: 0.64,
+    visualRadius: realSolarDisplayRadius("mars"),
     relativeMass: 0.15,
     gravityGM: 22.0,
     survivesMoonImpact: true,
@@ -191,7 +202,7 @@ export const IMPACTOR_SPECS: ImpactorSpec[] = [
     tierLabelJa: "惑星級：巨大ガス惑星・丸呑み",
     symbol: "♃",
     accentColor: "#fbbf24",
-    visualRadius: 1.65,
+    visualRadius: realSolarDisplayRadius("jupiter"),
     relativeMass: 8.5,
     gravityGM: 190.0,
     survivesMoonImpact: true,
@@ -214,7 +225,7 @@ export const IMPACTOR_SPECS: ImpactorSpec[] = [
     tierLabelJa: "恒星級：連星カオス・恒星大爆発",
     symbol: "✦",
     accentColor: "#fb7185",
-    visualRadius: 1.55,
+    visualRadius: REAL_SOLAR_SUN_RADIUS * 0.6,
     relativeMass: 28.0,
     gravityGM: 540.0,
     survivesMoonImpact: true,
@@ -237,7 +248,7 @@ export const IMPACTOR_SPECS: ImpactorSpec[] = [
     tierLabelJa: "恒星級：連星カオス・恒星合体",
     symbol: "☀",
     accentColor: "#fde047",
-    visualRadius: 1.95,
+    visualRadius: REAL_SOLAR_SUN_RADIUS,
     relativeMass: 65.0,
     gravityGM: 1200.0,
     survivesMoonImpact: true,
@@ -260,7 +271,7 @@ export const IMPACTOR_SPECS: ImpactorSpec[] = [
     tierLabelJa: "恒星級：超巨大恒星・超新星爆発",
     symbol: "✸",
     accentColor: "#60a5fa",
-    visualRadius: 2.85,
+    visualRadius: REAL_SOLAR_SUN_RADIUS * 1.6,
     relativeMass: 140.0,
     gravityGM: 2400.0,
     survivesMoonImpact: true,
@@ -283,7 +294,7 @@ export const IMPACTOR_SPECS: ImpactorSpec[] = [
     tierLabelJa: "極限天体：強重力潮汐破壊・吸い込み",
     symbol: "✧",
     accentColor: "#22d3ee",
-    visualRadius: 0.58,
+    visualRadius: 0.12,
     relativeMass: 95.0,
     gravityGM: 1750.0,
     survivesMoonImpact: true,
@@ -306,7 +317,7 @@ export const IMPACTOR_SPECS: ImpactorSpec[] = [
     tierLabelJa: "極限天体：事象の地平線・完全吸収",
     symbol: "◉",
     accentColor: "#c084fc",
-    visualRadius: 0.78,
+    visualRadius: 0.3,
     relativeMass: 220.0,
     gravityGM: 3200.0,
     survivesMoonImpact: true,
@@ -335,6 +346,7 @@ export const IMPACTOR_MAP: Record<ImpactorId, ImpactorSpec> =
 /**
  * リアル太陽系の全15天体のN体万有引力パラメータ定義です。
  * 1 AU = 13.5 シーン単位において、太陽 (GM = 1200) のまわりを各惑星がケプラー速度で公転し、
+ * 衝突判定の半径（baseRadius）はリアル太陽系モードの表示半径（bodySizes.ts）と同じ値です。
  * 重い天体が近づくと軌道が乱れて惑星同士や太陽との衝突が発生します。
  */
 export interface SolarTargetPhysicsSpec {
@@ -343,7 +355,7 @@ export interface SolarTargetPhysicsSpec {
   symbol: string;
   /** シーン空間での万有引力定数 GM */
   gravityGM: number;
-  /** 基準衝突半径（シーン単位） */
+  /** 衝突判定の半径（シーン単位。リアル太陽系モードの表示半径と同じで、ズームでは変わりません） */
   baseRadius: number;
   /** 衛星の場合の母惑星ID（太陽を直接公転する天体は null） */
   parentId: SolarImpactTargetId | null;
@@ -355,13 +367,20 @@ export interface SolarTargetPhysicsSpec {
   isGasOrStar: boolean;
 }
 
+/** 木星4衛星の、木星の中心からの描画上の公転半径（シーン単位） */
+function galileanOrbitScene(id: "io" | "europa" | "ganymede" | "callisto"): number {
+  const moon = GALILEAN_MOONS.find((m) => m.id === id);
+  const orbitFactor = moon ? moon.visualOrbitFactor : 2;
+  return orbitFactor * realSolarDisplayRadius("jupiter");
+}
+
 export const SOLAR_TARGET_SPECS: SolarTargetPhysicsSpec[] = [
   {
     id: "sun",
     nameJa: "太陽",
     symbol: "☀",
     gravityGM: 1200.0,
-    baseRadius: 1.85,
+    baseRadius: REAL_SOLAR_SUN_RADIUS,
     parentId: null,
     semiMajorAxisScene: 0,
     accentHex: 0xfbbf24,
@@ -372,7 +391,7 @@ export const SOLAR_TARGET_SPECS: SolarTargetPhysicsSpec[] = [
     nameJa: "水星",
     symbol: "☿",
     gravityGM: 5.5,
-    baseRadius: 0.42,
+    baseRadius: realSolarDisplayRadius("mercury"),
     parentId: null,
     semiMajorAxisScene: 0.387099 * 13.5,
     accentHex: 0xcbd5e1,
@@ -383,7 +402,7 @@ export const SOLAR_TARGET_SPECS: SolarTargetPhysicsSpec[] = [
     nameJa: "金星",
     symbol: "♀",
     gravityGM: 22.0,
-    baseRadius: 0.78,
+    baseRadius: realSolarDisplayRadius("venus"),
     parentId: null,
     semiMajorAxisScene: 0.723332 * 13.5,
     accentHex: 0xfde68a,
@@ -394,7 +413,7 @@ export const SOLAR_TARGET_SPECS: SolarTargetPhysicsSpec[] = [
     nameJa: "地球",
     symbol: "●",
     gravityGM: 28.0,
-    baseRadius: 1.0,
+    baseRadius: realSolarDisplayRadius("earth"),
     parentId: null,
     semiMajorAxisScene: 1.0 * 13.5,
     accentHex: 0x38bdf8,
@@ -405,9 +424,10 @@ export const SOLAR_TARGET_SPECS: SolarTargetPhysicsSpec[] = [
     nameJa: "月",
     symbol: "☾",
     gravityGM: 3.2,
-    baseRadius: 0.24,
+    baseRadius: realSolarDisplayRadius("moon"),
     parentId: "earth",
-    semiMajorAxisScene: 1.932,
+    semiMajorAxisScene:
+      SIMPLE_MODE_MOON_ORBIT_RADIUS * realSolarDisplayRadius("earth"),
     accentHex: 0xe2e8f0,
     isGasOrStar: false,
   },
@@ -416,7 +436,7 @@ export const SOLAR_TARGET_SPECS: SolarTargetPhysicsSpec[] = [
     nameJa: "火星",
     symbol: "♂",
     gravityGM: 11.0,
-    baseRadius: 0.58,
+    baseRadius: realSolarDisplayRadius("mars"),
     parentId: null,
     semiMajorAxisScene: 1.523679 * 13.5,
     accentHex: 0xfb923c,
@@ -427,7 +447,7 @@ export const SOLAR_TARGET_SPECS: SolarTargetPhysicsSpec[] = [
     nameJa: "木星",
     symbol: "♃",
     gravityGM: 165.0,
-    baseRadius: 3.1,
+    baseRadius: realSolarDisplayRadius("jupiter"),
     parentId: null,
     semiMajorAxisScene: 5.2044 * 13.5,
     accentHex: 0xfdba74,
@@ -438,9 +458,9 @@ export const SOLAR_TARGET_SPECS: SolarTargetPhysicsSpec[] = [
     nameJa: "イオ",
     symbol: "◦",
     gravityGM: 2.4,
-    baseRadius: 0.25,
+    baseRadius: realSolarDisplayRadius("io"),
     parentId: "jupiter",
-    semiMajorAxisScene: 1.42 * 3.1,
+    semiMajorAxisScene: galileanOrbitScene("io"),
     accentHex: 0xfacc15,
     isGasOrStar: false,
   },
@@ -449,9 +469,9 @@ export const SOLAR_TARGET_SPECS: SolarTargetPhysicsSpec[] = [
     nameJa: "エウロパ",
     symbol: "◦",
     gravityGM: 2.2,
-    baseRadius: 0.23,
+    baseRadius: realSolarDisplayRadius("europa"),
     parentId: "jupiter",
-    semiMajorAxisScene: 1.98 * 3.1,
+    semiMajorAxisScene: galileanOrbitScene("europa"),
     accentHex: 0xbae6fd,
     isGasOrStar: false,
   },
@@ -460,9 +480,9 @@ export const SOLAR_TARGET_SPECS: SolarTargetPhysicsSpec[] = [
     nameJa: "ガニメデ",
     symbol: "◦",
     gravityGM: 3.0,
-    baseRadius: 0.3,
+    baseRadius: realSolarDisplayRadius("ganymede"),
     parentId: "jupiter",
-    semiMajorAxisScene: 2.72 * 3.1,
+    semiMajorAxisScene: galileanOrbitScene("ganymede"),
     accentHex: 0xcbd5e1,
     isGasOrStar: false,
   },
@@ -471,9 +491,9 @@ export const SOLAR_TARGET_SPECS: SolarTargetPhysicsSpec[] = [
     nameJa: "カリスト",
     symbol: "◦",
     gravityGM: 2.6,
-    baseRadius: 0.27,
+    baseRadius: realSolarDisplayRadius("callisto"),
     parentId: "jupiter",
-    semiMajorAxisScene: 3.68 * 3.1,
+    semiMajorAxisScene: galileanOrbitScene("callisto"),
     accentHex: 0x94a3b8,
     isGasOrStar: false,
   },
@@ -482,7 +502,7 @@ export const SOLAR_TARGET_SPECS: SolarTargetPhysicsSpec[] = [
     nameJa: "土星",
     symbol: "♄",
     gravityGM: 92.0,
-    baseRadius: 2.6,
+    baseRadius: realSolarDisplayRadius("saturn"),
     parentId: null,
     semiMajorAxisScene: 9.5826 * 13.5,
     accentHex: 0xfcd34d,
@@ -493,7 +513,7 @@ export const SOLAR_TARGET_SPECS: SolarTargetPhysicsSpec[] = [
     nameJa: "天王星",
     symbol: "♅",
     gravityGM: 36.0,
-    baseRadius: 1.75,
+    baseRadius: realSolarDisplayRadius("uranus"),
     parentId: null,
     semiMajorAxisScene: 19.2184 * 13.5,
     accentHex: 0x67e8f9,
@@ -504,7 +524,7 @@ export const SOLAR_TARGET_SPECS: SolarTargetPhysicsSpec[] = [
     nameJa: "海王星",
     symbol: "♆",
     gravityGM: 38.0,
-    baseRadius: 1.7,
+    baseRadius: realSolarDisplayRadius("neptune"),
     parentId: null,
     semiMajorAxisScene: 30.1104 * 13.5,
     accentHex: 0x60a5fa,
@@ -515,7 +535,7 @@ export const SOLAR_TARGET_SPECS: SolarTargetPhysicsSpec[] = [
     nameJa: "冥王星",
     symbol: "♇",
     gravityGM: 4.5,
-    baseRadius: 0.85,
+    baseRadius: realSolarDisplayRadius("pluto"),
     parentId: null,
     semiMajorAxisScene: 39.482 * 13.5,
     accentHex: 0xd8b4fe,
@@ -550,6 +570,8 @@ export interface SolarNBodyEntry {
   radius: number;
   parentId: SolarImpactTargetId | null;
   alive: boolean;
+  /** 直前の1ステップを始めたときの位置（衝突の途中判定に使います。まだ1回も進めていなければ未設定） */
+  prevPos?: Vec3Tuple;
 }
 
 /**
@@ -565,6 +587,8 @@ export interface SolarImpactorEntry {
   gravityGM: number;
   radius: number;
   alive: boolean;
+  /** 直前の1ステップを始めたときの位置（衝突の途中判定に使います。まだ1回も進めていなければ未設定） */
+  prevPos?: Vec3Tuple;
 }
 
 /** 衝突の当事者を表す ID（"impactor" は投入天体、それ以外は太陽系天体） */
@@ -866,6 +890,17 @@ export function stepSolarNBodyGravity(
   const halfDt2 = 0.5 * dt * dt;
   const halfDt = 0.5 * dt;
 
+  // 動かす前の位置を覚えておきます。衝突判定（resolveSolarNBodyCollisions）で、
+  // このステップの間に通り過ぎた区間（線分）も調べ、速く動く天体が小さな天体をすり抜けないようにするためです。
+  // 予測の複製と位置を共有しないよう、毎回新しいオブジェクトを作ります。
+  for (const spec of SOLAR_TARGET_SPECS) {
+    const b = bodies[spec.id];
+    if (b && b.alive) b.prevPos = { ...b.pos };
+  }
+  for (const imp of impactors) {
+    if (imp.alive) imp.prevPos = { ...imp.pos };
+  }
+
   for (const spec of SOLAR_TARGET_SPECS) {
     const b = bodies[spec.id];
     if (!b || !b.alive) continue;
@@ -907,6 +942,81 @@ export function stepSolarNBodyGravity(
   }
 }
 
+/** 衝突判定の結果：いつ・どこで2天体が触れたか */
+interface SweptContact {
+  /** ステップの始め（0）から終わり（1）のうち、初めて触れた時点 */
+  t: number;
+  /** 触れた時点の、a から b へ向かうベクトル（b の位置 − a の位置） */
+  rel: Vec3Tuple;
+  /** 触れた時点の a の位置 */
+  aAt: Vec3Tuple;
+  /** 触れた時点の b の位置 */
+  bAt: Vec3Tuple;
+}
+
+/**
+ * 2天体が直前の1ステップの間に、距離 hitR 以内まで近づいたかを調べます（スイープ判定）。
+ *
+ * ステップの終わりの位置だけで重なりを調べると、1ステップで動く距離が天体の大きさより長いとき、
+ * 天体どうしが「すり抜けて」衝突を見逃します。そこで、ステップの間は2天体がそれぞれ
+ * prevPos から pos へまっすぐ動いたとみなし、2天体の間の距離がいちばん小さくなる時点で判定します。
+ * ぶつかった場合は、初めて距離 hitR になった時点（めり込み始め）の位置を返します。
+ *
+ * 予測（predictSolarNBodyTrajectory）と実際の進行は、どちらもこの関数で判定するので、刻み幅が違っても結果がそろいます。
+ */
+function sweptContact(
+  a: { pos: Vec3Tuple; prevPos?: Vec3Tuple },
+  b: { pos: Vec3Tuple; prevPos?: Vec3Tuple },
+  hitR: number
+): SweptContact | null {
+  const a0 = a.prevPos ?? a.pos;
+  const b0 = b.prevPos ?? b.pos;
+  // ステップの始めの相対位置 d0 と、ステップの間の相対移動 dv
+  const d0x = b0.x - a0.x;
+  const d0y = b0.y - a0.y;
+  const d0z = b0.z - a0.z;
+  const dvx = b.pos.x - b0.x - (a.pos.x - a0.x);
+  const dvy = b.pos.y - b0.y - (a.pos.y - a0.y);
+  const dvz = b.pos.z - b0.z - (a.pos.z - a0.z);
+
+  // 距離の2乗 |d0 + t・dv|² = A t² + 2B t + C（t は 0〜1）
+  const A = dvx * dvx + dvy * dvy + dvz * dvz;
+  const B = d0x * dvx + d0y * dvy + d0z * dvz;
+  const C = d0x * d0x + d0y * d0y + d0z * d0z - hitR * hitR;
+
+  let t: number;
+  if (C <= 0) {
+    // ステップの始めから、すでに触れていた
+    t = 0;
+  } else {
+    if (A < 1e-12) return null; // ほとんど動いていないので、始めに触れていなければ触れない
+    // いちばん近づく時点（0〜1 に収める）での距離が hitR より大きければ、触れていない
+    const tClosest = Math.min(1, Math.max(0, -B / A));
+    const minDist2 = A * tClosest * tClosest + 2 * B * tClosest + C;
+    if (minDist2 > 0) return null;
+    // 初めて距離 hitR になる時点（2次方程式の小さいほうの解）
+    const disc = Math.max(0, B * B - A * C);
+    t = Math.min(1, Math.max(0, (-B - Math.sqrt(disc)) / A));
+  }
+
+  const aAt = {
+    x: a0.x + (a.pos.x - a0.x) * t,
+    y: a0.y + (a.pos.y - a0.y) * t,
+    z: a0.z + (a.pos.z - a0.z) * t,
+  };
+  const bAt = {
+    x: b0.x + (b.pos.x - b0.x) * t,
+    y: b0.y + (b.pos.y - b0.y) * t,
+    z: b0.z + (b.pos.z - b0.z) * t,
+  };
+  return {
+    t,
+    rel: { x: bAt.x - aAt.x, y: bAt.y - aAt.y, z: bAt.z - aAt.z },
+    aAt,
+    bAt,
+  };
+}
+
 /**
  * 投入天体同士がぶつかったときに、どちらが生き残るかを決めるための「強さ」です。
  * ブラックホール ＞ 中性子星 ＞ その他 の順で、同じ強さなら重い（GM が大きい）ほうが勝ちます。
@@ -941,17 +1051,18 @@ export function resolveSolarNBodyCollisions(
       const target = bodies[id];
       if (!target || !target.alive) continue;
 
-      const dx = impactor.pos.x - target.pos.x;
-      const dy = impactor.pos.y - target.pos.y;
-      const dz = impactor.pos.z - target.pos.z;
-      const dist = Math.hypot(dx, dy, dz);
       const hitR = target.radius + impactor.radius * 0.72;
-      if (dist > hitR) continue;
+      // このステップの間に触れたか（すり抜けも含めて）を調べます
+      const contact = sweptContact(target, impactor, hitR);
+      if (!contact) continue;
 
+      // 触れた時点の、太陽系天体の中心から投入天体へ向かう向き
+      const dist = Math.hypot(contact.rel.x, contact.rel.y, contact.rel.z);
       const inv = 1 / Math.max(1e-5, dist);
-      const nx = dx * inv;
-      const ny = dy * inv;
-      const nz = dz * inv;
+      const nx = contact.rel.x * inv;
+      const ny = contact.rel.y * inv;
+      const nz = contact.rel.z * inv;
+      const targetAt = contact.aAt;
 
       // 極限天体（ブラックホール・中性子星）や、相手よりはるかに重い天体は相手を飲み込み／粉砕して進み続けます
       const impactorDominates =
@@ -977,7 +1088,7 @@ export function resolveSolarNBodyCollisions(
           primaryImpactorUid: impactor.uid,
           secondaryImpactorUid: null,
           effectSpecId: impactor.specId,
-          contactPoint: { ...target.pos },
+          contactPoint: { ...targetAt },
           contactNormalOnPrimary: { x: -nx, y: -ny, z: -nz },
           primaryDestroyed: false,
           secondaryDestroyed: true,
@@ -1010,9 +1121,9 @@ export function resolveSolarNBodyCollisions(
         secondaryImpactorUid: impactor.uid,
         effectSpecId: impactor.specId,
         contactPoint: {
-          x: target.pos.x + nx * target.radius,
-          y: target.pos.y + ny * target.radius,
-          z: target.pos.z + nz * target.radius,
+          x: targetAt.x + nx * target.radius,
+          y: targetAt.y + ny * target.radius,
+          z: targetAt.z + nz * target.radius,
         },
         contactNormalOnPrimary: { x: nx, y: ny, z: nz },
         primaryDestroyed: !target.alive,
@@ -1031,12 +1142,13 @@ export function resolveSolarNBodyCollisions(
       const b = impactors[m];
       if (!b.alive) continue;
 
-      const dx = b.pos.x - a.pos.x;
-      const dy = b.pos.y - a.pos.y;
-      const dz = b.pos.z - a.pos.z;
-      const dist = Math.hypot(dx, dy, dz);
       const hitR = (a.radius + b.radius) * 0.8;
-      if (dist > hitR) continue;
+      const contact = sweptContact(a, b, hitR);
+      if (!contact) continue;
+      const dx = contact.rel.x;
+      const dy = contact.rel.y;
+      const dz = contact.rel.z;
+      const dist = Math.hypot(dx, dy, dz);
 
       const rankA = impactorDominanceRank(a);
       const rankB = impactorDominanceRank(b);
@@ -1052,6 +1164,7 @@ export function resolveSolarNBodyCollisions(
       const nx = dx * inv * sign;
       const ny = dy * inv * sign;
       const nz = dz * inv * sign;
+      const primaryAt = primary === a ? contact.aAt : contact.bAt;
 
       primary.vel = mergeVelocityByGM(
         primary.vel,
@@ -1069,9 +1182,9 @@ export function resolveSolarNBodyCollisions(
         secondaryImpactorUid: secondary.uid,
         effectSpecId: primary.specId,
         contactPoint: {
-          x: primary.pos.x + nx * primary.radius,
-          y: primary.pos.y + ny * primary.radius,
-          z: primary.pos.z + nz * primary.radius,
+          x: primaryAt.x + nx * primary.radius,
+          y: primaryAt.y + ny * primary.radius,
+          z: primaryAt.z + nz * primary.radius,
         },
         contactNormalOnPrimary: { x: nx, y: ny, z: nz },
         primaryDestroyed: false,
@@ -1092,27 +1205,25 @@ export function resolveSolarNBodyCollisions(
       const b = bodies[ids[j]];
       if (!b || !b.alive) continue;
 
-      const dx = b.pos.x - a.pos.x;
-      const dy = b.pos.y - a.pos.y;
-      const dz = b.pos.z - a.pos.z;
-      const dist = Math.hypot(dx, dy, dz);
-
       // 衛星と母惑星の間は、視覚拡大された公転半径と干渉しないよう母惑星半径の 0.88 倍を衝突閾値とします
       const isHostSatellitePair = a.parentId === b.id || b.parentId === a.id;
       const hitR = isHostSatellitePair
         ? Math.max(a.radius, b.radius) * 0.88
         : (a.radius + b.radius) * 0.85;
-      if (dist > hitR) continue;
+      // このステップの間に触れたか（すり抜けも含めて）を調べます
+      const contact = sweptContact(a, b, hitR);
+      if (!contact) continue;
 
       const primary = a.gravityGM >= b.gravityGM ? a : b;
       const secondary = primary === a ? b : a;
-      const pDx = secondary.pos.x - primary.pos.x;
-      const pDy = secondary.pos.y - primary.pos.y;
-      const pDz = secondary.pos.z - primary.pos.z;
+      // 触れた時点の、主側の中心から副側へ向かう向き
+      const sign = primary === a ? 1 : -1;
+      const dist = Math.hypot(contact.rel.x, contact.rel.y, contact.rel.z);
       const inv = 1 / Math.max(1e-5, dist);
-      const nx = pDx * inv;
-      const ny = pDy * inv;
-      const nz = pDz * inv;
+      const nx = contact.rel.x * inv * sign;
+      const ny = contact.rel.y * inv * sign;
+      const nz = contact.rel.z * inv * sign;
+      const primaryAt = primary === a ? contact.aAt : contact.bAt;
 
       primary.vel = mergeVelocityByGM(
         primary.vel,
@@ -1130,9 +1241,9 @@ export function resolveSolarNBodyCollisions(
         secondaryImpactorUid: null,
         effectSpecId: null,
         contactPoint: {
-          x: primary.pos.x + nx * primary.radius,
-          y: primary.pos.y + ny * primary.radius,
-          z: primary.pos.z + nz * primary.radius,
+          x: primaryAt.x + nx * primary.radius,
+          y: primaryAt.y + ny * primary.radius,
+          z: primaryAt.z + nz * primary.radius,
         },
         contactNormalOnPrimary: { x: nx, y: ny, z: nz },
         primaryDestroyed: false,

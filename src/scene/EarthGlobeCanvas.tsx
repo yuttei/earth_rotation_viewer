@@ -2508,13 +2508,13 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     const pickTmpScale = new THREE.Vector3();
 
     /**
-     * 押した画面上の位置から、いちばん近い天体を選ぶ共通の判定です（解説カードと「天体を狙う」の両方で使います）。
+     * 押した画面上の位置から天体を選ぶ共通の判定です（解説カードと「天体を狙う」の両方で使います）。
      *
-     * 各天体を画面に投影し、画面上の中心までの距離（px）と、画面上での半径（px）を求めます。
-     * - 天体の円の内側を押した場合：その天体を選ぶ（重なっていればカメラに近いほう）
-     * - 円の外側でも、中心から PICK_MIN_SCREEN_RADIUS_PX（14px）以内なら選ぶ（遠景で点のように小さい天体のため）
-     * - 候補が複数あるときは、円のふちまでの距離がいちばん短い天体を選ぶ
-     * 3D 空間の固定の半径ではなく画面上の距離で判断するので、ズームしても押しやすさが変わりません。
+     * 1. 押した位置からカメラの視線（レイ）を飛ばし、各天体を「中心 worldPos・半径 worldRadius の球」として
+     *    実際に交わるかを調べます。交わった天体のうち、カメラにいちばん近いもの（手前の天体）を選びます。
+     *    透視投影で画面の端の天体が楕円に引き伸ばされて見えても、見えている形どおりに判定できます。
+     * 2. どの球にも当たらなかったときだけ、画面上で天体の中心から PICK_MIN_SCREEN_RADIUS_PX（14px）以内なら、
+     *    中心がいちばん近い天体を選びます（遠景で点のように小さい冥王星・海王星などを押せるようにするため）。
      */
     const pickNearestBodyOnScreen = <T,>(
       clientX: number,
@@ -2523,36 +2523,47 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     ): T | null => {
       const rect = renderer.domElement.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return null;
-      // 1 シーン単位が、カメラから距離 1 の位置で画面上の何 px になるか（透視投影）
-      const pxPerUnitAtDist1 =
-        rect.height / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+      pointerNdc.set(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1
+      );
+      raycaster.setFromCamera(pointerNdc, camera);
+      const ray = raycaster.ray;
 
-      let bestInside: { id: T; camDist: number } | null = null;
-      let bestNear: { id: T; edgeDistPx: number } | null = null;
+      // 1) 実際の球とレイの交差（手前の天体を優先）
+      let bestHit: { id: T; t: number } | null = null;
       for (const item of items) {
-        const camDist = camera.position.distanceTo(item.worldPos);
-        if (camDist < 1e-6) continue;
+        // レイの始点から球の中心へのベクトルを、レイの向きの成分（tca）とそれに垂直な成分に分けます
+        pickTmpWorld.copy(item.worldPos).sub(ray.origin);
+        const tca = pickTmpWorld.dot(ray.direction);
+        const perpSq = pickTmpWorld.lengthSq() - tca * tca;
+        const r2 = item.worldRadius * item.worldRadius;
+        if (perpSq > r2) continue; // レイが球の外を通る
+        const thc = Math.sqrt(r2 - perpSq);
+        // 球に入る位置（カメラが球の中にいるときは出る位置）までの距離
+        let t = tca - thc;
+        if (t < 0) t = tca + thc;
+        if (t < 0) continue; // 球がカメラの後ろ
+        if (!bestHit || t < bestHit.t) {
+          bestHit = { id: item.id, t };
+        }
+      }
+      if (bestHit) return bestHit.id;
+
+      // 2) どの球にも当たらなかったときの補助判定：画面上で中心から 14px 以内のいちばん近い天体
+      let bestNear: { id: T; distPx: number } | null = null;
+      for (const item of items) {
         pickTmpWorld.copy(item.worldPos).project(camera);
         // カメラの後ろにある天体は除きます
         if (pickTmpWorld.z < -1 || pickTmpWorld.z > 1) continue;
         const sx = ((pickTmpWorld.x + 1) / 2) * rect.width + rect.left;
         const sy = ((1 - pickTmpWorld.y) / 2) * rect.height + rect.top;
         const distPx = Math.hypot(sx - clientX, sy - clientY);
-        const radiusPx = (item.worldRadius / camDist) * pxPerUnitAtDist1;
-
-        if (distPx <= radiusPx) {
-          if (!bestInside || camDist < bestInside.camDist) {
-            bestInside = { id: item.id, camDist };
-          }
-          continue;
-        }
-        if (distPx > Math.max(radiusPx, PICK_MIN_SCREEN_RADIUS_PX)) continue;
-        const edgeDistPx = distPx - radiusPx;
-        if (!bestNear || edgeDistPx < bestNear.edgeDistPx) {
-          bestNear = { id: item.id, edgeDistPx };
+        if (distPx > PICK_MIN_SCREEN_RADIUS_PX) continue;
+        if (!bestNear || distPx < bestNear.distPx) {
+          bestNear = { id: item.id, distPx };
         }
       }
-      if (bestInside) return bestInside.id;
       return bestNear ? bestNear.id : null;
     };
 

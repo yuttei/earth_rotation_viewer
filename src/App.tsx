@@ -296,7 +296,8 @@ const PRESET_POSES: Record<
   solarJupiter: {
     yaw: 0,
     pitch: degToRad(26),
-    distance: 34.0,
+    // 4衛星を実際の距離の比で描く（カリストは木星の半径の約6.7倍）ので、全体が入るよう少し離れて見ます
+    distance: 46.0,
     eclipticBlend: 1,
     sunCenterBlend: 1,
     groundBlend: 0,
@@ -1431,7 +1432,10 @@ export function App() {
       moonAndOrbit: true,
       venusAndOrbit: true,
     }));
-    setSpeedMultiplier((prev) => (prev < 86400 ? 86400 : prev));
+    // 衝突シミュレーターは物理の時間をアプリの時間の進み方（倍速）に合わせて進めます。
+    // 実際の速さ（秒速数十 km）で動く天体が画面上で見て分かる速さになるよう、10日/s 以上にして再生します。
+    setSpeedMultiplier((prev) => (prev < 864000 ? 864000 : prev));
+    setIsPlaying(true);
   }, []);
 
   const handleSetImpactAimMode = useCallback(
@@ -1576,6 +1580,7 @@ export function App() {
         restoreImpactSeq={restoreImpactSeq}
         onImpactStatusChange={setImpactStatus}
         onImpactorLaunched={handleImpactorLaunched}
+        impactSimulationSpeed={isPlaying ? speedMultiplier : 0}
       />
 
       <AchievementToast toast={achievements.currentToast} />

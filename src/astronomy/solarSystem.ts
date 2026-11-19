@@ -4,7 +4,10 @@ import type {
   SolarBodyId,
   SolarSystemBodyState,
 } from "../types/astronomy";
-import { BODY_RADIUS_EARTH } from "./bodySizes";
+import {
+  BODY_RADIUS_EARTH,
+  galileanDisplayOrbitInJupiterRadii,
+} from "./bodySizes";
 import { dateToJulianDay, degToRad, radToDeg } from "./calculations";
 
 /** J2000.0 エポック（2000-01-01T12:00:00Z）のユリウス日 */
@@ -329,7 +332,11 @@ export interface GalileanMoonDef {
   periodDays: number;
   /** 実際の木星半径 R_J 単位の軌道半径 */
   orbitRadiusRj: number;
-  /** 3D シーン上で木星本体（半径 1.0 基準）の周囲に配置する視覚的軌道倍率 */
+  /**
+   * 3D シーン上で衛星を描く、木星の中心からの距離（描いた木星の半径 = 1 とした倍率）です。
+   * 実際の距離に木星の系の誇張倍率（bodySizes.ts の JUPITER_SYSTEM_DISPLAY_FACTOR）を掛けて求めるので、
+   * 4衛星どうしの距離の比は実際のとおりです（イオ 1.5、エウロパ 約2.4、ガニメデ 約3.8、カリスト 約6.7）。
+   */
   visualOrbitFactor: number;
   /** 木星の半径に対する衛星の半径の比（実際の比率。木星の模型の中で、この半径の球として描きます） */
   visualRadiusFactor: number;
@@ -346,7 +353,7 @@ export const GALILEAN_MOONS: GalileanMoonDef[] = [
     nameJa: "イオ",
     periodDays: 1.769138,
     orbitRadiusRj: 5.9,
-    visualOrbitFactor: 1.65,
+    visualOrbitFactor: galileanDisplayOrbitInJupiterRadii("io"),
     visualRadiusFactor: BODY_RADIUS_EARTH.io / BODY_RADIUS_EARTH.jupiter,
     epochAngleDeg: 106.0,
     color: "#facc15",
@@ -357,7 +364,7 @@ export const GALILEAN_MOONS: GalileanMoonDef[] = [
     nameJa: "エウロパ",
     periodDays: 3.551181,
     orbitRadiusRj: 9.39,
-    visualOrbitFactor: 2.3,
+    visualOrbitFactor: galileanDisplayOrbitInJupiterRadii("europa"),
     visualRadiusFactor: BODY_RADIUS_EARTH.europa / BODY_RADIUS_EARTH.jupiter,
     epochAngleDeg: 175.8,
     color: "#e0f2fe",
@@ -368,7 +375,7 @@ export const GALILEAN_MOONS: GalileanMoonDef[] = [
     nameJa: "ガニメデ",
     periodDays: 7.154553,
     orbitRadiusRj: 14.97,
-    visualOrbitFactor: 3.15,
+    visualOrbitFactor: galileanDisplayOrbitInJupiterRadii("ganymede"),
     visualRadiusFactor: BODY_RADIUS_EARTH.ganymede / BODY_RADIUS_EARTH.jupiter,
     epochAngleDeg: 120.5,
     color: "#d6c7b2",
@@ -379,7 +386,7 @@ export const GALILEAN_MOONS: GalileanMoonDef[] = [
     nameJa: "カリスト",
     periodDays: 16.689018,
     orbitRadiusRj: 26.33,
-    visualOrbitFactor: 4.35,
+    visualOrbitFactor: galileanDisplayOrbitInJupiterRadii("callisto"),
     visualRadiusFactor: BODY_RADIUS_EARTH.callisto / BODY_RADIUS_EARTH.jupiter,
     epochAngleDeg: 84.4,
     color: "#a8a29e",

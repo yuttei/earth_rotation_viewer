@@ -1,6 +1,10 @@
 import React from "react";
 import { Compass, Crosshair, PanelRightClose, PanelRightOpen, RotateCcw } from "lucide-react";
-import { IMPACTOR_SPECS, ImpactorId } from "../astronomy/impactPhysics";
+import {
+  IMPACTOR_SPECS,
+  ImpactorId,
+  formatImpactorSummaryJa,
+} from "../astronomy/impactPhysics";
 import { MAX_LIVE_IMPACTORS } from "../scene/impactSystem";
 
 interface HeaderBarProps {
@@ -128,8 +132,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 }
                 onClick={() => onSelectImpactor(spec.id)}
                 aria-pressed={isSelected}
-                aria-label={spec.nameJa}
-                title={spec.nameJa}
+                aria-label={formatImpactorSummaryJa(spec)}
+                title={formatImpactorSummaryJa(spec)}
               >
                 <span style={{ color: spec.accentColor }}>{spec.symbol}</span>
               </button>

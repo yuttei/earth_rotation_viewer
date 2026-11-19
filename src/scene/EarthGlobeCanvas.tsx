@@ -160,6 +160,11 @@ interface EarthGlobeCanvasProps {
   onImpactStatusChange?: (status: ImpactStatus) => void;
   /** 衝突シミュレーターで天体を置いた（発射した）ときの通知（実績の判定に使います） */
   onImpactorLaunched?: (impactorId: ImpactorId) => void;
+  /**
+   * 衝突シミュレーターの物理の時間の進み方（実際の1秒で何秒ぶん進めるか）。
+   * アプリの倍速と同じ値で、一時停止中は 0 です（例：「1日/s」なら 86,400）。
+   */
+  impactSimulationSpeed: number;
 }
 
 /**
@@ -478,6 +483,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   restoreImpactSeq,
   onImpactStatusChange,
   onImpactorLaunched,
+  impactSimulationSpeed,
 }) => {
   const hostRef = useRef<HTMLDivElement | null>(null);
   // 衝突の瞬間に画面全体を光らせるフラッシュ用の要素（React の再描画なしで直接 style を更新します）
@@ -530,6 +536,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     activeImpactorId,
     onImpactStatusChange,
     onImpactorLaunched,
+    impactSimulationSpeed,
   });
   latestPropsRef.current = {
     solarState,
@@ -546,6 +553,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     activeImpactorId,
     onImpactStatusChange,
     onImpactorLaunched,
+    impactSimulationSpeed,
   };
 
   // 「すぐ復活」ボタンが押されたら、置いた天体をすべて消し、太陽系の全天体をぬるっと元通りにする演出を始めます。
@@ -2651,7 +2659,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       (s) => ({
         id: s.id,
         pos: new THREE.Vector3(),
-        radius: s.baseRadius,
+        radius: s.displayRadius,
       })
     );
     const solarBaselineMap = new Map<
@@ -2668,7 +2676,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       (s) => ({
         id: s.id,
         pos: new THREE.Vector3(),
-        radius: s.baseRadius,
+        radius: s.displayRadius,
       })
     );
 
@@ -4174,7 +4182,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         totalTimeSec,
         solarBaselineList,
         earthQuat,
-        moonMesh.rotation.y
+        moonMesh.rotation.y,
+        latestPropsRef.current.impactSimulationSpeed
       );
       applyImpactToEarthAndMoonShaders(impOut);
       earthTiltGroup.rotation.z = impOut.earthAxisWobbleRad;

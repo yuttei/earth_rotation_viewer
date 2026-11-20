@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { OBSERVATION_CITIES } from "../../data/cities";
 import {
-  REAL_MOON_ORBIT_IN_EARTH_RADII,
+  BODY_RADIUS_EARTH,
   REAL_SOLAR_SUN_RADIUS,
-  galileanOrbitInJupiterRadii,
-  realSolarRadius,
+  realSolarDisplayRadius,
 } from "../bodySizes";
 import type { City } from "../../types/astronomy";
 import {
@@ -15,11 +14,12 @@ import {
   SolarImpactTargetId,
   SolarImpactorEntry,
   advanceSolarNBody,
+  buildDisplayWarpHosts,
   createSolarNBodyEntriesFromSnapshot,
   formatImpactorSummaryJa,
-  nearBodySpawnClearance,
   predictSolarNBodyTrajectory,
 } from "../impactPhysics";
+import { warpDisplayToPhysics, warpPhysicsToDisplay } from "../displayWarp";
 import { kmToScene } from "../realBodyData";
 
 /** テスト用：惑星を x 軸上の軌道長半径の位置に、衛星を母惑星の外側の実際の距離に並べた物理上の配置 */
@@ -665,10 +665,10 @@ describe("天文計算エンジン (calculations)", () => {
       "赤色矮星（プロキシマ・ケンタウリ）半径 0.154 R☉・質量 0.122 M☉"
     );
 
-    // 衝突判定の半径は実際の半径（地球 6,378 km）で、画面に描く半径も同じ値
+    // 衝突判定の半径は実際の半径（地球 6,378 km）で、描く半径（約0.277）とは別
     const bodies = createSolarNBodyEntriesFromSnapshot(physicalSnapshot());
     expect(bodies.earth.radius).toBeCloseTo(kmToScene(6378.1), 12);
-    expect(realSolarRadius("earth")).toBeCloseTo(SOLAR_TARGET_MAP.earth.physicalRadius, 15);
+    expect(SOLAR_TARGET_MAP.earth.displayRadius).toBeCloseTo(realSolarDisplayRadius("earth"), 9);
     // 月は実際の距離（384,400 km ≒ 0.0347）に置かれる
     expect(SOLAR_TARGET_MAP.moon.orbitRadius).toBeCloseTo(kmToScene(384400), 9);
   });
@@ -701,7 +701,7 @@ describe("天文計算エンジン (calculations)", () => {
     expect(distance("callisto", "jupiter") / before.callisto).toBeLessThan(1.05);
   });
 
-  it("衝突は実際の大きさで判定し、実際に触れなければ当たらない", () => {
+  it("衝突は描いている位置と大きさで判定し、描いた絵が触れれば当たり、離れていれば当たらない", () => {
     const start = createSolarNBodyEntriesFromSnapshot(physicalSnapshot());
     const earth = start.earth;
     // 地球のすぐ近く（0.05 手前）から、地球に対して速さ 5 で地球の中心へ向かって投げる
@@ -718,8 +718,15 @@ describe("天文計算エンジン (calculations)", () => {
     // 中心をねらえば当たる
     const centerHit = aimAt(0).hitTargets.find((t) => t.id === "earth");
     expect(centerHit).toBeDefined();
-    // 地球の半径の5倍（約0.0029）ずらすと当たらない
-    expect(aimAt(kmToScene(6378.1) * 5).hitTargets.some((t) => t.id === "earth")).toBe(false);
+    // 当たる天体のリングを描く位置に直すときの母惑星の位置は、衝突した瞬間の地球の位置（予測区間の終わりではない）
+    const earthHostAtHit = centerHit!.hosts.find((h) => h.hostId === "earth")!;
+    expect(earthHostAtHit.center.x).toBeCloseTo(centerHit!.center.x, 9);
+    expect(earthHostAtHit.center.z).toBeCloseTo(centerHit!.center.z, 9);
+    // 地球のまわりは距離を約27.5倍に広げて描くので、物理上 0.005 ずらすと描く位置では 約0.14 ずれる。
+    // これは描いた地球（0.277）と小惑星（0.035）の半径の和より小さいので、描いた絵が触れて当たる
+    expect(aimAt(0.005).hitTargets.some((t) => t.id === "earth")).toBe(true);
+    // 物理上 0.03 ずらすと、描く位置では 約0.8 ずれて、描いた絵どうしが触れないので当たらない
+    expect(aimAt(0.03).hitTargets.some((t) => t.id === "earth")).toBe(false);
   });
 
   it("複数の投入天体を同時に置け、ぶつかるとブラックホールや重いほうが軽いほうを取り込む（予測は本物の状態を書き換えない）", () => {
@@ -762,17 +769,105 @@ describe("天文計算エンジン (calculations)", () => {
     expect(startBodies.earth.pos.x).toBeCloseTo(13.5);
   });
 
-  it("リアル太陽系では、太陽・惑星・衛星を実際の大きさと距離で描く（誇張しない）", () => {
-    // 描く半径はすべて実際の半径（km）をシーン単位に直した値（例：木星 71,492 km、太陽 695,700 km）
-    expect(realSolarRadius("jupiter")).toBeCloseTo(kmToScene(71492), 15);
-    expect(REAL_SOLAR_SUN_RADIUS).toBeCloseTo(kmToScene(695700), 15);
-    // 月は地球の半径の約60.3倍、カリストは木星の半径の約26.3倍の、実際の距離に描く
-    expect(REAL_MOON_ORBIT_IN_EARTH_RADII).toBeCloseTo(384400 / 6378.1, 9);
-    expect(galileanOrbitInJupiterRadii("callisto")).toBeCloseTo(1882700 / 71492, 9);
-    // 天体の上に置く距離は、実際の半径の和の 1.5 倍（置いた瞬間には触れない）
-    expect(nearBodySpawnClearance("asteroid", "earth")).toBeCloseTo(
-      (SOLAR_TARGET_MAP.earth.physicalRadius + IMPACTOR_MAP.asteroid.physicalRadius) * 1.5,
-      15
+  it("衛星は母惑星のまわりに広げた位置に描き、描く位置と物理上の位置を行き来できる", () => {
+    const hosts = buildDisplayWarpHosts([
+      { hostId: "earth", center: { x: 13.5, y: 0, z: 0 }, alive: true },
+    ]);
+    // 月（実際の距離 約0.0347）は、簡易モードと同じ見た目の距離（約0.954）に描く
+    const moonPhys = { x: 13.5 + kmToScene(384400), y: 0, z: 0 };
+    const moonDisplay = warpPhysicsToDisplay(moonPhys, hosts, { x: 0, y: 0, z: 0 });
+    expect(moonDisplay.x - 13.5).toBeCloseTo(3.45 * realSolarDisplayRadius("earth"), 6);
+    // 逆の変換で元に戻る（内側・つなぎの部分・外側のどれでも）
+    for (const d of [0.01, 0.2, 1.0, 5.0]) {
+      const back = warpDisplayToPhysics(
+        warpPhysicsToDisplay({ x: 13.5, y: d, z: 0 }, hosts, { x: 0, y: 0, z: 0 }),
+        hosts,
+        { x: 0, y: 0, z: 0 }
+      );
+      expect(back.y).toBeCloseTo(d, 9);
+    }
+  });
+
+  it("リアル太陽系モードの惑星の表示半径が実際の半径の比を保ち、太陽は木星より大きく水星の近日点より内側に収まる", () => {
+    // 惑星どうしの大きさの比は実際と同じ（例：木星 ÷ 地球 = 11.21）
+    expect(
+      realSolarDisplayRadius("jupiter") / realSolarDisplayRadius("earth")
+    ).toBeCloseTo(BODY_RADIUS_EARTH.jupiter / BODY_RADIUS_EARTH.earth, 6);
+    expect(
+      realSolarDisplayRadius("pluto") / realSolarDisplayRadius("mars")
+    ).toBeCloseTo(BODY_RADIUS_EARTH.pluto / BODY_RADIUS_EARTH.mars, 6);
+    // 木星はこれまでと同じ 3.1、太陽は木星より大きく、水星の近日点（0.307 AU × 13.5）より内側
+    expect(realSolarDisplayRadius("jupiter")).toBeCloseTo(3.1, 6);
+    expect(REAL_SOLAR_SUN_RADIUS).toBeGreaterThan(realSolarDisplayRadius("jupiter"));
+    expect(REAL_SOLAR_SUN_RADIUS + realSolarDisplayRadius("mercury")).toBeLessThan(
+      0.307 * 13.5
     );
+    // 描く半径は表示用の値で、太陽は別縮尺
+    expect(SOLAR_TARGET_MAP.sun.displayRadius).toBe(REAL_SOLAR_SUN_RADIUS);
+  });
+});
+
+describe("描く大きさの順番", () => {
+  it("太陽系の天体と投入天体を合わせて、実際に大きい天体ほど大きく描く", async () => {
+    const { BODY_RADIUS_KM, SUN_RADIUS_KM } = await import("../realBodyData");
+    const { REAL_SOLAR_SUN_RADIUS, realSolarDisplayRadius } = await import("../bodySizes");
+    const { IMPACTOR_SPECS } = await import("../impactPhysics");
+
+    // [名前, 実際の半径（km）, 描く半径] の一覧を作ります
+    const bodies: Array<[string, number, number]> = [["sun", SUN_RADIUS_KM, REAL_SOLAR_SUN_RADIUS]];
+    for (const id of Object.keys(BODY_RADIUS_KM) as Array<keyof typeof BODY_RADIUS_KM>) {
+      bodies.push([id, BODY_RADIUS_KM[id], realSolarDisplayRadius(id)]);
+    }
+    for (const spec of IMPACTOR_SPECS) {
+      bodies.push([spec.id, spec.model.radiusKm, spec.visualRadius]);
+    }
+
+    // 実際の半径の小さい順に並べ、描く半径も同じ順番になっていることを確かめます
+    bodies.sort((a, b) => a[1] - b[1]);
+    for (let i = 1; i < bodies.length; i++) {
+      const [prevName, prevKm, prevDrawn] = bodies[i - 1];
+      const [name, km, drawn] = bodies[i];
+      if (km > prevKm) {
+        expect(drawn, `${prevName} < ${name}`).toBeGreaterThan(prevDrawn);
+      } else {
+        expect(drawn, `${prevName} = ${name}`).toBeCloseTo(prevDrawn, 9);
+      }
+    }
+  });
+});
+
+describe("対消滅", () => {
+  it("同じ種類の天体どうしがぶつかると両方消え、違う種類なら重いほうが残る", async () => {
+    const { IMPACTOR_MAP, SOLAR_TARGET_MAP, SOLAR_TARGET_SPECS, advanceSolarNBody, createSolarNBodyEntriesFromSnapshot } =
+      await import("../impactPhysics");
+    const snapshot = () =>
+      SOLAR_TARGET_SPECS.map((s) => {
+        const parentX = s.parentId ? SOLAR_TARGET_MAP[s.parentId].orbitRadius : 0;
+        return { id: s.id, pos: { x: parentX + s.orbitRadius, y: 0, z: 0 } };
+      });
+    const make = (uid: number, specId: "asteroid" | "comet", x: number) => ({
+      uid,
+      specId,
+      pos: { x, y: 30, z: 0 },
+      vel: { x: 0, y: 0, z: 0 },
+      gravityGM: IMPACTOR_MAP[specId].gravityGM,
+      radius: IMPACTOR_MAP[specId].physicalRadius,
+      alive: true,
+    });
+
+    // 小惑星どうし（描いた絵が重なる距離）：両方消える
+    const a = make(1, "asteroid", 0);
+    const b = make(2, "asteroid", 0.01);
+    const same = advanceSolarNBody(createSolarNBodyEntriesFromSnapshot(snapshot()), [a, b], 1e-6, 10);
+    expect(a.alive).toBe(false);
+    expect(b.alive).toBe(false);
+    expect(same.events.some((e) => e.annihilation)).toBe(true);
+
+    // 小惑星と彗星：対消滅しない（片方が残る）
+    const c = make(3, "asteroid", 0);
+    const d = make(4, "comet", 0.01);
+    const diff = advanceSolarNBody(createSolarNBodyEntriesFromSnapshot(snapshot()), [c, d], 1e-6, 10);
+    expect([c.alive, d.alive].filter(Boolean)).toHaveLength(1);
+    expect(diff.events.some((e) => e.annihilation)).toBe(false);
   });
 });

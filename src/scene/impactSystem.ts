@@ -3,20 +3,39 @@ import {
   IMPACTOR_MAP,
   ImpactorId,
   ImpactorSpec,
+  SATELLITE_DISPLAY_SYSTEMS,
   SOLAR_TARGET_MAP,
   SOLAR_TARGET_SPECS,
+  SatelliteHostId,
+  SatelliteHostSnapshot,
   SolarCollisionEvent,
   SolarImpactTargetId,
   SolarImpactorEntry,
   SolarNBodyEntry,
   SolarNBodyPredictionResult,
   SolarNBodyPredictor,
-  Vec3Tuple,
   advanceSolarNBody,
+  buildDisplayWarpHosts,
   createSolarNBodyEntriesFromSnapshot,
+  displaySnapshotToPhysics,
   nearBodySpawnClearance,
+  snapshotSatelliteHosts,
 } from "../astronomy/impactPhysics";
+import {
+  DisplayWarpHost,
+  Vec3Like,
+  warpDisplayToPhysics,
+  warpPhysicsToDisplay,
+} from "../astronomy/displayWarp";
 import { ASTRO_SECONDS_PER_SIM_TIME } from "../astronomy/realBodyData";
+import {
+  createMoonMaterial,
+  createPlanetMaterial,
+  createStarCoronaMaterial,
+  createStarSurfaceMaterial,
+  createSunCoronaMaterial,
+  createSunMaterial,
+} from "./shaders";
 
 /**
  * リアル太陽系・N体相互万有引力＆天体衝突シミュレーターの 3D 演出・パーティクル・シェーダー統合リグです。
@@ -25,9 +44,9 @@ import { ASTRO_SECONDS_PER_SIM_TIME } from "../astronomy/realBodyData";
  * 互いの万有引力で軌道を変え、互いに衝突・吸収・崩壊する様子と、復活ボタンでの「ぬるっと復活」を描画します。
  * 投入天体は種類を混ぜて何個でも続けて置けます（同時に置ける数は MAX_LIVE_IMPACTORS 個まで）。
  *
- * 物理計算（impactPhysics.ts）は実際の質量・半径・距離で行い、このリグはそれを画面に描きます。
- * - 大きさと位置：計算と同じ実際の値のまま描きます（拡大・縮小・位置のずらしはしません）
- * - 演出（爆発・予測のリング・軌跡）：ぶつかった天体の実際の半径に合わせた大きさにします
+ * 物理計算（impactPhysics.ts）は実際の質量・半径・距離で行い、このリグは「見せ方」だけを受け持ちます。
+ * - 物理上の位置 → 描く位置：衛星を持つ母惑星（地球・木星）のまわりだけ広げて描きます（displayWarp.ts）
+ * - 描く位置 → 物理上の位置：画面で狙った位置や向きを、物理計算で天体を置く位置・速度に直します
  * - 時間：アプリの時間の進み方（倍速）に合わせて物理の時間を進めます（一時停止中は止まります）
  */
 
@@ -39,7 +58,7 @@ export type ImpactSimPhase =
   | "aftermath"
   | "restoring";
 
-/** 毎フレーム EarthGlobeCanvas から渡される、各太陽系天体の本来の天文位置と実際の半径 */
+/** 毎フレーム EarthGlobeCanvas から渡される、各太陽系天体の本来の天文位置と表示半径 */
 export interface SolarBaselineBodyInput {
   id: SolarImpactTargetId;
   pos: THREE.Vector3;
@@ -104,31 +123,18 @@ export interface ImpactFrameOutput {
 
 export interface ImpactSystemRig {
   root: THREE.Group;
-  /**
-   * ドラッグ開始／更新時のN体予測軌道プレビュー更新。
-   * frameBodyId を渡すと、予測線をその天体から見た軌道として描きます（天体のすぐ近くで狙うとき）。
-   * horizon は予測する長さ（シミュレーション時間）です。天体に寄っているときは短くして、細かく描きます。
-   */
+  /** ドラッグ開始／更新時のN体予測軌道プレビュー更新 */
   updateAimPreview: (
     impactorId: ImpactorId,
     spawnWorldPos: THREE.Vector3,
     launchVel: THREE.Vector3,
-    baselineBodies: ReadonlyArray<SolarBaselineBodyInput>,
-    frameBodyId: SolarImpactTargetId | null,
-    horizon: number
+    baselineBodies: ReadonlyArray<SolarBaselineBodyInput>
   ) => void;
-  /** 狙い中のプレビュー模型の位置だけを動かします（基準の天体と一緒に動かすため。予測はやり直しません） */
-  moveAimPreview: (spawnWorldPos: THREE.Vector3) => void;
-  /**
-   * カメラ（毎フレーム）。当たる天体のリングをカメラに正面を向けて描くことと、
-   * 破片・火花・軌跡・予測線を「カメラの近くの基準点からの差」で描くこと（下記 renderBase）に使います。
-   */
-  setCamera: (camera: THREE.Camera) => void;
   /** ドラッグキャンセル時にプレビューを消す */
   cancelAimPreview: () => void;
   /**
-   * 太陽系天体の上を押したときに、投入天体を置く「すぐ近く」の位置を out に入れ、
-   * 天体の中心からの距離（シーン単位）を返します。
+   * 太陽系天体の上を押したときに、投入天体を置く「すぐ近く」の位置（描く位置）を out に入れ、
+   * 天体の中心からの距離（描く空間）を返します。
    */
   computeNearBodySpawn: (
     impactorId: ImpactorId,
@@ -137,16 +143,6 @@ export interface ImpactSystemRig {
     baselineBodies: ReadonlyArray<SolarBaselineBodyInput>,
     out: THREE.Vector3
   ) => number;
-  /**
-   * 太陽系天体の今の速度（シーン単位 ÷ シミュレーション時間）を out に入れます。
-   * N体計算の前は、本来の公転位置から求めたケプラー公転の速度です。
-   * 天体の近くで投げるとき、その天体から見た速さで投げられるように使います。
-   */
-  getBodyVelocity: (
-    targetId: SolarImpactTargetId,
-    baselineBodies: ReadonlyArray<SolarBaselineBodyInput>,
-    out: THREE.Vector3
-  ) => THREE.Vector3;
   /** 天体をリアル太陽系へ発射します。すでに置いた天体は消えずに残り、何個でも続けて追加できます。 */
   launchImpactor: (
     impactorId: ImpactorId,
@@ -323,17 +319,14 @@ export const MAX_LIVE_IMPACTORS = 16;
  * 予測を最後まで計算し終えるまで、毎フレームこの時間だけ続きを計算します（画面の動きを止めないため）。
  */
 const PREDICTION_TIME_BUDGET_MS = 4;
-/** 狙い中に予測する長さのいちばん長い値（シミュレーション時間。約 3.0 ≒ 4か月ぶん） */
-export const PREVIEW_HORIZON_SIM_TIME = 3.0;
+/** 狙い中に予測する長さ（シミュレーション時間。約 3.0 ≒ 4か月ぶん） */
+const PREVIEW_HORIZON_SIM_TIME = 3.0;
+/** 母惑星が消えたあと、衛星を広げて描く効果を何秒かけて弱めるか */
+const WARP_FADE_SECONDS = 1.2;
+/** 狙いの向きを物理上の向きに直すときに使う、描く位置での小さな移動量（シーン単位） */
+const AIM_DIRECTION_PROBE = 0.02;
 /** 同時に描画できる爆発（火球・衝撃波・閃光）の最大数 */
 const MAX_EXPLOSIONS = 6;
-/** 爆発の大きさの基準を、ぶつかった小さいほうの天体の半径の何倍にするか */
-const EXPLOSION_SIZE_PER_RADIUS = 8;
-/**
- * 半径がこれより大きい投入天体（リゲル。実際の半径 約4.95 = 約0.37 天文単位）は、
- * 中の惑星が見えるよう半透明で描きます（大きさは実際のまま）。
- */
-const HUGE_STAR_RADIUS = 1.0;
 /** 破片・火花が「どの天体にも吸い込まれない」ことを表す番号 */
 const NO_SWALLOW_UID = -1;
 /** 太陽系天体同士がぶつかったときの爆発の見た目（岩石惑星どうしの衝突として描きます） */
@@ -353,14 +346,6 @@ export function createImpactSystemRig(
   jupiterTexture: THREE.Texture
 ): ImpactSystemRig {
   const root = new THREE.Group();
-  /**
-   * 破片・火花・投入天体の軌跡・予測線を描くときの基準点（カメラの位置。太陽系の座標）。
-   * 頂点の位置は 32ビットの小数で GPU に送られるので、太陽から約13.5 の座標をそのまま入れると
-   * 約0.000001（約11 km）刻みに丸められ、小さな天体に寄ったときにがたつきます。
-   * そこで、物体の位置を基準点にし、頂点には「基準点からの差」だけを書きます
-   * （大きな平行移動は CPU の 64ビットで計算する modelViewMatrix 側で扱われます）。
-   */
-  const renderBase = new THREE.Vector3();
   const allGeos: THREE.BufferGeometry[] = [];
   const allMats: THREE.Material[] = [];
 
@@ -368,8 +353,7 @@ export function createImpactSystemRig(
   // 1. 予測軌道ライン・惑星摂動プレビューライン・全15天体用ターゲットレティクル
   // -------------------------------------------------------------------------
   const maxPreviewPts = 180;
-  // 予測線は、点の数＋「当たった瞬間の点」1個ぶんを描けるようにしておきます
-  const previewPositions = new Float32Array((maxPreviewPts + 1) * 3);
+  const previewPositions = new Float32Array(maxPreviewPts * 3);
   const previewGeo = new THREE.BufferGeometry();
   previewGeo.setAttribute(
     "position",
@@ -385,8 +369,6 @@ export function createImpactSystemRig(
     depthWrite: false,
   });
   const previewLine = new THREE.Line(previewGeo, previewMat);
-  // 点の位置を毎フレーム書き換えるので、最初に計算した範囲（境界球）で画面外と判定されて消えないようにします
-  previewLine.frustumCulled = false;
   previewLine.visible = false;
   previewLine.renderOrder = 5;
   root.add(previewLine);
@@ -394,8 +376,7 @@ export function createImpactSystemRig(
   allMats.push(previewMat);
 
   // 太陽系天体ごとのターゲットレティクル＆予測摂動ライン＆リアルタイム軌道乱れトレイル
-  // レティクルは半径 1 の細い円です。「実際に触れる距離（2天体の実際の半径の和）」の倍率で拡大して置きます。
-  const reticleGeo = new THREE.RingGeometry(0.96, 1.0, 64);
+  const reticleGeo = new THREE.RingGeometry(0.85, 1.35, 32);
   allGeos.push(reticleGeo);
   const targetReticles = new Map<
     SolarImpactTargetId,
@@ -447,7 +428,6 @@ export function createImpactSystemRig(
         depthWrite: false,
       });
       const pLine = new THREE.Line(pGeo, pMat);
-      pLine.frustumCulled = false;
       pLine.visible = false;
       pLine.renderOrder = 4;
       root.add(pLine);
@@ -469,7 +449,6 @@ export function createImpactSystemRig(
         depthWrite: false,
       });
       const tLine = new THREE.Line(tGeo, tMat);
-      tLine.frustumCulled = false;
       tLine.visible = false;
       tLine.renderOrder = 3;
       root.add(tLine);
@@ -504,7 +483,7 @@ export function createImpactSystemRig(
   // (a) 小惑星
   const asteroidGroup = new THREE.Group();
   const asteroidGeo = createDisplacedRockGeometry(
-    IMPACTOR_MAP.asteroid.physicalRadius,
+    IMPACTOR_MAP.asteroid.visualRadius,
     1.7
   );
   const asteroidMat = new THREE.MeshStandardMaterial({
@@ -522,7 +501,7 @@ export function createImpactSystemRig(
   // (b) 氷彗星
   const cometGroup = new THREE.Group();
   const cometGeo = createDisplacedRockGeometry(
-    IMPACTOR_MAP.comet.physicalRadius,
+    IMPACTOR_MAP.comet.visualRadius,
     4.2
   );
   const cometMat = new THREE.MeshStandardMaterial({
@@ -532,25 +511,31 @@ export function createImpactSystemRig(
     emissive: 0x38bdf8,
     emissiveIntensity: 0.6,
   });
-  // 彗星のまわりの光（コマ）は、本体より大きく見せてしまうので描きません（本体の核だけを実際の大きさで描きます）
   cometGroup.add(new THREE.Mesh(cometGeo, cometMat));
+  const comaSpriteMat = new THREE.SpriteMaterial({
+    map: starTexture,
+    color: 0x7dd3fc,
+    transparent: true,
+    opacity: 0.88,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const comaSprite = new THREE.Sprite(comaSpriteMat);
+  comaSprite.scale.setScalar(1.3);
+  cometGroup.add(comaSprite);
   impactorTemplates.set("comet", cometGroup);
   allGeos.push(cometGeo);
-  allMats.push(cometMat);
+  allMats.push(cometMat, comaSpriteMat);
 
   // (c) 月サイズ
   const moonSizeGroup = new THREE.Group();
   const moonSizeGeo = new THREE.SphereGeometry(
-    IMPACTOR_MAP.moonSize.physicalRadius,
+    IMPACTOR_MAP.moonSize.visualRadius,
     36,
     24
   );
-  const moonSizeMat = new THREE.MeshStandardMaterial({
-    map: moonTexture,
-    roughness: 0.88,
-    emissive: 0xff4500,
-    emissiveIntensity: 0.08,
-  });
+  // 公転している月と同じシェーダー（太陽の向きで満ち欠けする）で描きます
+  const moonSizeMat = createMoonMaterial(moonTexture).material;
   moonSizeGroup.add(new THREE.Mesh(moonSizeGeo, moonSizeMat));
   impactorTemplates.set("moonSize", moonSizeGroup);
   allGeos.push(moonSizeGeo);
@@ -559,16 +544,12 @@ export function createImpactSystemRig(
   // (d) 火星サイズ
   const marsSizeGroup = new THREE.Group();
   const marsSizeGeo = new THREE.SphereGeometry(
-    IMPACTOR_MAP.marsSize.physicalRadius,
+    IMPACTOR_MAP.marsSize.visualRadius,
     40,
     28
   );
-  const marsSizeMat = new THREE.MeshStandardMaterial({
-    map: marsTexture,
-    roughness: 0.78,
-    emissive: 0xff3300,
-    emissiveIntensity: 0.12,
-  });
+  // 公転している火星と同じ惑星用シェーダー（太陽の向きで昼と夜を塗り分ける）で描きます
+  const marsSizeMat = createPlanetMaterial(marsTexture).material;
   marsSizeGroup.add(new THREE.Mesh(marsSizeGeo, marsSizeMat));
   impactorTemplates.set("marsSize", marsSizeGroup);
   allGeos.push(marsSizeGeo);
@@ -577,70 +558,115 @@ export function createImpactSystemRig(
   // (e) 木星サイズ
   const jupiterGroup = new THREE.Group();
   const jupiterGeo = new THREE.SphereGeometry(
-    IMPACTOR_MAP.jupiterSize.physicalRadius,
+    IMPACTOR_MAP.jupiterSize.visualRadius,
     48,
     32
   );
-  const jupiterMat = new THREE.MeshStandardMaterial({
-    map: jupiterTexture,
-    roughness: 0.65,
-    emissive: 0xff7b00,
-    emissiveIntensity: 0.12,
-    transparent: true,
-    opacity: 1,
-  });
+  // 公転している木星と同じ惑星用シェーダーで描きます
+  const jupiterMat = createPlanetMaterial(jupiterTexture).material;
   jupiterGroup.add(new THREE.Mesh(jupiterGeo, jupiterMat));
+  const jupiterHotspotMat = new THREE.SpriteMaterial({
+    map: starTexture,
+    color: 0xffaa00,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const jupiterHotspot = new THREE.Sprite(jupiterHotspotMat);
+  jupiterHotspot.scale.setScalar(2.6);
+  jupiterGroup.add(jupiterHotspot);
   impactorTemplates.set("jupiterSize", jupiterGroup);
   allGeos.push(jupiterGeo);
-  allMats.push(jupiterMat);
+  allMats.push(jupiterMat, jupiterHotspotMat);
 
-  // 恒星モデル生成ヘルパー（赤色矮星・太陽クラス恒星・青色超巨星）
-  // 恒星は実際の半径の球だけを描きます。まわりの光（コロナ・ハロー）は恒星を実際より大きく見せるので描きません。
-  const createStarImpactorGroup = (radius: number, coreHex: number) => {
-    // リゲル（青色超巨星）は実際の半径が約0.37 天文単位（水星の軌道に近い大きさ）もあります。
-    // 不透明のまま描くと中にある惑星も操作も見えなくなるため、本体だけを半透明にします（大きさは実際のまま）。
-    const isHuge = radius > HUGE_STAR_RADIUS;
+  /** 中性子星のまわりの光・パルサービームの大きさの基準（本体の大きさではありません） */
+  const NEUTRON_STAR_EFFECT_RADIUS = 0.12;
+  /** ブラックホールの降着円盤・光子リングの大きさの基準（本体の大きさではありません） */
+  const BLACK_HOLE_EFFECT_RADIUS = 0.3;
+
+  /** 恒星の本体（球）と、外周のコロナ（本体の coronaScale 倍の裏向きの球）をまとめた模型を作ります */
+  const createStarImpactorGroup = (
+    radius: number,
+    surfaceMat: THREE.Material,
+    coronaMat: THREE.Material,
+    coronaScale: number
+  ): THREE.Group => {
     const grp = new THREE.Group();
-    const sGeo = new THREE.SphereGeometry(radius, 44, 28);
-    const sMat = new THREE.MeshBasicMaterial({
-      color: coreHex,
-      transparent: true,
-      opacity: isHuge ? 0.16 : 1,
-      depthWrite: !isHuge,
-      side: isHuge ? THREE.DoubleSide : THREE.FrontSide,
-    });
-    grp.add(new THREE.Mesh(sGeo, sMat));
-    allGeos.push(sGeo);
-    allMats.push(sMat);
-    return { grp, sMat };
+    const sGeo = new THREE.SphereGeometry(radius, 64, 40);
+    grp.add(new THREE.Mesh(sGeo, surfaceMat));
+    const cGeo = new THREE.SphereGeometry(radius * coronaScale, 48, 32);
+    const corona = new THREE.Mesh(cGeo, coronaMat);
+    corona.renderOrder = 2;
+    grp.add(corona);
+    allGeos.push(sGeo, cGeo);
+    allMats.push(surfaceMat, coronaMat);
+    return grp;
   };
 
-  // (f) 赤色矮星
-  const redDwarfBundle = createStarImpactorGroup(
-    IMPACTOR_MAP.redDwarf.physicalRadius,
-    0xff5c77
+  // (f) 赤色矮星（プロキシマ・ケンタウリ。表面温度 約3,000 K の橙赤色。黒点とフレアが多い）
+  impactorTemplates.set(
+    "redDwarf",
+    createStarImpactorGroup(
+      IMPACTOR_MAP.redDwarf.visualRadius,
+      createStarSurfaceMaterial({
+        hotColor: 0xffc27a,
+        surfaceColor: 0xff7a2e,
+        limbColor: 0x9b1d0a,
+        limbDarkening: 0.72,
+        cellScale: 5.5,
+        cellContrast: 0.75,
+        spotAmount: 0.9,
+        flareAmount: 0.8,
+        flowSpeed: 0.12,
+      }).material,
+      createStarCoronaMaterial(0xff9a4a, 0xd92b12, 0.8),
+      1.4
+    )
   );
-  impactorTemplates.set("redDwarf", redDwarfBundle.grp);
 
-  // (g) 太陽クラス恒星
-  const sunStarBundle = createStarImpactorGroup(
-    IMPACTOR_MAP.sunStar.physicalRadius,
-    0xfff3b0
+  // (g) 太陽クラス恒星（公転している太陽と同じシェーダーとコロナで描きます）
+  impactorTemplates.set(
+    "sunStar",
+    createStarImpactorGroup(
+      IMPACTOR_MAP.sunStar.visualRadius,
+      createSunMaterial().material,
+      createSunCoronaMaterial(),
+      1.48
+    )
   );
-  impactorTemplates.set("sunStar", sunStarBundle.grp);
 
-  // (h) 青色超巨星
-  const blueSupergiantBundle = createStarImpactorGroup(
-    IMPACTOR_MAP.blueSupergiant.physicalRadius,
-    0xe0f2fe
+  // (h) 青色超巨星（リゲル。表面温度 約12,000 K の青白色。巨大で、大きな対流のセルがゆっくり動く）
+  impactorTemplates.set(
+    "blueSupergiant",
+    createStarImpactorGroup(
+      IMPACTOR_MAP.blueSupergiant.visualRadius,
+      createStarSurfaceMaterial({
+        hotColor: 0xf4f8ff,
+        surfaceColor: 0xa9c4ff,
+        limbColor: 0x3d5bd9,
+        limbDarkening: 0.45,
+        cellScale: 3.2,
+        cellContrast: 0.55,
+        spotAmount: 0,
+        flareAmount: 0,
+        flowSpeed: 0.05,
+      }).material,
+      createStarCoronaMaterial(0xcfe0ff, 0x4f7dff, 0.7),
+      1.2
+    )
   );
-  impactorTemplates.set("blueSupergiant", blueSupergiantBundle.grp);
 
-  // (i) 中性子星（高速回転パルサー：実際の半径の白い球＋傾いた双極パルサービーム）
-  //     まわりの光（ハロー）は描きません。ビームは光の筋なので天体の大きさではありませんが、半径に比例した長さにします。
+  // (i) 中性子星（高速回転パルサー：高輝度シアン白色コア＋磁気圏リング＋傾いた双極パルサービーム！）
   const neutronGroup = new THREE.Group();
-  const nsRadius = IMPACTOR_MAP.neutronStar.physicalRadius;
-  const nsCoreGeo = new THREE.SphereGeometry(nsRadius, 32, 24);
+  // 本体（球）は、ほかの天体と同じ物差しの描く半径（visualRadius）で描きます。
+  // まわりの光・パルサービームは本体ではなく演出なので、本体より大きく、決まった大きさ（NEUTRON_STAR_EFFECT_RADIUS が基準）で描きます。
+  const nsRadius = NEUTRON_STAR_EFFECT_RADIUS;
+  const nsCoreGeo = new THREE.SphereGeometry(
+    IMPACTOR_MAP.neutronStar.visualRadius,
+    32,
+    24
+  );
   const nsCoreMat = new THREE.MeshBasicMaterial({
     color: 0xecfeff,
     transparent: true,
@@ -648,11 +674,23 @@ export function createImpactSystemRig(
   });
   neutronGroup.add(new THREE.Mesh(nsCoreGeo, nsCoreMat));
 
+  const nsHaloMat = new THREE.SpriteMaterial({
+    map: starTexture,
+    color: 0x22d3ee,
+    transparent: true,
+    opacity: 0.95,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const nsHalo = new THREE.Sprite(nsHaloMat);
+  nsHalo.scale.setScalar(nsRadius * 5.8);
+  neutronGroup.add(nsHalo);
+
   // パルサービームの回転軸。複製した模型からも名前で探して回せるように名前を付けます。
   const nsBeamPivot = new THREE.Group();
   nsBeamPivot.name = PULSAR_PIVOT_NAME;
   nsBeamPivot.rotation.z = 0.46;
-  const nsBeamGeo = new THREE.ConeGeometry(nsRadius * 1.2, nsRadius * 17, 24, 1, true);
+  const nsBeamGeo = new THREE.ConeGeometry(nsRadius * 0.65, nsRadius * 9.5, 24, 1, true);
   const nsBeamMat = new THREE.MeshBasicMaterial({
     color: 0x67e8f9,
     side: THREE.DoubleSide,
@@ -662,21 +700,25 @@ export function createImpactSystemRig(
     depthWrite: false,
   });
   const nsBeamTop = new THREE.Mesh(nsBeamGeo, nsBeamMat);
-  nsBeamTop.position.y = nsRadius * 8.7;
+  nsBeamTop.position.y = nsRadius * 4.8;
   nsBeamTop.rotation.x = Math.PI;
   const nsBeamBot = new THREE.Mesh(nsBeamGeo, nsBeamMat);
-  nsBeamBot.position.y = -nsRadius * 8.7;
+  nsBeamBot.position.y = -nsRadius * 4.8;
   nsBeamPivot.add(nsBeamTop, nsBeamBot);
   neutronGroup.add(nsBeamPivot);
   impactorTemplates.set("neutronStar", neutronGroup);
   allGeos.push(nsCoreGeo, nsBeamGeo);
-  allMats.push(nsCoreMat, nsBeamMat);
+  allMats.push(nsCoreMat, nsHaloMat, nsBeamMat);
 
   // (j) ブラックホール（事象の地平線＋回転する降着円盤＋光子リング＋双極ジェット）
-  //     黒い球が事象の地平線（実際の半径）です。光子リング・降着円盤・ジェットは、その半径に比例した大きさで描きます。
   const bhGroup = new THREE.Group();
-  const bhRadius = IMPACTOR_MAP.blackHole.physicalRadius;
-  const bhCoreGeo = new THREE.SphereGeometry(bhRadius, 40, 28);
+  // 本体（事象の地平線の黒い球）は、ほかの天体と同じ物差しの描く半径（visualRadius）で描きます。
+  // 降着円盤・光子リング・ジェットは本体ではなく演出なので、決まった大きさ（BLACK_HOLE_EFFECT_RADIUS が基準）で描きます。
+  const bhCoreGeo = new THREE.SphereGeometry(
+    IMPACTOR_MAP.blackHole.visualRadius,
+    40,
+    28
+  );
   const bhCoreMat = new THREE.MeshBasicMaterial({
     color: 0x020106,
     transparent: true,
@@ -689,7 +731,10 @@ export function createImpactSystemRig(
     uBurst: { value: 0 },
     uOpacity: { value: 1 },
   };
-  const bhDiskGeo = new THREE.PlaneGeometry(bhRadius * 8.4, bhRadius * 8.4);
+  const bhDiskGeo = new THREE.PlaneGeometry(
+    BLACK_HOLE_EFFECT_RADIUS * 4.6,
+    BLACK_HOLE_EFFECT_RADIUS * 4.6
+  );
   const bhDiskMat = new THREE.ShaderMaterial({
     uniforms: bhAccretionUniforms,
     vertexShader: ACCRETION_VERT,
@@ -703,8 +748,11 @@ export function createImpactSystemRig(
   bhDiskMesh.rotation.x = Math.PI * 0.37;
   bhGroup.add(bhDiskMesh);
 
-  // 光子球（光がブラックホールのまわりを回る距離）は事象の地平線の 1.5 倍です
-  const bhPhotonGeo = new THREE.RingGeometry(bhRadius * 1.5, bhRadius * 1.6, 48);
+  const bhPhotonGeo = new THREE.RingGeometry(
+    BLACK_HOLE_EFFECT_RADIUS * 0.56,
+    BLACK_HOLE_EFFECT_RADIUS * 0.86,
+    48
+  );
   const bhPhotonMat = new THREE.MeshBasicMaterial({
     color: 0xfde047,
     side: THREE.DoubleSide,
@@ -717,7 +765,7 @@ export function createImpactSystemRig(
   bhPhotonRing.rotation.y = Math.PI * 0.15;
   bhGroup.add(bhPhotonRing);
 
-  const bhJetGeo = new THREE.ConeGeometry(bhRadius * 1.1, bhRadius * 16, 24, 1, true);
+  const bhJetGeo = new THREE.ConeGeometry(0.32, 4.8, 24, 1, true);
   const bhJetMat = new THREE.MeshBasicMaterial({
     color: 0xd8b4fe,
     side: THREE.DoubleSide,
@@ -727,49 +775,14 @@ export function createImpactSystemRig(
     depthWrite: false,
   });
   const bhJetTop = new THREE.Mesh(bhJetGeo, bhJetMat);
-  bhJetTop.position.y = bhRadius * 8;
+  bhJetTop.position.y = 2.4;
   bhJetTop.rotation.x = Math.PI;
   const bhJetBottom = new THREE.Mesh(bhJetGeo, bhJetMat);
-  bhJetBottom.position.y = -bhRadius * 8;
+  bhJetBottom.position.y = -2.4;
   bhGroup.add(bhJetTop, bhJetBottom);
   impactorTemplates.set("blackHole", bhGroup);
   allGeos.push(bhCoreGeo, bhDiskGeo, bhPhotonGeo, bhJetGeo);
   allMats.push(bhCoreMat, bhDiskMat, bhPhotonMat, bhJetMat);
-
-  /**
-   * 置いた天体の模型の材質（ひな形と複製で共有）と、もとの不透明度です。
-   * 「復活」で置いた天体が消えるとき、大きさは変えずに不透明度で消すために使います。
-   */
-  const impactorFadeTargets = [
-    asteroidMat,
-    cometMat,
-    moonSizeMat,
-    marsSizeMat,
-    jupiterMat,
-    redDwarfBundle.sMat,
-    sunStarBundle.sMat,
-    blueSupergiantBundle.sMat,
-    nsCoreMat,
-    nsBeamMat,
-    bhCoreMat,
-    bhPhotonMat,
-  ].map((mat) => ({ mat, baseOpacity: mat.opacity, baseTransparent: mat.transparent }));
-
-  /** 置いた天体の模型をまとめて、もとの不透明度 × fade にします（1 = 元どおり、0 = 見えない） */
-  const setImpactorFade = (fade: number) => {
-    const f = THREE.MathUtils.clamp(fade, 0, 1);
-    for (const t of impactorFadeTargets) {
-      t.mat.opacity = t.baseOpacity * f;
-      // 組み込みの材質は「不透明」として作った描画プログラムのままだと不透明度が効かないので、
-      // 半透明かどうかが変わったときだけ作り直します（2種類ともキャッシュされるので、作り直しは最初の1回だけ）
-      const nextTransparent = t.baseTransparent || f < 0.999;
-      if (t.mat.transparent !== nextTransparent) {
-        t.mat.transparent = nextTransparent;
-        t.mat.needsUpdate = true;
-      }
-    }
-    bhAccretionUniforms.uOpacity.value = f;
-  };
 
 
   // -------------------------------------------------------------------------
@@ -778,13 +791,65 @@ export function createImpactSystemRig(
   const trailLen = 36;
 
   /** ひな形を複製して、1個ぶんの投入天体の模型を作ります。 */
+  /**
+   * 模型1個ぶんの、シェーダーに毎フレーム渡す値です。
+   * 月・惑星のシェーダーは「太陽の向き」で昼と夜を塗り分け、恒星のシェーダーは「時間」で表面の模様を動かします。
+   * 置いた天体ごとに太陽の向きが違うので、材質は模型ごとに複製して持ちます。
+   */
+  interface ImpactorShading {
+    sunDirections: THREE.Vector3[];
+    times: Array<{ value: number }>;
+    ownMaterials: THREE.Material[];
+  }
+
   const createImpactorModel = (
     impactorId: ImpactorId
-  ): { group: THREE.Group; pulsarPivot: THREE.Object3D | null } => {
+  ): {
+    group: THREE.Group;
+    pulsarPivot: THREE.Object3D | null;
+    shading: ImpactorShading;
+  } => {
     const template = impactorTemplates.get(impactorId);
     const group = template ? template.clone(true) : new THREE.Group();
     const pulsarPivot = group.getObjectByName(PULSAR_PIVOT_NAME) ?? null;
-    return { group, pulsarPivot };
+    const shading: ImpactorShading = { sunDirections: [], times: [], ownMaterials: [] };
+    group.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh || !(mesh.material instanceof THREE.ShaderMaterial)) return;
+      const uniforms = mesh.material.uniforms;
+      if (!uniforms.uSunDirection && !uniforms.uTime) return;
+      // clone() で uniforms も複製されます。模様の画像（Texture）まで複製されると画像が増えるので、元の画像を指し直します
+      const own = mesh.material.clone();
+      for (const key of Object.keys(uniforms)) {
+        if (uniforms[key].value instanceof THREE.Texture) {
+          own.uniforms[key].value = uniforms[key].value;
+        }
+      }
+      mesh.material = own;
+      shading.ownMaterials.push(own);
+      if (own.uniforms.uSunDirection) {
+        shading.sunDirections.push(own.uniforms.uSunDirection.value as THREE.Vector3);
+      }
+      if (own.uniforms.uTime) {
+        shading.times.push(own.uniforms.uTime as { value: number });
+      }
+    });
+    return { group, pulsarPivot, shading };
+  };
+
+  /** 模型の位置から見た太陽の向きと、時間をシェーダーに渡します */
+  const updateImpactorShading = (
+    group: THREE.Group,
+    shading: ImpactorShading,
+    sunPos: THREE.Vector3,
+    totalTimeSec: number
+  ) => {
+    for (const dir of shading.sunDirections) {
+      dir.copy(sunPos).sub(group.position);
+      if (dir.lengthSq() < 1e-12) dir.set(1, 0, 0);
+      dir.normalize();
+    }
+    for (const t of shading.times) t.value = totalTimeSec;
   };
 
   /** 置いた天体1個ぶんの、物理状態と表示物のまとまり */
@@ -793,6 +858,7 @@ export function createImpactSystemRig(
     spec: ImpactorSpec;
     group: THREE.Group;
     pulsarPivot: THREE.Object3D | null;
+    shading: ImpactorShading;
     trailHistory: THREE.Vector3[];
     trailGeo: THREE.BufferGeometry;
     trailMat: THREE.PointsMaterial;
@@ -803,10 +869,10 @@ export function createImpactSystemRig(
     entry: SolarImpactorEntry
   ): LiveImpactorVisual => {
     const spec = IMPACTOR_MAP[entry.specId];
-    const { group, pulsarPivot } = createImpactorModel(entry.specId);
-    // 物理上の位置にそのまま置きます
-    group.position.set(entry.pos.x, entry.pos.y, entry.pos.z);
-    // 模型は実際の半径（physicalRadius）どおりの大きさで作ってあります（倍率 1）
+    const { group, pulsarPivot, shading } = createImpactorModel(entry.specId);
+    // 物理上の位置を、描く位置（衛星のまわりは広げた位置）に直して置きます
+    physicsToDisplay(entry.pos, group.position);
+    // 模型は visualRadius（描く半径）どおりの大きさで描きます（倍率 1）
     group.scale.setScalar(1);
     liveImpactorsRoot.add(group);
 
@@ -825,8 +891,8 @@ export function createImpactSystemRig(
       new THREE.BufferAttribute(new Float32Array(trailLen * 3), 3)
     );
     const trailMat = new THREE.PointsMaterial({
-      // 軌跡の点の大きさは、天体の実際の半径と同じにします（天体より太い軌跡にはしません）
-      size: spec.physicalRadius,
+      // 軌跡の点の大きさは描く半径に合わせますが、リゲルのように巨大な天体で画面が白く覆われないよう上限を設けます
+      size: Math.min(spec.visualRadius * 2.5 + 0.55, 6),
       map: starTexture,
       vertexColors: true,
       transparent: true,
@@ -835,7 +901,6 @@ export function createImpactSystemRig(
       depthWrite: false,
     });
     const trailPoints = new THREE.Points(trailGeo, trailMat);
-    trailPoints.frustumCulled = false;
     root.add(trailPoints);
 
     return {
@@ -843,6 +908,7 @@ export function createImpactSystemRig(
       spec,
       group,
       pulsarPivot,
+      shading,
       trailHistory,
       trailGeo,
       trailMat,
@@ -856,6 +922,7 @@ export function createImpactSystemRig(
     root.remove(visual.trailPoints);
     visual.trailGeo.dispose();
     visual.trailMat.dispose();
+    for (const m of visual.shading.ownMaterials) m.dispose();
   };
 
   // -------------------------------------------------------------------------
@@ -1009,9 +1076,6 @@ export function createImpactSystemRig(
     MAX_DEBRIS
   );
   debrisMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  // InstancedMesh の画面外の判定の範囲（境界球）は最初の描画で1回だけ計算されるので、
-  // 別の場所で起きた爆発の破片が消えないよう、画面外の判定を切ります
-  debrisMesh.frustumCulled = false;
   debrisMesh.visible = false;
   debrisMesh.renderOrder = 5;
   root.add(debrisMesh);
@@ -1029,8 +1093,6 @@ export function createImpactSystemRig(
     maxLife: number;
     /** 吸い込み先の投入天体の uid（吸い込まれない破片は NO_SWALLOW_UID） */
     swallowUid: number;
-    /** 長さの基準（シーン単位）。出てきた爆発の大きさの基準で、吸い込みの強さもこの長さを単位に計算します */
-    unit: number;
     color: THREE.Color;
     /** 爆発の中心（吸い込み先が消えたときや「復活」時に戻る場所） */
     homePos: THREE.Vector3;
@@ -1047,35 +1109,26 @@ export function createImpactSystemRig(
       life: 0,
       maxLife: 1,
       swallowUid: NO_SWALLOW_UID,
-      unit: 1,
       color: new THREE.Color(1, 0.6, 0.2),
       homePos: new THREE.Vector3(),
     });
   }
   let debrisWriteCursor = 0;
 
-  /** 火花の位置（太陽系の座標・64ビット）。GPU へは基準点からの差（sparkPosArr）を送ります */
-  const sparkPosD = new Float64Array(MAX_SPARKS * 3);
   const sparkPosArr = new Float32Array(MAX_SPARKS * 3);
-  /** 火花ごとの点の大きさ（シーン単位）。出てきた爆発の大きさの基準に比例させます */
-  const sparkSizeArr = new Float32Array(MAX_SPARKS);
   const sparkColArr = new Float32Array(MAX_SPARKS * 3);
-  const sparkHomeArr = new Float64Array(MAX_SPARKS * 3);
+  const sparkHomeArr = new Float32Array(MAX_SPARKS * 3);
   const sparkVelList: THREE.Vector3[] = [];
   const sparkLifeList = new Float32Array(MAX_SPARKS);
   const sparkSwallowUids = new Int32Array(MAX_SPARKS).fill(NO_SWALLOW_UID);
-  /** 火花ごとの長さの基準（シーン単位。出てきた爆発の大きさの基準） */
-  const sparkUnitArr = new Float64Array(MAX_SPARKS).fill(1);
   for (let i = 0; i < MAX_SPARKS; i++) {
     sparkVelList.push(new THREE.Vector3());
   }
   const sparkGeo = new THREE.BufferGeometry();
   sparkGeo.setAttribute("position", new THREE.BufferAttribute(sparkPosArr, 3));
   sparkGeo.setAttribute("color", new THREE.BufferAttribute(sparkColArr, 3));
-  sparkGeo.setAttribute("aSize", new THREE.BufferAttribute(sparkSizeArr, 1));
   const sparkMat = new THREE.PointsMaterial({
-    // 点の大きさは火花ごとの aSize（シーン単位）で決めます（size は倍率 1）
-    size: 1,
+    size: 0.48,
     map: starTexture,
     vertexColors: true,
     transparent: true,
@@ -1083,15 +1136,7 @@ export function createImpactSystemRig(
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
-  // 火花ごとに大きさを変えられるよう、点の大きさの計算に aSize を掛けます
-  // （同時に起きた大きさの違う爆発の火花が、それぞれの爆発に合った大きさになります）
-  sparkMat.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader
-      .replace("void main() {", "attribute float aSize;\nvoid main() {")
-      .replace("gl_PointSize = size;", "gl_PointSize = size * aSize;");
-  };
   const sparkPoints = new THREE.Points(sparkGeo, sparkMat);
-  sparkPoints.frustumCulled = false;
   sparkPoints.visible = false;
   sparkPoints.renderOrder = 7;
   root.add(sparkPoints);
@@ -1110,36 +1155,134 @@ export function createImpactSystemRig(
   /** 地球に衝撃波が広がり始めてからの秒数（地球に当たっていなければ十分大きな値） */
   let earthShockTimer = Number.POSITIVE_INFINITY;
 
-  /** N体計算の太陽系天体の状態（実際の位置・速度。画面にもこの位置で描き、bodyStates.worldPos に写します） */
+  /** N体計算の太陽系天体の状態（物理上の位置・速度。描く位置は bodyStates.worldPos） */
   let liveBodies = {} as Record<SolarImpactTargetId, SolarNBodyEntry>;
   let nBodyInitialized = false;
 
-  /** 画面の本来の天体の位置（実際の位置）から、物理計算の初期状態を作ります */
+  /**
+   * 衛星を広げて描く効き具合（1 = 効く、0 = 効かない）。
+   * 母惑星が衝突で消えたら少しずつ 0 にして、衛星の描く位置が急に飛ばないようにします。
+   */
+  const warpWeights: Record<SatelliteHostId, number> = { earth: 1, jupiter: 1 };
+  /** 今のフレームで使う「物理上の位置 ↔ 描く位置」の変換の設定 */
+  let currentWarpHosts: DisplayWarpHost[] = [];
+
+  /** 物理上の位置を、描く位置に直して out に入れます */
+  const physicsToDisplay = (p: Vec3Like, out: THREE.Vector3): THREE.Vector3 => {
+    warpPhysicsToDisplay(p, currentWarpHosts, out);
+    return out;
+  };
+
+  /** 描く位置を、物理上の位置に直して返します */
+  const displayToPhysics = (p: Vec3Like): Vec3Like =>
+    warpDisplayToPhysics(p, currentWarpHosts, { x: 0, y: 0, z: 0 });
+
+  /** まだN体計算を始めていないとき：画面の本来の天体の位置（＝母惑星の位置）から変換の設定を作ります */
+  const refreshWarpHostsFromBaseline = (
+    baselineBodies: ReadonlyArray<SolarBaselineBodyInput>
+  ) => {
+    const hosts: SatelliteHostSnapshot[] = SATELLITE_DISPLAY_SYSTEMS.map((sys) => {
+      const b = baselineBodies.find((item) => item.id === sys.hostId);
+      return {
+        hostId: sys.hostId,
+        center: b ? { x: b.pos.x, y: b.pos.y, z: b.pos.z } : { x: 0, y: 0, z: 0 },
+        alive: Boolean(b),
+      };
+    });
+    warpWeights.earth = 1;
+    warpWeights.jupiter = 1;
+    currentWarpHosts = buildDisplayWarpHosts(hosts, warpWeights);
+  };
+
+  /** N体計算中：物理上の母惑星の位置から変換の設定を作り、消えた母惑星の効き具合を少しずつ弱めます */
+  const refreshWarpHostsFromLive = (realDt: number) => {
+    for (const sys of SATELLITE_DISPLAY_SYSTEMS) {
+      const host = liveBodies[sys.hostId];
+      if (host && host.alive) {
+        warpWeights[sys.hostId] = 1;
+      } else {
+        warpWeights[sys.hostId] = Math.max(
+          0,
+          warpWeights[sys.hostId] - realDt / WARP_FADE_SECONDS
+        );
+      }
+    }
+    currentWarpHosts = buildDisplayWarpHosts(
+      snapshotSatelliteHosts(liveBodies),
+      warpWeights
+    );
+  };
+
+  /**
+   * 画面で狙った「描く位置」と「速度（向きと速さ）」を、物理計算で使う位置と速度に直します。
+   * 位置は変換の逆で戻し、向きは「少し進んだ点」も物理上の位置に直して求めます（速さはそのまま）。
+   */
+  const aimToPhysics = (
+    spawnDisplay: THREE.Vector3,
+    velDisplay: THREE.Vector3
+  ): { pos: Vec3Like; vel: Vec3Like } => {
+    const pos = displayToPhysics(spawnDisplay);
+    const speed = velDisplay.length();
+    if (speed < 1e-9) {
+      return { pos, vel: { x: 0, y: 0, z: 0 } };
+    }
+    const probe = spawnDisplay
+      .clone()
+      .addScaledVector(velDisplay, AIM_DIRECTION_PROBE / speed);
+    const probePhys = displayToPhysics(probe);
+    let dx = probePhys.x - pos.x;
+    let dy = probePhys.y - pos.y;
+    let dz = probePhys.z - pos.z;
+    let len = Math.hypot(dx, dy, dz);
+    if (len < 1e-15) {
+      dx = velDisplay.x;
+      dy = velDisplay.y;
+      dz = velDisplay.z;
+      len = speed;
+    }
+    return {
+      pos,
+      vel: { x: (dx / len) * speed, y: (dy / len) * speed, z: (dz / len) * speed },
+    };
+  };
+
+  /** 画面の本来の天体の位置（描く位置）から、物理計算の初期状態を作ります */
   const createPhysicsBodiesFromBaseline = (
     baselineBodies: ReadonlyArray<SolarBaselineBodyInput>
   ) =>
     createSolarNBodyEntriesFromSnapshot(
-      baselineBodies.map((b) => ({
-        id: b.id,
-        pos: { x: b.pos.x, y: b.pos.y, z: b.pos.z },
-      }))
+      displaySnapshotToPhysics(
+        baselineBodies.map((b) => ({ id: b.id, pos: b.pos }))
+      )
     );
 
-  /** THREE.Vector3 を、物理計算で使う {x, y, z} の形に写します */
-  const toTuple = (v: THREE.Vector3): Vec3Tuple => ({ x: v.x, y: v.y, z: v.z });
+  /**
+   * 太陽系天体を画面で今描いている半径（シーン単位）。毎フレーム、画面の本来の天体の値（baselineBodies の radius）で更新します。
+   * 太陽の描く半径はどの距離でも 3.4 です。
+   */
+  const currentDrawnRadius = {} as Record<SolarImpactTargetId, number>;
+  for (const spec of SOLAR_TARGET_SPECS) currentDrawnRadius[spec.id] = spec.displayRadius;
+  const drawnRadiusOf = (id: SolarImpactTargetId): number =>
+    currentDrawnRadius[id] ?? SOLAR_TARGET_MAP[id].displayRadius;
+  /** 画面の本来の天体の値から、今描いている半径を記録します */
+  const refreshDrawnRadii = (baselineBodies: ReadonlyArray<SolarBaselineBodyInput>) => {
+    for (const b of baselineBodies) {
+      if (b.radius > 0) currentDrawnRadius[b.id] = b.radius;
+    }
+  };
 
-  /** 衝突の当事者の実際の半径（シーン単位） */
-  const partyRadiusOf = (
+  /** 衝突の当事者を画面に描く半径（シーン単位） */
+  const displayRadiusOf = (
     id: SolarCollisionEvent["primaryId"],
     uid: number | null
   ): number => {
     if (id === "impactor") {
       for (const visual of liveImpactors) {
-        if (visual.entry.uid === uid) return visual.spec.physicalRadius;
+        if (visual.entry.uid === uid) return visual.spec.visualRadius;
       }
-      return 0;
+      return 0.2;
     }
-    return SOLAR_TARGET_MAP[id].physicalRadius;
+    return drawnRadiusOf(id);
   };
 
   /** 現在置かれている投入天体（古い順）。何個でも追加でき、MAX_LIVE_IMPACTORS を超えると古いものから消えます。 */
@@ -1152,6 +1295,7 @@ export function createImpactSystemRig(
     impactorId: ImpactorId;
     group: THREE.Group;
     pulsarPivot: THREE.Object3D | null;
+    shading: ImpactorShading;
   } | null = null;
 
   // 復元開始時の各天体スナップショット
@@ -1191,7 +1335,6 @@ export function createImpactSystemRig(
   const tmpTangentA = new THREE.Vector3();
   const tmpTangentB = new THREE.Vector3();
   const tmpSwallowTarget = new THREE.Vector3();
-  const tmpDebrisRel = new THREE.Vector3();
   const invRotQuat = new THREE.Quaternion();
   const IMPACTOR_LIGHT_OFFSET = new THREE.Vector3(1.2, 0.8, 1.5);
 
@@ -1233,7 +1376,7 @@ export function createImpactSystemRig(
     return entries;
   };
 
-  /** uid から、まだ存在している投入天体を探し、その位置を返します（見つからなければ null）。 */
+  /** uid から、まだ存在している投入天体を探し、その描く位置を返します（見つからなければ null）。 */
   const findAliveImpactorDisplayPos = (uid: number): THREE.Vector3 | null => {
     if (uid === NO_SWALLOW_UID) return null;
     for (const visual of liveImpactors) {
@@ -1256,6 +1399,7 @@ export function createImpactSystemRig(
   const removeAimPreview = () => {
     if (aimPreview) {
       liveImpactorsRoot.remove(aimPreview.group);
+      for (const m of aimPreview.shading.ownMaterials) m.dispose();
       aimPreview = null;
     }
   };
@@ -1299,36 +1443,46 @@ export function createImpactSystemRig(
     const hitColor = new THREE.Color(spec.explosionColorHex);
     latestFlashColorCss = spec.flashColorCss;
 
-    // 2天体の実際の半径（描いている大きさと同じ）
-    const primaryRadius = partyRadiusOf(ev.primaryId, ev.primaryImpactorUid);
-    const secondaryRadius = partyRadiusOf(
+    // 見た目の大きさは、画面に描いている半径を使います（物理上の半径は小さすぎて爆発が見えないため）
+    const primaryRadius = displayRadiusOf(ev.primaryId, ev.primaryImpactorUid);
+    const secondaryRadius = displayRadiusOf(
       ev.secondaryId,
       ev.secondaryImpactorUid
     );
 
-    // 爆発を出す位置：触れた瞬間の2天体の中心（物理上の位置 = 描いている位置）から決めます。
-    // 半径が大きいほうを「大きい天体」、小さいほうを「小さい天体」とし、触れた点（大きい天体の表面）で爆発させます。
-    // ただしリゲルのように半透明で描く巨大な恒星に取り込まれた場合は、取り込まれた天体の中心で爆発させます。
-    const primaryCenter = new THREE.Vector3(
-      ev.primaryCenterAt.x,
-      ev.primaryCenterAt.y,
-      ev.primaryCenterAt.z
-    );
-    const secondaryCenter = new THREE.Vector3(
-      ev.secondaryCenterAt.x,
-      ev.secondaryCenterAt.y,
-      ev.secondaryCenterAt.z
-    );
+    // 爆発を出す位置を、描いた絵とそろえて決めます。
+    // 1) 2天体の触れた瞬間の中心を、その瞬間の母惑星の位置で「描く位置」に直します
+    //    （フレームの終わりの位置で直すと、10日/s では地球で約1、木星で約2ずれるため）
+    const contactHosts = buildDisplayWarpHosts(ev.hostsAtContact, warpWeights);
+    const primaryDrawn = new THREE.Vector3();
+    const secondaryDrawn = new THREE.Vector3();
+    warpPhysicsToDisplay(ev.primaryCenterAt, contactHosts, primaryDrawn);
+    warpPhysicsToDisplay(ev.secondaryCenterAt, contactHosts, secondaryDrawn);
+    // リゲル自身が消える衝突か（ブラックホールに飲み込まれる・リゲルどうしで対消滅する）。
+    // リゲルは描く半径が 約268 と桁違いに大きいので、この場合だけ爆発をリゲルの大きさに合わせます。
+    const specOfUid = (uid: number | null): ImpactorSpec | null => {
+      if (uid === null) return null;
+      const visual = liveImpactors.find((v) => v.entry.uid === uid);
+      return visual ? visual.spec : null;
+    };
+    const isRigel = (uid: number | null) =>
+      specOfUid(uid)?.id === "blueSupergiant";
+    const rigelDestroyed =
+      isRigel(ev.secondaryImpactorUid) ||
+      (ev.annihilation && isRigel(ev.primaryImpactorUid));
+
+    // 2) 描いた半径が大きいほうを「大きい天体」、小さいほうを「小さい天体」とし、小さい天体が描かれていた位置で爆発させます
     const primaryIsBigger = primaryRadius >= secondaryRadius;
-    const bigCenter = primaryIsBigger ? primaryCenter : secondaryCenter;
+    const bigCenter = primaryIsBigger ? primaryDrawn : secondaryDrawn;
     const bigRadius = primaryIsBigger ? primaryRadius : secondaryRadius;
-    const smallRadius = primaryIsBigger ? secondaryRadius : primaryRadius;
-    const center = (primaryIsBigger ? secondaryCenter : primaryCenter).clone();
+    const center = (primaryIsBigger ? secondaryDrawn : primaryDrawn).clone();
+    // 3) ただし小さい天体が「不透明に描いた大きい天体」の内側に描かれている場合（例：地球に当たる小惑星）は、
+    //    そのままでは爆発が隠れて見えないので、大きい天体の表面まで押し出します（リゲルのような巨大な恒星も同じです）。
     const outward = center.clone().sub(bigCenter);
-    const centerDistance = outward.length();
-    if (bigRadius <= HUGE_STAR_RADIUS && centerDistance < bigRadius) {
-      if (centerDistance > 1e-15) {
-        outward.divideScalar(centerDistance);
+    const drawnDistance = outward.length();
+    if (drawnDistance < bigRadius) {
+      if (drawnDistance > 1e-9) {
+        outward.divideScalar(drawnDistance);
       } else {
         outward.set(
           ev.contactNormalOnPrimary.x,
@@ -1341,14 +1495,35 @@ export function createImpactSystemRig(
       }
       center.copy(bigCenter).addScaledVector(outward, bigRadius);
     }
-    // 爆発の大きさの基準（シーン単位）は、ぶつかった天体の実際の半径で決めます。
-    // 小さいほうの天体の半径の 8 倍（ただし大きいほうの天体の半径まで）にします。
-    // 例：地球（半径 6,378 km）に小惑星（半径 5 km）→ 40 km、地球に月サイズ（1,737 km）→ 6,378 km
-    const explosionScale = Math.max(
-      1e-12,
-      Math.min(bigRadius, smallRadius * EXPLOSION_SIZE_PER_RADIUS) * 0.85
+    // 対消滅は、2天体のまん中（触れたところ）で爆発させます
+    if (ev.annihilation) {
+      center.lerpVectors(primaryDrawn, secondaryDrawn, 0.5);
+    }
+    // リゲル自身が消えるときは、消えるリゲルの中心で爆発させます
+    if (rigelDestroyed) {
+      if (ev.annihilation) {
+        center.lerpVectors(primaryDrawn, secondaryDrawn, 0.5);
+      } else {
+        center.copy(secondaryDrawn);
+      }
+    }
+    // 爆発の大きさはぶつかった2天体の半径に比例させます。
+    // 惑星を実比率で小さく描くため、最小値も小さく（0.2）して、地球と月サイズの衝突が内惑星全体を覆わないようにします。
+    let explosionScale = Math.max(
+      0.2,
+      Math.min(5.5, (primaryRadius + secondaryRadius) * 0.85)
     );
+    if (rigelDestroyed) {
+      // 火球のいちばん大きいときの半径（爆発の段階ごとの倍率 × explosionScale）が、リゲルの描く半径と同じになるようにします
+      const fireballFactor = spec.tier === 1 ? 1.35 : spec.tier === 2 ? 2.8 : 6.2;
+      explosionScale = IMPACTOR_MAP.blueSupergiant.visualRadius / fireballFactor;
+    }
     slot.scale = explosionScale;
+    // 破片・火花が飛ぶ速さの倍率。ふつうは大きさの平方根ですが、リゲルが消えるときは
+    // リゲルの大きさまで飛び散るよう、大きさに比例させます
+    const debrisSpeedScale = rigelDestroyed
+      ? explosionScale
+      : Math.sqrt(explosionScale);
 
     // 太陽系天体側へのダメージ・クレーター・消滅設定
     const applyBodyDamage = (
@@ -1485,8 +1660,6 @@ export function createImpactSystemRig(
       p.swallowUid = swallowUid;
       p.homePos.copy(center);
 
-      // 破片の速さ・大きさは、爆発の大きさの基準（explosionScale）に比例させます（どの縮尺でも同じ見え方）
-      p.unit = explosionScale;
       if (isSwallow) {
         const sr = (0.8 + Math.random() * 1.4) * explosionScale;
         p.pos.set(
@@ -1496,13 +1669,13 @@ export function createImpactSystemRig(
         );
         p.vel
           .set(-Math.sin(az), (Math.random() - 0.5) * 0.4, Math.cos(az))
-          .multiplyScalar((3.5 + Math.random() * 3.0) * explosionScale);
+          .multiplyScalar(3.5 + Math.random() * 3.0);
         p.scale = (0.7 + Math.random() * 1.5) * explosionScale;
         p.maxLife = 7.5;
         p.life = p.maxLife;
       } else {
         p.pos.copy(center);
-        const spd = (2.2 + Math.random() * 5.2) * explosionScale;
+        const spd = (2.2 + Math.random() * 5.2) * debrisSpeedScale;
         p.vel.set(
           s * Math.cos(az) * spd,
           u * spd,
@@ -1523,15 +1696,13 @@ export function createImpactSystemRig(
       const u = Math.random() * 2 - 1;
       const s = Math.sqrt(1 - u * u);
       sparkSwallowUids[idx] = swallowUid;
-      sparkPosD[idx * 3] = center.x;
-      sparkPosD[idx * 3 + 1] = center.y;
-      sparkPosD[idx * 3 + 2] = center.z;
-      sparkSizeArr[idx] = 0.48 * explosionScale;
+      sparkPosArr[idx * 3] = center.x;
+      sparkPosArr[idx * 3 + 1] = center.y;
+      sparkPosArr[idx * 3 + 2] = center.z;
       sparkHomeArr[idx * 3] = center.x;
       sparkHomeArr[idx * 3 + 1] = center.y;
       sparkHomeArr[idx * 3 + 2] = center.z;
-      sparkUnitArr[idx] = explosionScale;
-      const spd = (3.5 + Math.random() * 7.5) * explosionScale;
+      const spd = (3.5 + Math.random() * 7.5) * debrisSpeedScale;
       sparkVelList[idx].set(
         s * Math.cos(az) * spd,
         u * spd,
@@ -1549,7 +1720,6 @@ export function createImpactSystemRig(
       true;
     (sparkGeo.getAttribute("color") as THREE.BufferAttribute).needsUpdate =
       true;
-    (sparkGeo.getAttribute("aSize") as THREE.BufferAttribute).needsUpdate = true;
     debrisMesh.visible = true;
     sparkPoints.visible = true;
   };
@@ -1582,7 +1752,7 @@ export function createImpactSystemRig(
       const maxR =
         (spec.tier === 1 ? 1.35 : spec.tier === 2 ? 2.8 : 6.2) * slot.scale;
       const curR = maxR * Math.pow(ft, 0.36);
-      slot.fireballMesh.scale.setScalar(Math.max(0.06 * slot.scale, curR));
+      slot.fireballMesh.scale.setScalar(Math.max(0.08, curR));
       slot.fireballUniforms.uOpacity.value =
         Math.sin(Math.min(1, ft * 1.15) * Math.PI) * 0.95;
       slot.fireballUniforms.uHeat.value = Math.max(0, 1.0 - ft * 1.1);
@@ -1597,14 +1767,12 @@ export function createImpactSystemRig(
       const st = t / shockDuration;
       const maxShock =
         (spec.tier === 1 ? 3.2 : spec.tier === 2 ? 6.8 : 14.5) * slot.scale;
-      slot.shockMesh1.scale.setScalar(
-        0.15 * slot.scale + maxShock * Math.pow(st, 0.52)
-      );
+      slot.shockMesh1.scale.setScalar(0.2 + maxShock * Math.pow(st, 0.52));
       slot.shockUniforms1.uOpacity.value = (1 - st) * (1 - st) * 0.95;
       slot.shockMesh1.visible = true;
       if (spec.tier >= 2) {
         slot.shockMesh2.scale.setScalar(
-          0.15 * slot.scale + maxShock * 0.85 * Math.pow(st, 0.58)
+          0.2 + maxShock * 0.85 * Math.pow(st, 0.58)
         );
         slot.shockUniforms2.uOpacity.value = (1 - st) * (1 - st) * 0.75;
         slot.shockMesh2.visible = true;
@@ -1637,24 +1805,16 @@ export function createImpactSystemRig(
   /** 補助ライトを、狙い中の天体または最後に置いた天体の近くへ動かします（どちらもなければ消灯）。 */
   const updateImpactorLight = () => {
     let target: THREE.Group | null = null;
-    let targetRadius = 0;
     if (aimPreview) {
       target = aimPreview.group;
-      targetRadius = IMPACTOR_MAP[aimPreview.impactorId].physicalRadius;
     } else if (liveImpactors.length > 0) {
-      const last = liveImpactors[liveImpactors.length - 1];
-      target = last.group;
-      targetRadius = last.spec.physicalRadius;
+      target = liveImpactors[liveImpactors.length - 1].group;
     }
     if (target) {
-      // ライトは天体の半径に比例した距離に置きます。光は距離の2乗で弱まるので、明るさも距離の2乗に合わせます
-      // （どの大きさの天体でも同じ明るさで照らされます）
-      const lightScale = targetRadius * target.scale.x * 2;
       impactorLight.position
         .copy(target.position)
-        .addScaledVector(IMPACTOR_LIGHT_OFFSET, lightScale);
-      impactorLight.distance = 65 * lightScale;
-      impactorLight.intensity = IMPACTOR_LIGHT_INTENSITY * lightScale * lightScale;
+        .addScaledVector(IMPACTOR_LIGHT_OFFSET, target.scale.x);
+      impactorLight.intensity = IMPACTOR_LIGHT_INTENSITY;
     } else {
       impactorLight.intensity = 0;
     }
@@ -1687,8 +1847,6 @@ export function createImpactSystemRig(
     restoreTimer = 0;
     nBodyInitialized = false;
     earthShockTimer = Number.POSITIVE_INFINITY;
-    // 「復活」で透明にした模型の材質を元の不透明度に戻します
-    setImpactorFade(1);
     for (const visual of liveImpactors) {
       disposeLiveImpactorVisual(visual);
     }
@@ -1748,64 +1906,39 @@ export function createImpactSystemRig(
   // -------------------------------------------------------------------------
   // 先読み予測（狙っている間）：1フレームに最大1回始め、決めた時間ずつ複数フレームに分けて計算
   // -------------------------------------------------------------------------
-  /** まだ予測を始めていない最新の狙い（実際の位置・速度） */
+  /** まだ予測を始めていない最新の狙い（描く位置・描く空間での速度） */
   let pendingAim: {
     impactorId: ImpactorId;
     spawn: THREE.Vector3;
     vel: THREE.Vector3;
-    frameBodyId: SolarImpactTargetId | null;
-    /** 狙ったときの基準の天体の位置（予測を始めるまでに天体が動いた分、置く位置もずらすため） */
-    frameAtAim: THREE.Vector3 | null;
-    horizon: number;
   } | null = null;
   /** 計算途中の予測 */
   let activePredictor: SolarNBodyPredictor | null = null;
-  /** いちばん新しい予測の結果（基準の天体から見た軌道として、毎フレーム描き直します） */
-  let lastPrediction: SolarNBodyPredictionResult | null = null;
-  /** 予測線の基準の天体（null なら太陽から見た軌道のまま描きます） */
-  let predictionFrameBodyId: SolarImpactTargetId | null = null;
-  /** カメラの向き（当たる天体のリングを、カメラに正面を向けて描くために使います） */
-  const viewQuaternion = new THREE.Quaternion();
-  /** 予測線の基準の天体を、今描いている位置（毎フレーム更新） */
-  const frameBodyNow = new THREE.Vector3();
-  /** 太陽系天体を今描いている位置（N体計算中はその結果、まだなら本来の公転位置）を新しく作って返します */
-  const currentBodyPos = (
-    id: SolarImpactTargetId,
-    baselineBodies: ReadonlyArray<SolarBaselineBodyInput>
-  ): THREE.Vector3 | null => {
-    if (nBodyInitialized) return bodyStates[id].worldPos.clone();
-    const b = baselineBodies.find((item) => item.id === id);
-    return b ? b.pos.clone() : null;
-  };
-  /** 予測した時点の点 p を、基準の天体から見た位置に直して out に入れます（基準の天体がなければそのまま） */
-  const toFramePos = (
-    p: Vec3Tuple,
-    frameAt: Vec3Tuple | null | undefined,
-    out: THREE.Vector3
-  ): THREE.Vector3 => {
-    out.set(p.x, p.y, p.z);
-    if (predictionFrameBodyId !== null && frameAt) {
-      out.x += frameBodyNow.x - frameAt.x;
-      out.y += frameBodyNow.y - frameAt.y;
-      out.z += frameBodyNow.z - frameAt.z;
-    }
-    return out;
-  };
-  /** 予測している投入天体の実際の半径（ターゲットリングの大きさに使います） */
-  let predictedImpactorRadius = 0;
 
   /** 予測の結果（途中までの結果でも可）を、予測線・惑星の予測軌跡・当たる天体のリングとして描きます */
   const renderPrediction = (predicted: SolarNBodyPredictionResult) => {
-    // 1) 投入天体の予測軌道ライン（基準の天体があれば、その天体から見た軌道として表示）
-    const count = Math.min(predicted.impactorPath.length, maxPreviewPts + 1);
+    /** 予測のある時点の母惑星の位置で、物理上の点を描く位置に直します */
+    const predictedToDisplay = (
+      pt: Vec3Like,
+      hosts: SatelliteHostSnapshot[],
+      out: THREE.Vector3
+    ): THREE.Vector3 => {
+      warpPhysicsToDisplay(pt, buildDisplayWarpHosts(hosts, warpWeights), out);
+      return out;
+    };
+
+    // 1) 投入天体の予測軌道ライン（描く位置に直して表示）
+    const count = Math.min(predicted.impactorPath.length, maxPreviewPts);
     const attr = previewGeo.getAttribute("position") as THREE.BufferAttribute;
     for (let i = 0; i < count; i++) {
-      toFramePos(predicted.impactorPath[i], predicted.framePath[i], tmpVec);
-      tmpVec.sub(renderBase);
+      predictedToDisplay(
+        predicted.impactorPath[i],
+        predicted.impactorPathHosts[i],
+        tmpVec
+      );
       attr.setXYZ(i, tmpVec.x, tmpVec.y, tmpVec.z);
     }
     attr.needsUpdate = true;
-    previewLine.position.copy(renderBase);
     previewGeo.setDrawRange(0, count);
     previewLine.computeLineDistances();
     previewLine.visible = count >= 2;
@@ -1831,20 +1964,22 @@ export function createImpactSystemRig(
     }
 
     // 3) 衝突が予測されるすべての太陽系天体にターゲットリングを表示
-    //    リングは、当たる瞬間のその天体の中心に置き、半径を「実際に触れる距離」
-    //    （その天体の実際の半径 ＋ 投げる天体の実際の半径）にします。投げる天体の中心がこの円の中に入ると当たります。
     for (const entry of targetReticles.values()) {
       entry.mesh.visible = false;
     }
     for (const hit of predicted.hitTargets) {
       const rEntry = targetReticles.get(hit.id);
       if (!rEntry) continue;
-      const contactRadius =
-        SOLAR_TARGET_MAP[hit.id].physicalRadius + predictedImpactorRadius;
-      toFramePos(hit.center, hit.frameCenter, rEntry.mesh.position);
-      // 円はカメラに正面を向けて描きます（画面で見て、投げる天体の中心がこの円の中に入ると当たります）
-      rEntry.mesh.quaternion.copy(viewQuaternion);
-      rEntry.mesh.scale.setScalar(contactRadius);
+      // 当たる天体の「描く位置」の表面のすぐ外に、描く半径に合わせた大きさのリングを置きます
+      const displayRadius = drawnRadiusOf(hit.id);
+      tmpVec.set(hit.normal.x, hit.normal.y, hit.normal.z).normalize();
+      if (tmpVec.lengthSq() < 1e-4) tmpVec.set(0, 1, 0);
+      predictedToDisplay(hit.center, hit.hosts, rEntry.mesh.position);
+      rEntry.mesh.position.addScaledVector(tmpVec, displayRadius * 1.08 + 0.12);
+      rEntry.mesh.lookAt(
+        rEntry.mesh.position.clone().addScaledVector(tmpVec, 1.0)
+      );
+      rEntry.mesh.scale.setScalar(Math.max(0.45, displayRadius * 0.95));
       rEntry.mesh.visible = true;
     }
 
@@ -1862,54 +1997,35 @@ export function createImpactSystemRig(
     baselineBodies: ReadonlyArray<SolarBaselineBodyInput>
   ) => {
     if (pendingAim) {
-      const { impactorId, spawn, vel, frameBodyId, frameAtAim, horizon } =
-        pendingAim;
+      const { impactorId, spawn, vel } = pendingAim;
       pendingAim = null;
-      predictionFrameBodyId = frameBodyId;
       // すでにN体運動中なら現在の動的状態（ほかに置いた天体も含む）を、未開始なら本来の天文座標を基準に予測します
       const startBodies = nBodyInitialized
         ? liveBodies
         : createPhysicsBodiesFromBaseline(baselineBodies);
-      predictedImpactorRadius = IMPACTOR_MAP[impactorId].physicalRadius;
-      // 狙ったときから予測を始めるまでに基準の天体が動いた分だけ、置く位置もずらします
-      // （10日/s では1フレームで地球の半径の約60倍動くため、ずらさないと予測線が天体からずれます）
-      const frameNowBody = frameBodyId !== null ? startBodies[frameBodyId] : null;
-      if (frameAtAim && frameNowBody) {
-        spawn.x += frameNowBody.pos.x - frameAtAim.x;
-        spawn.y += frameNowBody.pos.y - frameAtAim.y;
-        spawn.z += frameNowBody.pos.z - frameAtAim.z;
-      }
+      // 画面で狙った位置・速度を、物理計算の位置・速度に直します
+      const aim = aimToPhysics(spawn, vel);
       activePredictor = new SolarNBodyPredictor(
         startBodies,
         nBodyInitialized ? collectImpactorEntries() : [],
         impactorId,
-        toTuple(spawn),
-        toTuple(vel),
-        horizon,
-        maxPreviewPts,
-        frameBodyId
+        aim.pos,
+        aim.vel,
+        PREVIEW_HORIZON_SIM_TIME,
+        maxPreviewPts
       );
     }
-    // 基準の天体を今描いている位置（N体計算中はその結果、まだなら本来の公転位置）
-    if (predictionFrameBodyId !== null) {
-      const now = currentBodyPos(predictionFrameBodyId, baselineBodies);
-      if (now) frameBodyNow.copy(now);
-    }
-    if (activePredictor) {
-      const deadline = performance.now() + PREDICTION_TIME_BUDGET_MS;
-      const finished = activePredictor.run(() => performance.now() > deadline);
-      lastPrediction = activePredictor.result();
-      if (finished) activePredictor = null;
-    }
-    // 基準の天体は公転で動き続けるので、予測が終わったあとも毎フレーム描き直します
-    if (lastPrediction) renderPrediction(lastPrediction);
+    if (!activePredictor) return;
+    const deadline = performance.now() + PREDICTION_TIME_BUDGET_MS;
+    const finished = activePredictor.run(() => performance.now() > deadline);
+    renderPrediction(activePredictor.result());
+    if (finished) activePredictor = null;
   };
 
   /** 予測をやめて、予測線などを消します */
   const stopPrediction = () => {
     pendingAim = null;
     activePredictor = null;
-    lastPrediction = null;
     hideAllPreviewGuides();
   };
 
@@ -1920,9 +2036,7 @@ export function createImpactSystemRig(
       impactorId: ImpactorId,
       spawnWorldPos: THREE.Vector3,
       launchVel: THREE.Vector3,
-      baselineBodies: ReadonlyArray<SolarBaselineBodyInput>,
-      frameBodyId: SolarImpactTargetId | null,
-      horizon: number
+      _baselineBodies: ReadonlyArray<SolarBaselineBodyInput>
     ) {
       if (isRestoring) {
         resetAll();
@@ -1946,22 +2060,7 @@ export function createImpactSystemRig(
         impactorId,
         spawn: spawnWorldPos.clone(),
         vel: launchVel.clone(),
-        frameBodyId,
-        frameAtAim: frameBodyId !== null ? currentBodyPos(frameBodyId, baselineBodies) : null,
-        horizon: Math.min(PREVIEW_HORIZON_SIM_TIME, Math.max(1e-9, horizon)),
       };
-    },
-
-    setCamera(camera: THREE.Camera) {
-      camera.getWorldQuaternion(viewQuaternion);
-      // カメラの位置を、このリングの座標（太陽系の座標）に直して基準点にします
-      root.updateWorldMatrix(true, false);
-      camera.getWorldPosition(renderBase);
-      root.worldToLocal(renderBase);
-    },
-
-    moveAimPreview(spawnWorldPos: THREE.Vector3) {
-      if (aimPreview) aimPreview.group.position.copy(spawnWorldPos);
     },
 
     cancelAimPreview() {
@@ -1972,36 +2071,36 @@ export function createImpactSystemRig(
     computeNearBodySpawn(
       impactorId: ImpactorId,
       targetId: SolarImpactTargetId,
-      direction: THREE.Vector3,
+      directionDisplay: THREE.Vector3,
       baselineBodies: ReadonlyArray<SolarBaselineBodyInput>,
       out: THREE.Vector3
     ): number {
-      // 天体の今の位置（N体計算中はその結果、まだなら本来の公転位置）
+      if (!nBodyInitialized) refreshWarpHostsFromBaseline(baselineBodies);
+      // 天体を今描いている位置
       const baseline = baselineBodies.find((b) => b.id === targetId);
-      const targetPos = nBodyInitialized
-        ? bodyStates[targetId].worldPos
+      const targetDrawn = nBodyInitialized
+        ? bodyStates[targetId].worldPos.clone()
         : baseline
-          ? baseline.pos
+          ? baseline.pos.clone()
           : new THREE.Vector3();
-      // 実際の大きさで触れない「すぐ近く」の距離（impactPhysics.ts の nearBodySpawnClearance）
-      const clearance = nearBodySpawnClearance(impactorId, targetId);
-      out
-        .copy(targetPos)
-        .addScaledVector(direction.clone().normalize(), clearance);
+      // 「絵が重ならない距離」と「実際の大きさで触れない距離」のうち遠いほう（impactPhysics.ts の nearBodySpawnClearance）
+      const targetPhys =
+        nBodyInitialized && liveBodies[targetId]
+          ? liveBodies[targetId].pos
+          : displayToPhysics(targetDrawn);
+      const dir = directionDisplay.clone().normalize();
+      refreshDrawnRadii(baselineBodies);
+      const clearance = nearBodySpawnClearance(
+        impactorId,
+        targetId,
+        targetPhys,
+        targetDrawn,
+        drawnRadiusOf(targetId),
+        dir,
+        currentWarpHosts
+      );
+      out.copy(targetDrawn).addScaledVector(dir, clearance);
       return clearance;
-    },
-
-    getBodyVelocity(
-      targetId: SolarImpactTargetId,
-      baselineBodies: ReadonlyArray<SolarBaselineBodyInput>,
-      out: THREE.Vector3
-    ): THREE.Vector3 {
-      const bodies = nBodyInitialized
-        ? liveBodies
-        : createPhysicsBodiesFromBaseline(baselineBodies);
-      const b = bodies[targetId];
-      if (!b) return out.set(0, 0, 0);
-      return out.set(b.vel.x, b.vel.y, b.vel.z);
     },
 
     launchImpactor(
@@ -2017,7 +2116,9 @@ export function createImpactSystemRig(
       removeAimPreview();
 
       if (!nBodyInitialized) {
-        // 初回投入時：現在のリアル太陽系全15天体の位置とケプラー公転速度でN体空間を初期化します
+        // 初回投入時：現在のリアル太陽系全15天体の位置（衛星は物理上の距離に戻した位置）と
+        // ケプラー公転速度でN体空間を初期化します
+        refreshWarpHostsFromBaseline(baselineBodies);
         liveBodies = createPhysicsBodiesFromBaseline(baselineBodies);
         for (const b of baselineBodies) {
           bodyStates[b.id].worldPos.copy(b.pos);
@@ -2038,12 +2139,13 @@ export function createImpactSystemRig(
       }
 
       const spec = IMPACTOR_MAP[impactorId];
-      // 画面で狙った位置・速度のまま置きます（画面の位置 = 実際の位置。衝突判定は実際の半径）
+      // 画面で狙った位置・速度を、物理計算の位置・速度に直して置きます（衝突判定は実際の半径）
+      const aim = aimToPhysics(spawnWorldPos, launchVel);
       const entry: SolarImpactorEntry = {
         uid: nextImpactorUid,
         specId: impactorId,
-        pos: toTuple(spawnWorldPos),
-        vel: toTuple(launchVel),
+        pos: { x: aim.pos.x, y: aim.pos.y, z: aim.pos.z },
+        vel: { x: aim.vel.x, y: aim.vel.y, z: aim.vel.z },
         gravityGM: spec.gravityGM,
         radius: spec.physicalRadius,
         alive: true,
@@ -2069,7 +2171,17 @@ export function createImpactSystemRig(
       astroSecondsPerSecond: number
     ): ImpactFrameOutput {
       const safeDt = Math.min(0.05, Math.max(0.001, dt));
+      // 天体を今描いている半径を記録し、リング・爆発・置く距離に使います
+      refreshDrawnRadii(baselineBodies);
       bhAccretionUniforms.uTime.value = totalTimeSec;
+      // 置いた天体と狙い中の模型に、太陽の向きと時間を渡します（太陽が動いたり消えたりしても今の描く位置を使います）
+      const sunDrawnPos = bodyStates.sun.worldPos;
+      for (const visual of liveImpactors) {
+        updateImpactorShading(visual.group, visual.shading, sunDrawnPos, totalTimeSec);
+      }
+      if (aimPreview) {
+        updateImpactorShading(aimPreview.group, aimPreview.shading, sunDrawnPos, totalTimeSec);
+      }
       for (const slot of explosionSlots) {
         slot.fireballUniforms.uTime.value = totalTimeSec;
       }
@@ -2098,6 +2210,7 @@ export function createImpactSystemRig(
       output.canTriggerRestore = nBodyInitialized && !isRestoring;
 
       if (!nBodyInitialized) {
+        refreshWarpHostsFromBaseline(baselineBodies);
         for (const b of baselineBodies) {
           bodyStates[b.id].worldPos.copy(b.pos);
           bodyStates[b.id].offsetWorld.set(0, 0, 0);
@@ -2155,8 +2268,12 @@ export function createImpactSystemRig(
         output.moonScaleFactor = bodyStates.moon.scaleFactor;
         output.moonEarthMagmaGlow = 0;
 
-        // 置いた天体はすべて、大きさは実際のまま、だんだん透明になって消えていきます
-        setImpactorFade(remain);
+        // 置いた天体はすべて小さくなって消えていきます
+        for (const visual of liveImpactors) {
+          visual.group.scale.setScalar(
+            Math.max(0.01, remain)
+          );
+        }
         impactorLight.intensity = IMPACTOR_LIGHT_INTENSITY * remain;
 
         // 飛び散った破片がそれぞれの爆発中心へ逆再生のように集まって消える
@@ -2172,15 +2289,10 @@ export function createImpactSystemRig(
           const fadeScale = p.scale * remain;
           tmpQuat.setFromAxisAngle(p.rotAxis, p.rotAngle);
           tmpScaleVec.setScalar(fadeScale);
-          tmpMatrix.compose(
-            tmpDebrisRel.copy(p.pos).sub(renderBase),
-            tmpQuat,
-            tmpScaleVec
-          );
+          tmpMatrix.compose(p.pos, tmpQuat, tmpScaleVec);
           debrisMesh.setMatrixAt(i, tmpMatrix);
         }
         debrisMesh.instanceMatrix.needsUpdate = true;
-        debrisMesh.position.copy(renderBase);
 
         for (const entry of liveOrbitTrailLines.values()) {
           (entry.line.material as THREE.LineBasicMaterial).opacity =
@@ -2213,6 +2325,8 @@ export function createImpactSystemRig(
         impactorEntries,
         simDuration
       );
+      // 進めたあとの母惑星の位置で、描く位置への変換を作り直してから爆発を出します
+      refreshWarpHostsFromLive(safeDt);
       for (const ev of events) {
         spawnCollisionExplosion(ev, earthWorldQuat, moonRotationY);
       }
@@ -2222,7 +2336,7 @@ export function createImpactSystemRig(
       // 1) 置いた天体それぞれの3D表示とトレイル更新
       for (const visual of liveImpactors) {
         const { entry, spec, group } = visual;
-        group.position.set(entry.pos.x, entry.pos.y, entry.pos.z);
+        physicsToDisplay(entry.pos, group.position);
         group.rotation.y += safeDt * (spec.isBlackHole ? 0.6 : 1.8);
 
         const hist = visual.trailHistory;
@@ -2239,13 +2353,7 @@ export function createImpactSystemRig(
         tmpColor.set(spec.explosionColorHex);
         for (let i = 0; i < trailLen; i++) {
           const fade = 1 - i / trailLen;
-          // 基準点（カメラの位置）からの差を書きます（精度を保つため）
-          tPosAttr.setXYZ(
-            i,
-            hist[i].x - renderBase.x,
-            hist[i].y - renderBase.y,
-            hist[i].z - renderBase.z
-          );
+          tPosAttr.setXYZ(i, hist[i].x, hist[i].y, hist[i].z);
           tColAttr.setXYZ(
             i,
             tmpColor.r * fade,
@@ -2254,13 +2362,13 @@ export function createImpactSystemRig(
           );
         }
         tPosAttr.needsUpdate = true;
-        visual.trailPoints.position.copy(renderBase);
         tColAttr.needsUpdate = true;
         visual.trailPoints.visible = true;
       }
       if (aimPreview) {
         aimPreview.group.rotation.y += safeDt * 0.9;
       }
+      advancePrediction(baselineBodies);
       updateImpactorLight();
 
       // 2) 太陽系全15天体の位置・消滅アニメーション・軌道乱れトレイル更新
@@ -2270,8 +2378,8 @@ export function createImpactSystemRig(
         const st = bodyStates[s.id];
         if (!live || !base) continue;
 
-        // 物理上の位置にそのまま描きます
-        st.worldPos.set(live.pos.x, live.pos.y, live.pos.z);
+        // 物理上の位置を描く位置に直します（衛星は母惑星のまわりに広げた位置）
+        physicsToDisplay(live.pos, st.worldPos);
         st.offsetWorld.copy(st.worldPos).sub(base.pos);
 
         if (!live.alive) {
@@ -2289,11 +2397,7 @@ export function createImpactSystemRig(
         if (trailEntry && live.alive) {
           const hist = trailEntry.history;
           const lastPt = hist[hist.length - 1];
-          // 点の間隔は、その天体の公転の半径の 3%（衛星は母惑星からの距離の 3%）にします。
-          // 太陽は公転しないので 0.05 にします
-          const trailStep =
-            s.orbitRadius > 0 ? s.orbitRadius * 0.03 : 0.05;
-          if (!lastPt || lastPt.distanceTo(st.worldPos) > trailStep) {
+          if (!lastPt || lastPt.distanceToSquared(st.worldPos) > 0.18) {
             hist.push(st.worldPos.clone());
             if (hist.length > liveTrailLen) {
               hist.shift();
@@ -2313,9 +2417,6 @@ export function createImpactSystemRig(
 
       output.earthScaleFactor = bodyStates.earth.scaleFactor;
       output.moonScaleFactor = bodyStates.moon.scaleFactor;
-
-      // 予測線は、このフレームの天体の位置が決まってから描きます（基準の天体から見た軌道にするため）
-      advancePrediction(baselineBodies);
 
       // 3) 爆発火球・衝撃波・フラッシュ・シェイクの進行（同時に起きた爆発のうち、いちばん強いものを画面に反映）
       let maxFlash = 0;
@@ -2353,13 +2454,12 @@ export function createImpactSystemRig(
           } else {
             tmpSwallowTarget.copy(p.homePos);
           }
-          // 距離を「長さの基準」で割った値で吸い込みの強さを決めます（爆発の大きさにかかわらず同じ動き）
           const toCenter = tmpVec.copy(tmpSwallowTarget).sub(p.pos);
-          const dist = Math.max(0.25, toCenter.length() / p.unit);
+          const dist = Math.max(0.25, toCenter.length());
           toCenter.normalize();
           p.vel.addScaledVector(
             toCenter,
-            ((28.0 * p.unit) / (dist * dist + 0.45)) * safeDt
+            (28.0 / (dist * dist + 0.45)) * safeDt
           );
           p.vel.multiplyScalar(Math.exp(-0.55 * safeDt));
           p.pos.addScaledVector(p.vel, safeDt);
@@ -2373,18 +2473,12 @@ export function createImpactSystemRig(
         const fadeScale = p.scale * THREE.MathUtils.clamp(p.life / 1.2, 0, 1);
         tmpQuat.setFromAxisAngle(p.rotAxis, p.rotAngle);
         tmpScaleVec.setScalar(fadeScale);
-        // 基準点（カメラの位置）からの差で置きます（精度を保つため）
-        tmpMatrix.compose(
-          tmpDebrisRel.copy(p.pos).sub(renderBase),
-          tmpQuat,
-          tmpScaleVec
-        );
+        tmpMatrix.compose(p.pos, tmpQuat, tmpScaleVec);
         debrisMesh.setMatrixAt(i, tmpMatrix);
         debrisMesh.setColorAt(i, p.color);
       }
       debrisMesh.instanceMatrix.needsUpdate = true;
       if (debrisMesh.instanceColor) debrisMesh.instanceColor.needsUpdate = true;
-      debrisMesh.position.copy(renderBase);
 
       const spPosAttr = sparkGeo.getAttribute(
         "position"
@@ -2395,9 +2489,9 @@ export function createImpactSystemRig(
           continue;
         }
         sparkLifeList[i] -= safeDt;
-        let sx = sparkPosD[i * 3];
-        let sy = sparkPosD[i * 3 + 1];
-        let sz = sparkPosD[i * 3 + 2];
+        let sx = spPosAttr.getX(i);
+        let sy = spPosAttr.getY(i);
+        let sz = spPosAttr.getZ(i);
         const v = sparkVelList[i];
         if (sparkSwallowUids[i] !== NO_SWALLOW_UID) {
           const swallower = findAliveImpactorDisplayPos(sparkSwallowUids[i]);
@@ -2415,10 +2509,9 @@ export function createImpactSystemRig(
             tmpSwallowTarget.y - sy,
             tmpSwallowTarget.z - sz
           );
-          const unit = sparkUnitArr[i];
-          const d = Math.max(0.25, tmpVec.length() / unit);
+          const d = Math.max(0.25, tmpVec.length());
           tmpVec.normalize();
-          v.addScaledVector(tmpVec, ((28.0 * unit) / (d * d + 0.45)) * safeDt);
+          v.addScaledVector(tmpVec, (28.0 / (d * d + 0.45)) * safeDt);
           v.multiplyScalar(Math.exp(-0.5 * safeDt));
         } else {
           v.multiplyScalar(Math.exp(-0.4 * safeDt));
@@ -2426,14 +2519,9 @@ export function createImpactSystemRig(
         sx += v.x * safeDt;
         sy += v.y * safeDt;
         sz += v.z * safeDt;
-        sparkPosD[i * 3] = sx;
-        sparkPosD[i * 3 + 1] = sy;
-        sparkPosD[i * 3 + 2] = sz;
-        // GPU へは基準点（カメラの位置）からの差を送ります
-        spPosAttr.setXYZ(i, sx - renderBase.x, sy - renderBase.y, sz - renderBase.z);
+        spPosAttr.setXYZ(i, sx, sy, sz);
       }
       spPosAttr.needsUpdate = true;
-      sparkPoints.position.copy(renderBase);
 
       output.phase = computePhase();
       output.liveImpactorCount = liveImpactors.length;

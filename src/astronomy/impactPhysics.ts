@@ -1,16 +1,25 @@
 /**
  * リアル太陽系・N体相互万有引力＆天体衝突シミュレーターの物理計算と天体プリセット定義です。
  *
- * 考え方：計算も見せ方も実寸
- * - 物理計算（重力・衝突・予測）は、太陽系の15天体（太陽＋水金地火木土天海冥＋月＋木星4衛星）も、
- *   投入できる10種類の天体（それぞれ実在の天体がモデル）も、実際の質量・半径・距離で行います。
- * - 画面にも、計算と同じ実際の大きさ・位置で描きます。小さすぎて見えない天体は、近づかないと見えません。
- * - 衝突は実際の大きさで判定します。描いた絵が触れたときが、実際に触れたときです。
+ * 考え方：重力は実寸、当たりは描いた絵で判定
+ * - 重力と予測の計算は、太陽系の15天体（太陽＋水金地火木土天海冥＋月＋木星4衛星）も、
+ *   投入できる10種類の天体（それぞれ実在の天体がモデル）も、実際の質量・距離で行います。
+ * - 天体は見える大きさに拡大し（bodySizes.ts）、衛星は母惑星から広げた位置に描きます（displayWarp.ts）。
+ * - 衝突は、画面に描いている位置と大きさで判定します。描いた絵どうしが触れたら当たります。
  *
  * 長さの単位は「1 天文単位 = 13.5」のシーン単位、時間の単位は「地球の1年 ≒ 9.0」のシミュレーション時間です
  * （realBodyData.ts を参照）。
  */
 
+import {
+  EARTH_SYSTEM_DISPLAY_FACTOR,
+  JUPITER_SYSTEM_DISPLAY_FACTOR,
+  REAL_SOLAR_SUN_RADIUS,
+  orderedDisplayRadiusFromKm,
+  realSolarDisplayRadius,
+} from "./bodySizes";
+import type { DisplayWarpHost, Vec3Like } from "./displayWarp";
+import { warpDisplayToPhysics, warpPhysicsToDisplay } from "./displayWarp";
 import {
   BODY_MASS_KG,
   BODY_RADIUS_KM,
@@ -102,8 +111,14 @@ export interface ImpactorSpec {
   accentColor: string;
   /** モデルにした実在の天体の値 */
   model: ImpactorModel;
-  /** 実際の半径（シーン単位。model.radiusKm から計算）。衝突判定にも、画面に描く大きさにも使います */
+  /** 実際の半径（シーン単位。model.radiusKm から計算）。置く位置の計算に使います（衝突判定は描く半径で行います） */
   physicalRadius: number;
+  /**
+   * 画面に描く半径（シーン単位）。
+   * 実際の半径から、太陽系の天体と同じ1本の物差し（bodySizes.ts の orderedDisplayRadiusFromKm）で決めます。
+   * 実際に大きい天体ほど大きく描く順番を保ちます。衝突判定には使いません。
+   */
+  visualRadius: number;
   /** この天体の重力の強さ GM（シーン単位。model.massKg から計算） */
   gravityGM: number;
   /** 爆発の基本カラー（HEX） */
@@ -126,6 +141,12 @@ export interface ImpactorSpec {
   isIcyComet: boolean;
 }
 
+/**
+ * 描く半径がこれより大きい投入天体（リゲル）を「巨大な恒星」として扱います。
+ * 天体の上を押して置く距離の計算では、この大きさを超える描く半径は使いません（足すと数百も離れてしまうため）。
+ */
+export const HUGE_STAR_DISPLAY_RADIUS = 20;
+
 /** 光の速さ（km/s）。ブラックホールの事象の地平線の半径（2GM/c²）の計算に使います */
 const SPEED_OF_LIGHT_KM_S = 299_792.458;
 
@@ -147,13 +168,19 @@ function sphereMassKg(radiusKm: number, densityKgM3: number): number {
 const CYGNUS_X1_MASS_KG = 21.2 * SUN_MASS_KG;
 
 /** 投入天体の定義のうち、モデルの値から計算できない部分 */
-type ImpactorDefinition = Omit<ImpactorSpec, "physicalRadius" | "gravityGM">;
+type ImpactorDefinition = Omit<
+  ImpactorSpec,
+  "physicalRadius" | "visualRadius" | "gravityGM"
+>;
 
-/** モデルの値から、実際の半径（シーン単位）と重力の強さを計算して ImpactorSpec を完成させます */
+/** モデルの値から、衝突判定の半径・描く半径・重力の強さを計算して ImpactorSpec を完成させます */
 function completeImpactorSpec(def: ImpactorDefinition): ImpactorSpec {
+  const visualRadius = orderedDisplayRadiusFromKm(def.model.radiusKm);
+  const physicalRadius = kmToScene(def.model.radiusKm);
   return {
     ...def,
-    physicalRadius: kmToScene(def.model.radiusKm),
+    physicalRadius,
+    visualRadius,
     gravityGM: massKgToGmScene(def.model.massKg),
   };
 }
@@ -534,8 +561,10 @@ export interface SolarTargetPhysicsSpec {
   massKg: number;
   /** シーン空間での重力の強さ GM（太陽 = 1200 に対する実際の質量の比） */
   gravityGM: number;
-  /** 実際の半径（シーン単位。例：地球 約0.00058）。衝突判定にも、画面に描く大きさにも使います */
+  /** 衝突判定に使う実際の半径（シーン単位。例：地球 約0.00058） */
   physicalRadius: number;
+  /** リアル太陽系モードで描く半径（シーン単位。見せ方だけ。例：地球 約0.277） */
+  displayRadius: number;
   /** 衛星の場合の母惑星ID（太陽を直接公転する天体は null） */
   parentId: SolarImpactTargetId | null;
   /** 軌道長半径（シーン単位の実際の値。惑星は太陽から、衛星は母惑星から。初期の公転速度の計算に使用） */
@@ -585,6 +614,7 @@ function solarBody(
     massKg: BODY_MASS_KG[id],
     gravityGM: massKgToGmScene(BODY_MASS_KG[id]),
     physicalRadius: kmToScene(BODY_RADIUS_KM[id]),
+    displayRadius: realSolarDisplayRadius(id),
     parentId,
     orbitRadius,
     accentHex,
@@ -600,6 +630,7 @@ export const SOLAR_TARGET_SPECS: SolarTargetPhysicsSpec[] = [
     massKg: SUN_MASS_KG,
     gravityGM: massKgToGmScene(SUN_MASS_KG),
     physicalRadius: kmToScene(SUN_RADIUS_KM),
+    displayRadius: REAL_SOLAR_SUN_RADIUS,
     parentId: null,
     orbitRadius: 0,
     accentHex: 0xfbbf24,
@@ -633,21 +664,138 @@ export const SOLAR_TARGET_MAP: Record<
 );
 
 // ---------------------------------------------------------------------------
-// 3. 天体の上に置くときの距離
+// 3. 衛星の位置の誇張（見せ方だけ）
 // ---------------------------------------------------------------------------
 
+/** 衛星を持つ母惑星（衛星の位置を広げて描く系） */
+export type SatelliteHostId = "earth" | "jupiter";
+
+/** 衛星を広げて描く系1つぶんの定義 */
+export interface SatelliteDisplaySystem {
+  hostId: SatelliteHostId;
+  /** 母惑星からのずれに掛ける倍率 */
+  factor: number;
+  /** 倍率どおりに広げる範囲（物理上の距離。いちばん外側の衛星の距離の 1.3 倍） */
+  innerRadius: number;
+  /** 変換しない外側の境目（物理上の距離 = 描く距離） */
+  outerRadius: number;
+}
+
+/** 外側の衛星の距離から、広げて描く範囲を決めます */
+function satelliteSystem(
+  hostId: SatelliteHostId,
+  factor: number,
+  outermostOrbitKm: number
+): SatelliteDisplaySystem {
+  const innerRadius = kmToScene(outermostOrbitKm) * 1.3;
+  return {
+    hostId,
+    factor,
+    innerRadius,
+    // 内側の端（innerRadius × factor）より少し外で、変換のない元の距離につなぎます
+    outerRadius: innerRadius * factor * 1.25,
+  };
+}
+
+/** 地球と月の系・木星と4衛星の系 */
+export const SATELLITE_DISPLAY_SYSTEMS: SatelliteDisplaySystem[] = [
+  satelliteSystem("earth", EARTH_SYSTEM_DISPLAY_FACTOR, SATELLITE_ORBIT_KM.moon),
+  satelliteSystem(
+    "jupiter",
+    JUPITER_SYSTEM_DISPLAY_FACTOR,
+    SATELLITE_ORBIT_KM.callisto
+  ),
+];
+
+/** 母惑星の位置と、生きているかの記録（予測の各時点の見せ方の計算に使います） */
+export interface SatelliteHostSnapshot {
+  hostId: SatelliteHostId;
+  center: Vec3Tuple;
+  alive: boolean;
+}
+
+/** 太陽系天体の状態から、各母惑星の位置と生死を記録します */
+export function snapshotSatelliteHosts(
+  bodies: Record<SolarImpactTargetId, SolarNBodyEntry>
+): SatelliteHostSnapshot[] {
+  return SATELLITE_DISPLAY_SYSTEMS.map((sys) => {
+    const host = bodies[sys.hostId];
+    return {
+      hostId: sys.hostId,
+      center: host ? { ...host.pos } : { x: 0, y: 0, z: 0 },
+      alive: host ? host.alive : false,
+    };
+  });
+}
+
 /**
- * 太陽系天体の上を押して投入天体を置くとき、「すぐ近く」としてその天体の中心から離す距離（シーン単位）です。
- * 2天体の実際の半径の和 × 1.5 だけ離します（置いた瞬間には触れず、すぐそばにある距離）。
- * 例：地球の上に小惑星 → (0.00058 + 0.0000009) × 1.5 ≒ 0.00087（地球の半径の約1.5倍）
+ * 母惑星の位置と効き具合から、displayWarp.ts の変換に渡す設定を作ります。
+ * weights を省略すると、生きている母惑星は 1、消えた母惑星は 0 として扱います。
+ */
+export function buildDisplayWarpHosts(
+  hosts: ReadonlyArray<SatelliteHostSnapshot>,
+  weights?: Partial<Record<SatelliteHostId, number>>
+): DisplayWarpHost[] {
+  const result: DisplayWarpHost[] = [];
+  for (const h of hosts) {
+    const sys = SATELLITE_DISPLAY_SYSTEMS.find((s) => s.hostId === h.hostId);
+    if (!sys) continue;
+    const weight = weights?.[h.hostId] ?? (h.alive ? 1 : 0);
+    result.push({
+      center: h.center,
+      factor: sys.factor,
+      innerRadius: sys.innerRadius,
+      outerRadius: sys.outerRadius,
+      weight,
+    });
+  }
+  return result;
+}
+
+/**
+ * 太陽系天体の上を押して投入天体を置くとき、「すぐ近く」としてその天体の中心から離す距離（描く空間）を求めます。
+ * 次の2つのうち遠いほうです。
+ * (a) 描いた絵が重ならない距離：天体の今の描く半径 × 1.9 ＋ 投入天体の描く半径 × 1.45 ＋ 1.4。
+ *     天体の描く半径は、画面で今描いている値を使います（太陽はどの距離でも 3.4 です）。
+ *     ただし巨大な恒星（リゲル、描く半径 268）の描く半径は足しません（足すと数百も離れてしまうため）
+ * (b) 実際の大きさで触れない距離：2天体の実際の半径の和 × 1.5 だけ離れた物理上の点を、描く位置に直した距離
+ *
+ * @param targetPhys 天体の物理上の中心
+ * @param targetDrawn 天体を描いている中心
+ * @param targetDrawnRadius 天体を今描いている半径（シーン単位）
+ * @param direction 置く向き（長さ1）
+ * @param warpHosts 物理上の位置を描く位置に直す変換の設定
  */
 export function nearBodySpawnClearance(
   impactorId: ImpactorId,
-  targetId: SolarImpactTargetId
+  targetId: SolarImpactTargetId,
+  targetPhys: Vec3Like,
+  targetDrawn: Vec3Like,
+  targetDrawnRadius: number,
+  direction: Vec3Like,
+  warpHosts: ReadonlyArray<DisplayWarpHost>
 ): number {
   const spec = IMPACTOR_MAP[impactorId];
   const target = SOLAR_TARGET_MAP[targetId];
-  return (target.physicalRadius + spec.physicalRadius) * 1.5;
+  const impactorDrawn =
+    spec.visualRadius <= HUGE_STAR_DISPLAY_RADIUS ? spec.visualRadius : 0;
+  const drawnClearance = targetDrawnRadius * 1.9 + impactorDrawn * 1.45 + 1.4;
+  const gap = (target.physicalRadius + spec.physicalRadius) * 1.5;
+  const drawnPoint = warpPhysicsToDisplay(
+    {
+      x: targetPhys.x + direction.x * gap,
+      y: targetPhys.y + direction.y * gap,
+      z: targetPhys.z + direction.z * gap,
+    },
+    warpHosts,
+    { x: 0, y: 0, z: 0 }
+  );
+  const physClearance = Math.hypot(
+    drawnPoint.x - targetDrawn.x,
+    drawnPoint.y - targetDrawn.y,
+    drawnPoint.z - targetDrawn.z
+  );
+  return Math.max(drawnClearance, physClearance);
 }
 
 // ---------------------------------------------------------------------------
@@ -714,10 +862,33 @@ export interface SolarCollisionEvent {
   secondaryCenterAt: Vec3Tuple;
   /** 主側天体の中心から衝突点へ向かう法線単位ベクトル */
   contactNormalOnPrimary: Vec3Tuple;
-  /** 主側天体が消滅したか（主側は相手を取り込んで残るので常に false） */
+  /**
+   * 触れた瞬間の、衛星を持つ母惑星（地球・木星）の位置と生死です。
+   * 衝突の位置を「描く位置」に直すときは、フレームの終わりではなくこの瞬間の母惑星の位置を使います。
+   */
+  hostsAtContact: SatelliteHostSnapshot[];
+  /** 主側天体が消滅したか（取り込みでは残るので false、対消滅では true） */
   primaryDestroyed: boolean;
-  /** 副側天体が消滅したか（取り込まれるので常に true） */
+  /** 副側天体が消滅したか（取り込まれても対消滅しても true） */
   secondaryDestroyed: boolean;
+  /** 同じ天体どうしがぶつかって、両方とも消えた（対消滅）か */
+  annihilation: boolean;
+}
+
+/**
+ * 投入天体のうち、太陽系の天体をモデルにしたもの（この天体とぶつかると対消滅します）。
+ * 例：月サイズは月と、太陽クラス恒星は太陽と「同じ天体」として扱います。
+ */
+const IMPACTOR_SAME_AS_SOLAR_BODY: Partial<Record<ImpactorId, SolarImpactTargetId>> = {
+  moonSize: "moon",
+  marsSize: "mars",
+  jupiterSize: "jupiter",
+  sunStar: "sun",
+};
+
+/** 対消滅の判定に使う「天体の種類」の名前（同じ名前どうしがぶつかると両方消えます） */
+function annihilationKindOfImpactor(specId: ImpactorId): string {
+  return IMPACTOR_SAME_AS_SOLAR_BODY[specId] ?? specId;
 }
 
 /**
@@ -843,6 +1014,36 @@ export function createSolarNBodyEntriesFromSnapshot(
 }
 
 /**
+ * 画面に描いている位置のスナップショット（衛星は広げて描いた位置）を、物理上の位置に直します。
+ * 惑星と太陽は位置を誇張していないのでそのまま、衛星は母惑星からのずれを倍率で割って元の距離に戻します。
+ */
+export function displaySnapshotToPhysics(
+  snapshot: ReadonlyArray<{ id: SolarImpactTargetId; pos: Vec3Like }>
+): Array<{ id: SolarImpactTargetId; pos: Vec3Tuple }> {
+  const hostSnapshots: SatelliteHostSnapshot[] = SATELLITE_DISPLAY_SYSTEMS.map(
+    (sys) => {
+      const item = snapshot.find((s) => s.id === sys.hostId);
+      return {
+        hostId: sys.hostId,
+        center: item
+          ? { x: item.pos.x, y: item.pos.y, z: item.pos.z }
+          : { x: 0, y: 0, z: 0 },
+        alive: Boolean(item),
+      };
+    }
+  );
+  const warpHosts = buildDisplayWarpHosts(hostSnapshots);
+  return snapshot.map((item) => {
+    const spec = SOLAR_TARGET_MAP[item.id];
+    const pos = { x: item.pos.x, y: item.pos.y, z: item.pos.z };
+    if (spec.parentId === null) {
+      return { id: item.id, pos };
+    }
+    return { id: item.id, pos: warpDisplayToPhysics(pos, warpHosts, { x: 0, y: 0, z: 0 }) };
+  });
+}
+
+/**
  * 太陽系天体の状態を丸ごと複製します。
  * 先読み予測で本物の状態を書き換えてしまわないように、位置・速度のオブジェクトまで新しく作ります。
  */
@@ -901,13 +1102,30 @@ class FlatNBodySystem {
   readonly sy: Float64Array;
   readonly sz: Float64Array;
   readonly gm: Float64Array;
+  /** 実際の半径（触れた点の位置の計算に使います） */
   readonly radius: Float64Array;
+  /**
+   * 当たり判定の半径＝画面に描いている半径です（太陽系天体は SOLAR_TARGET_MAP の displayRadius、投入天体は visualRadius）。
+   * 当たりは「描く位置」どうしの距離で判定するので、描いた絵が触れたときに当たります。
+   */
+  readonly hitRadius: Float64Array;
+  /** 当たり判定用：ステップの始めと終わりの「描く位置」（作業用） */
+  private readonly dsx: Float64Array;
+  private readonly dsy: Float64Array;
+  private readonly dsz: Float64Array;
+  private readonly dex: Float64Array;
+  private readonly dey: Float64Array;
+  private readonly dez: Float64Array;
   readonly alive: Uint8Array;
   readonly isBlackHole: Uint8Array;
+  /** 対消滅の判定に使う天体の種類（同じ種類どうしがぶつかると、両方とも消えます） */
+  readonly kind: string[];
   /** 配列の番号 → 太陽系天体（投入天体なら null） */
   readonly bodyRefs: Array<SolarNBodyEntry | null>;
   /** 配列の番号 → 投入天体（太陽系天体なら null） */
   readonly impactorRefs: Array<SolarImpactorEntry | null>;
+  /** 衛星を持つ母惑星（地球・木星）の配列の番号（見つからなければ -1） */
+  readonly hostIndex: Record<SatelliteHostId, number>;
   /** 最後に加速度を計算したときに求めた、ステップの長さの目安（シミュレーション時間） */
   timescale = MAX_STEP_SIM_TIME;
 
@@ -936,14 +1154,24 @@ class FlatNBodySystem {
     this.sz = new Float64Array(n);
     this.gm = new Float64Array(n);
     this.radius = new Float64Array(n);
+    this.hitRadius = new Float64Array(n);
+    this.dsx = new Float64Array(n);
+    this.dsy = new Float64Array(n);
+    this.dsz = new Float64Array(n);
+    this.dex = new Float64Array(n);
+    this.dey = new Float64Array(n);
+    this.dez = new Float64Array(n);
     this.alive = new Uint8Array(n);
     this.isBlackHole = new Uint8Array(n);
+    this.kind = [];
     this.bodyRefs = [];
     this.impactorRefs = [];
 
     let i = 0;
     for (const b of bodyList) {
       this.load(i, b.pos, b.vel, b.gravityGM, b.radius, b.alive, false);
+      this.hitRadius[i] = SOLAR_TARGET_MAP[b.id].displayRadius;
+      this.kind.push(b.id);
       this.bodyRefs.push(b);
       this.impactorRefs.push(null);
       i++;
@@ -958,11 +1186,41 @@ class FlatNBodySystem {
         imp.alive,
         IMPACTOR_MAP[imp.specId].isBlackHole
       );
+      this.hitRadius[i] = IMPACTOR_MAP[imp.specId].visualRadius;
+      this.kind.push(annihilationKindOfImpactor(imp.specId));
       this.bodyRefs.push(null);
       this.impactorRefs.push(imp);
       i++;
     }
+    this.hostIndex = { earth: -1, jupiter: -1 };
+    for (const sys of SATELLITE_DISPLAY_SYSTEMS) {
+      this.hostIndex[sys.hostId] = this.bodyRefs.findIndex(
+        (b) => b !== null && b.id === sys.hostId
+      );
+    }
     this.computeAccelerations();
+  }
+
+  /**
+   * ステップ中の時点 t（0 = 始め、1 = 終わり）での、各母惑星の位置と生死を記録します。
+   * 衝突した瞬間の母惑星の位置を残すために使います。
+   */
+  hostsAt(t: number): SatelliteHostSnapshot[] {
+    return SATELLITE_DISPLAY_SYSTEMS.map((sys) => {
+      const i = this.hostIndex[sys.hostId];
+      if (i < 0) {
+        return { hostId: sys.hostId, center: { x: 0, y: 0, z: 0 }, alive: false };
+      }
+      return {
+        hostId: sys.hostId,
+        center: {
+          x: this.sx[i] + (this.px[i] - this.sx[i]) * t,
+          y: this.sy[i] + (this.py[i] - this.sy[i]) * t,
+          z: this.sz[i] + (this.pz[i] - this.sz[i]) * t,
+        },
+        alive: this.alive[i] === 1,
+      };
+    });
   }
 
   private load(
@@ -1074,26 +1332,56 @@ class FlatNBodySystem {
   }
 
   /**
+   * 各天体の、ステップの始めと終わりの「描く位置」を求めます。
+   * 物理上の位置を、衛星のまわりを広げて描く変換（displayWarp.ts）で、画面に描いている位置に直します。
+   */
+  private computeDrawnPositions(): void {
+    const { n, px, py, pz, sx, sy, sz, dsx, dsy, dsz, dex, dey, dez } = this;
+    const startHosts = buildDisplayWarpHosts(this.hostsAt(0));
+    const endHosts = buildDisplayWarpHosts(this.hostsAt(1));
+    const pIn = { x: 0, y: 0, z: 0 };
+    const pOut = { x: 0, y: 0, z: 0 };
+    for (let i = 0; i < n; i++) {
+      pIn.x = sx[i];
+      pIn.y = sy[i];
+      pIn.z = sz[i];
+      warpPhysicsToDisplay(pIn, startHosts, pOut);
+      dsx[i] = pOut.x;
+      dsy[i] = pOut.y;
+      dsz[i] = pOut.z;
+      pIn.x = px[i];
+      pIn.y = py[i];
+      pIn.z = pz[i];
+      warpPhysicsToDisplay(pIn, endHosts, pOut);
+      dex[i] = pOut.x;
+      dey[i] = pOut.y;
+      dez[i] = pOut.z;
+    }
+  }
+
+  /**
    * このステップの間に触れた天体の組を探し、重いほうが軽いほうを取り込む形で解決します。
-   * ステップの間、各天体は始めの位置から終わりの位置へまっすぐ動いたとみなし、2天体の距離が
-   * 半径の和以下になった時点があるかを調べます（スイープ判定）。速く動く小さな天体もすり抜けません。
+   * 当たりは、画面に描いている位置と大きさで判定します（描いた絵どうしが触れたら当たり）。
+   * ステップの間、各天体の描く位置は始めから終わりへまっすぐ動いたとみなし、2天体の距離が
+   * 描く半径の和以下になった時点があるかを調べます（スイープ判定）。速く動く小さな天体もすり抜けません。
    * @returns 衝突が1件でもあれば true
    */
   private resolveCollisions(events: SolarCollisionEvent[]): boolean {
-    const { n, px, py, pz, sx, sy, sz, radius, alive } = this;
+    const { n, hitRadius, alive, dsx, dsy, dsz, dex, dey, dez } = this;
+    this.computeDrawnPositions();
     let collided = false;
     for (let i = 0; i < n; i++) {
       if (!alive[i]) continue;
       for (let j = i + 1; j < n; j++) {
         if (!alive[j]) continue;
-        const hitR = radius[i] + radius[j];
-        // ステップの始めの相対位置 d0 と、ステップの間の相対移動 dv
-        const d0x = sx[j] - sx[i];
-        const d0y = sy[j] - sy[i];
-        const d0z = sz[j] - sz[i];
-        const dvx = px[j] - sx[j] - (px[i] - sx[i]);
-        const dvy = py[j] - sy[j] - (py[i] - sy[i]);
-        const dvz = pz[j] - sz[j] - (pz[i] - sz[i]);
+        const hitR = hitRadius[i] + hitRadius[j];
+        // ステップの始めの相対位置 d0 と、ステップの間の相対移動 dv（どちらも描く位置で測ります）
+        const d0x = dsx[j] - dsx[i];
+        const d0y = dsy[j] - dsy[i];
+        const d0z = dsz[j] - dsz[i];
+        const dvx = dex[j] - dsx[j] - (dex[i] - dsx[i]);
+        const dvy = dey[j] - dsy[j] - (dey[i] - dsy[i]);
+        const dvz = dez[j] - dsz[j] - (dez[i] - dsz[i]);
         // 距離の2乗 |d0 + t・dv|² = A t² + 2B t + C（t は 0〜1）
         const A = dvx * dvx + dvy * dvy + dvz * dvz;
         const B = d0x * dvx + d0y * dvy + d0z * dvz;
@@ -1126,8 +1414,10 @@ class FlatNBodySystem {
     t: number,
     events: SolarCollisionEvent[]
   ): void {
-    const { px, py, pz, sx, sy, sz, vx, vy, vz, gm, radius, alive, isBlackHole } =
+    const { px, py, pz, sx, sy, sz, vx, vy, vz, gm, radius, alive, isBlackHole, kind } =
       this;
+    // 同じ天体どうし（例：リゲルとリゲル、月サイズと月）は、どちらも残らず消えます（対消滅）
+    const annihilation = kind[i] === kind[j];
     // どちらが残るか：ブラックホールは何でも飲み込みます。それ以外は重い（GM が大きい）ほうが残り、
     // 同じ重さなら配列の前のほう（太陽系天体）が残ります。
     let winner = i;
@@ -1151,15 +1441,24 @@ class FlatNBodySystem {
     const ny = dist > 0 ? (ly - wy) * inv : 1;
     const nz = dist > 0 ? (lz - wz) * inv : 0;
 
-    // 運動量を保存して合体（速度を GM の比で混ぜ、GM を足し合わせます）
-    const total = gm[winner] + gm[loser];
-    if (total > 0) {
-      vx[winner] = (vx[winner] * gm[winner] + vx[loser] * gm[loser]) / total;
-      vy[winner] = (vy[winner] * gm[winner] + vy[loser] * gm[loser]) / total;
-      vz[winner] = (vz[winner] * gm[winner] + vz[loser] * gm[loser]) / total;
+    // 触れた瞬間の母惑星の位置（取り込まれるのが母惑星でも、この瞬間はまだ生きています）
+    const hostsAtContact = this.hostsAt(t);
+
+    if (annihilation) {
+      // 対消滅：両方とも消え、重さも残りません
+      alive[winner] = 0;
+      alive[loser] = 0;
+    } else {
+      // 運動量を保存して合体（速度を GM の比で混ぜ、GM を足し合わせます）
+      const total = gm[winner] + gm[loser];
+      if (total > 0) {
+        vx[winner] = (vx[winner] * gm[winner] + vx[loser] * gm[loser]) / total;
+        vy[winner] = (vy[winner] * gm[winner] + vy[loser] * gm[loser]) / total;
+        vz[winner] = (vz[winner] * gm[winner] + vz[loser] * gm[loser]) / total;
+      }
+      gm[winner] = total;
+      alive[loser] = 0;
     }
-    gm[winner] = total;
-    alive[loser] = 0;
 
     const winnerBody = this.bodyRefs[winner];
     const loserBody = this.bodyRefs[loser];
@@ -1184,8 +1483,10 @@ class FlatNBodySystem {
       primaryCenterAt: { x: wx, y: wy, z: wz },
       secondaryCenterAt: { x: lx, y: ly, z: lz },
       contactNormalOnPrimary: { x: nx, y: ny, z: nz },
-      primaryDestroyed: false,
+      hostsAtContact,
+      primaryDestroyed: annihilation,
       secondaryDestroyed: true,
+      annihilation,
     });
   }
 
@@ -1257,21 +1558,16 @@ export function advanceSolarNBody(
 export interface SolarNBodyPredictionResult {
   /** これから投げる投入天体の予測軌道点列（物理上の位置） */
   impactorPath: Vec3Tuple[];
+  /** impactorPath の各点の時点での、衛星を持つ母惑星の位置（描く位置に直すときに使います） */
+  impactorPathHosts: SatelliteHostSnapshot[][];
   /** 軌道が大きく乱れる太陽・惑星の予測軌跡マップ（物理上の位置） */
   perturbedPaths: Partial<Record<SolarImpactTargetId, Vec3Tuple[]>>;
-  /**
-   * 基準の天体（frameBodyId）の、impactorPath の各点と同じ時点の位置です（基準の天体がなければ空）。
-   * 画面では「基準の天体から見た軌道」（点 − 基準の天体の位置 ＋ 今の基準の天体の位置）として描きます。
-   * 天体のすぐ近くで投げると、その天体も公転で大きく動くため、太陽から見た軌道のままでは天体と離れて見えるためです。
-   */
-  framePath: Vec3Tuple[];
-  /** 予測中に衝突する太陽系天体と、そのときの中心（物理上の位置）・法線・基準の天体の位置のリスト */
+  /** 予測中に衝突する太陽系天体と、そのときの中心（物理上の位置）・法線・母惑星の位置のリスト */
   hitTargets: Array<{
     id: SolarImpactTargetId;
     center: Vec3Tuple;
     normal: Vec3Tuple;
-    /** 衝突したときの基準の天体の位置（基準の天体がなければ null） */
-    frameCenter: Vec3Tuple | null;
+    hosts: SatelliteHostSnapshot[];
   }>;
   /** 予測を最後まで計算できたか（ステップ数の上限に達したら false） */
   completed: boolean;
@@ -1313,13 +1609,7 @@ export class SolarNBodyPredictor {
   private readonly interval: number;
   private readonly sampleCount: number;
   private readonly impactorPath: Vec3Tuple[];
-  /** 基準の天体の配列の番号（基準の天体がなければ -1） */
-  private readonly frameIndex: number;
-  /** 基準の天体の ID（なければ null） */
-  private readonly frameBodyId: SolarImpactTargetId | null;
-  private readonly framePath: Vec3Tuple[] = [];
-  /** これから投げる天体が消えた点を、軌道の最後の点として記録し終えたか */
-  private endRecorded = false;
+  private readonly impactorPathHosts: SatelliteHostSnapshot[][];
   private readonly allPlanetPaths = {} as Record<SolarImpactTargetId, Vec3Tuple[]>;
   private readonly hitMap = new Map<
     SolarImpactTargetId,
@@ -1340,8 +1630,7 @@ export class SolarNBodyPredictor {
     spawnPos: Vec3Tuple,
     launchVel: Vec3Tuple,
     horizon = PREDICTION_HORIZON_SIM_TIME,
-    sampleCount = PREDICTION_SAMPLE_COUNT,
-    frameBodyId: SolarImpactTargetId | null = null
+    sampleCount = PREDICTION_SAMPLE_COUNT
   ) {
     this.spec = IMPACTOR_MAP[impactorId];
     const bodies = cloneSolarNBodyEntries(startBodies);
@@ -1367,14 +1656,7 @@ export class SolarNBodyPredictor {
     this.sampleCount = sampleCount;
     this.interval = horizon / Math.max(1, sampleCount - 1);
     this.impactorPath = [this.system.positionOf(this.newIndex)];
-    this.frameBodyId = frameBodyId;
-    this.frameIndex =
-      frameBodyId === null
-        ? -1
-        : this.system.bodyRefs.findIndex((b) => b !== null && b.id === frameBodyId);
-    if (this.frameIndex >= 0) {
-      this.framePath.push(this.system.positionOf(this.frameIndex));
-    }
+    this.impactorPathHosts = [this.system.hostsAt(1)];
     this.showPerturbation = this.spec.gravityGM >= PERTURBATION_PREVIEW_MIN_GM;
     if (this.showPerturbation) {
       for (const { id, index } of this.planetIndices) {
@@ -1409,35 +1691,14 @@ export class SolarNBodyPredictor {
       this.sampleElapsed += advancedTime;
       this.totalSteps += steps;
       this.recordHits(events);
-      // これから投げる天体が消えたら、触れた瞬間のその天体の中心を軌道の最後の点にします
-      // （点の間隔より短い時間で当たっても、予測線が当たる天体まで届くように）
-      if (!system.alive[newIndex] && !this.endRecorded) {
-        this.endRecorded = true;
-        for (const ev of events) {
-          const center =
-            ev.secondaryImpactorUid === PREDICTION_IMPACTOR_UID
-              ? ev.secondaryCenterAt
-              : ev.primaryImpactorUid === PREDICTION_IMPACTOR_UID
-                ? ev.primaryCenterAt
-                : null;
-          if (center) {
-            this.impactorPath.push({ ...center });
-            if (this.frameIndex >= 0) {
-              this.framePath.push(this.frameCenterAt(ev));
-            }
-            break;
-          }
-        }
-      }
 
       // 点の区間を進め終えたら、その時点の位置を記録します
       if (this.sampleElapsed >= this.interval * (1 - 1e-9)) {
         this.sampleElapsed = 0;
+        const hostsNow = system.hostsAt(1);
         if (system.alive[newIndex]) {
           this.impactorPath.push(system.positionOf(newIndex));
-          if (this.frameIndex >= 0) {
-            this.framePath.push(system.positionOf(this.frameIndex));
-          }
+          this.impactorPathHosts.push(hostsNow);
         }
         if (this.showPerturbation) {
           for (const { id, index } of this.planetIndices) {
@@ -1464,7 +1725,7 @@ export class SolarNBodyPredictor {
     return true;
   }
 
-  /** 衝突した太陽系天体を、触れた瞬間の中心・法線と一緒に記録します */
+  /** 衝突した太陽系天体を、触れた瞬間の中心・法線・母惑星の位置と一緒に記録します */
   private recordHits(events: SolarCollisionEvent[]): void {
     for (const ev of events) {
       const parties: Array<{
@@ -1485,23 +1746,10 @@ export class SolarNBodyPredictor {
             y: ev.contactNormalOnPrimary.y * party.normalSign,
             z: ev.contactNormalOnPrimary.z * party.normalSign,
           },
-          frameCenter: this.frameIndex >= 0 ? this.frameCenterAt(ev) : null,
+          hosts: ev.hostsAtContact,
         });
       }
     }
-  }
-
-  /**
-   * 衝突した瞬間の基準の天体の位置を返します。
-   * 基準の天体が衝突の当事者なら、触れた瞬間のその天体の中心（正確な値）を使います。
-   * そうでなければ、計算を進め終えた時点の位置で近似します（ずれは基準の天体が1点の間隔で動く距離以内）。
-   */
-  private frameCenterAt(ev: SolarCollisionEvent): Vec3Tuple {
-    if (this.frameBodyId !== null) {
-      if (ev.primaryId === this.frameBodyId) return { ...ev.primaryCenterAt };
-      if (ev.secondaryId === this.frameBodyId) return { ...ev.secondaryCenterAt };
-    }
-    return this.system.positionOf(this.frameIndex);
   }
 
   /** ここまでに計算できた予測の結果（途中でも取り出せます） */
@@ -1515,7 +1763,7 @@ export class SolarNBodyPredictor {
     }
     return {
       impactorPath: this.impactorPath,
-      framePath: this.framePath,
+      impactorPathHosts: this.impactorPathHosts,
       perturbedPaths,
       hitTargets: Array.from(this.hitMap.values()),
       completed: this.completed && this.finished,

@@ -3,7 +3,7 @@
  * それを 3D シーンの単位へ直すための換算をまとめたモジュールです。
  *
  * 天体衝突シミュレーターの物理計算（重力・衝突・予測）は、ここの値をそのまま使います。
- * リアル太陽系モードでは、画面にもこの値のまま（実際の大きさ・距離で）描きます（bodySizes.ts）。
+ * 画面に描くときの大きさや位置の誇張は bodySizes.ts と displayWarp.ts が受け持ち、物理計算には持ち込みません。
  *
  * 出典（どれも NASA の公開資料）：
  * - 惑星・冥王星：NASA NSSDCA Planetary Fact Sheet（https://nssdc.gsfc.nasa.gov/planetary/factsheet/）

@@ -11,6 +11,9 @@ const EARTH_VERTEX_SHADER = /* glsl */ `
   varying vec3 vLocalNormal;
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
+  // 頂点からカメラへ向かうベクトル（ワールドの向き）。ワールド座標どうしの引き算は精度が落ちるため、
+  // CPU の倍精度で計算済みの modelViewMatrix から求めます
+  varying vec3 vToCamera;
 
   void main() {
     vUv = uv;
@@ -18,6 +21,7 @@ const EARTH_VERTEX_SHADER = /* glsl */ `
     // 法線と頂点座標をワールド空間（地球が自転した後の向き）に変換します。
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vWorldPosition = worldPos.xyz;
+    vToCamera = -(transpose(mat3(viewMatrix)) * (modelViewMatrix * vec4(position, 1.0)).xyz);
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
 
     // 画面上の位置は modelViewMatrix（CPU の倍精度で計算済み）で求めます。
@@ -27,6 +31,8 @@ const EARTH_VERTEX_SHADER = /* glsl */ `
 `;
 
 const EARTH_FRAGMENT_SHADER = /* glsl */ `
+  // 衝突で消える・復活するときの不透明度（1 = 不透明、0 = 見えない）。大きさは変えず、この値で消す・現す
+  uniform float uFade;
   uniform sampler2D uDayMap;
   uniform sampler2D uMaskMap;
   uniform vec3 uSunDirection;
@@ -41,6 +47,9 @@ const EARTH_FRAGMENT_SHADER = /* glsl */ `
   varying vec3 vLocalNormal;
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
+  // 頂点からカメラへ向かうベクトル（ワールドの向き）。ワールド座標どうしの引き算は精度が落ちるため、
+  // CPU の倍精度で計算済みの modelViewMatrix から求めます
+  varying vec3 vToCamera;
 
   float impactHash(vec3 p) {
     p = fract(p * 0.1031);
@@ -82,7 +91,7 @@ const EARTH_FRAGMENT_SHADER = /* glsl */ `
     vec3 normal = normalize(vWorldNormal);
     vec3 localN = normalize(vLocalNormal);
     vec3 sunDir = normalize(uSunDirection);
-    vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+    vec3 viewDir = normalize(vToCamera);
 
     vec3 baseColor = texture2D(uDayMap, vUv).rgb;
     vec3 maskData = texture2D(uMaskMap, vUv).rgb;
@@ -188,16 +197,21 @@ const EARTH_FRAGMENT_SHADER = /* glsl */ `
     finalColor += rimCol * fresnel * mix(0.22, 0.65, sunFacingRim) * (0.85 + crackLevel * 0.9);
 
     gl_FragColor = vec4(finalColor, 1.0);
+    gl_FragColor.a *= uFade;
   }
 `;
 
 const ATMOSPHERE_VERTEX_SHADER = /* glsl */ `
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
+  // 頂点からカメラへ向かうベクトル（ワールドの向き）。ワールド座標どうしの引き算は精度が落ちるため、
+  // CPU の倍精度で計算済みの modelViewMatrix から求めます
+  varying vec3 vToCamera;
 
   void main() {
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vWorldPosition = worldPos.xyz;
+    vToCamera = -(transpose(mat3(viewMatrix)) * (modelViewMatrix * vec4(position, 1.0)).xyz);
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
     // 画面上の位置は modelViewMatrix（CPU の倍精度で計算済み）で求めます。
     // ワールド座標（太陽から約13.5）を経由すると、実際の大きさの小さな天体に寄ったときに精度が足りず形が揺れるためです。
@@ -206,16 +220,21 @@ const ATMOSPHERE_VERTEX_SHADER = /* glsl */ `
 `;
 
 const ATMOSPHERE_FRAGMENT_SHADER = /* glsl */ `
+  // 衝突で消える・復活するときの不透明度（1 = 不透明、0 = 見えない）。大きさは変えず、この値で消す・現す
+  uniform float uFade;
   uniform vec3 uSunDirection;
   uniform float uImpactHeat;
   uniform vec3 uImpactColor;
 
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
+  // 頂点からカメラへ向かうベクトル（ワールドの向き）。ワールド座標どうしの引き算は精度が落ちるため、
+  // CPU の倍精度で計算済みの modelViewMatrix から求めます
+  varying vec3 vToCamera;
 
   void main() {
     vec3 normal = normalize(vWorldNormal);
-    vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+    vec3 viewDir = normalize(vToCamera);
     vec3 sunDir = normalize(uSunDirection);
 
     // 裏面描画（BackSide）のため、視線と逆向きの法線で縁の輝きを計算します。
@@ -226,6 +245,7 @@ const ATMOSPHERE_FRAGMENT_SHADER = /* glsl */ `
     vec3 col = mix(vec3(0.26, 0.60, 1.0), uImpactColor, clamp(uImpactHeat, 0.0, 1.0));
 
     gl_FragColor = vec4(col, clamp(baseAlpha + hotAlpha, 0.0, 1.0));
+    gl_FragColor.a *= uFade;
   }
 `;
 
@@ -241,6 +261,7 @@ export interface EarthMaterialBundle {
     uImpactParams: { value: THREE.Vector4 };
     uImpactColor: { value: THREE.Vector3 };
     uImpactTime: { value: number };
+    uFade: { value: number };
   };
 }
 
@@ -252,6 +273,7 @@ export function createEarthMaterial(
   maskMap: THREE.Texture
 ): EarthMaterialBundle {
   const uniforms = {
+    uFade: { value: 1 },
     uDayMap: { value: initialDayMap },
     uMaskMap: { value: maskMap },
     uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
@@ -276,11 +298,15 @@ const SUN_VERTEX_SHADER = /* glsl */ `
   varying vec3 vLocalNormal;
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
+  // 頂点からカメラへ向かうベクトル（ワールドの向き）。ワールド座標どうしの引き算は精度が落ちるため、
+  // CPU の倍精度で計算済みの modelViewMatrix から求めます
+  varying vec3 vToCamera;
 
   void main() {
     vLocalNormal = normalize(position);
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vWorldPosition = worldPos.xyz;
+    vToCamera = -(transpose(mat3(viewMatrix)) * (modelViewMatrix * vec4(position, 1.0)).xyz);
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
     // 画面上の位置は modelViewMatrix（CPU の倍精度で計算済み）で求めます。
     // ワールド座標（太陽から約13.5）を経由すると、実際の大きさの小さな天体に寄ったときに精度が足りず形が揺れるためです。
@@ -289,11 +315,16 @@ const SUN_VERTEX_SHADER = /* glsl */ `
 `;
 
 const SUN_FRAGMENT_SHADER = /* glsl */ `
+  // 衝突で消える・復活するときの不透明度（1 = 不透明、0 = 見えない）。大きさは変えず、この値で消す・現す
+  uniform float uFade;
   uniform float uTime;
 
   varying vec3 vLocalNormal;
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
+  // 頂点からカメラへ向かうベクトル（ワールドの向き）。ワールド座標どうしの引き算は精度が落ちるため、
+  // CPU の倍精度で計算済みの modelViewMatrix から求めます
+  varying vec3 vToCamera;
 
   // 軽量な 3D 値ノイズで太陽表面の対流セル（粒状斑）を表現します。
   float hash31(vec3 p) {
@@ -340,7 +371,7 @@ const SUN_FRAGMENT_SHADER = /* glsl */ `
 
   void main() {
     vec3 normal = normalize(vWorldNormal);
-    vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+    vec3 viewDir = normalize(vToCamera);
 
     // 太陽表面を時間でゆっくり流動させます。
     float gran = fbm(vLocalNormal * 4.5 + vec3(uTime * 0.12, -uTime * 0.09, uTime * 0.07));
@@ -364,16 +395,21 @@ const SUN_FRAGMENT_SHADER = /* glsl */ `
     surface += vec3(1.0, 0.52, 0.14) * rim * 0.55;
 
     gl_FragColor = vec4(surface, 1.0);
+    gl_FragColor.a *= uFade;
   }
 `;
 
 const SUN_CORONA_VERTEX_SHADER = /* glsl */ `
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
+  // 頂点からカメラへ向かうベクトル（ワールドの向き）。ワールド座標どうしの引き算は精度が落ちるため、
+  // CPU の倍精度で計算済みの modelViewMatrix から求めます
+  varying vec3 vToCamera;
 
   void main() {
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vWorldPosition = worldPos.xyz;
+    vToCamera = -(transpose(mat3(viewMatrix)) * (modelViewMatrix * vec4(position, 1.0)).xyz);
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
     // 画面上の位置は modelViewMatrix（CPU の倍精度で計算済み）で求めます。
     // ワールド座標（太陽から約13.5）を経由すると、実際の大きさの小さな天体に寄ったときに精度が足りず形が揺れるためです。
@@ -384,10 +420,13 @@ const SUN_CORONA_VERTEX_SHADER = /* glsl */ `
 const SUN_CORONA_FRAGMENT_SHADER = /* glsl */ `
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
+  // 頂点からカメラへ向かうベクトル（ワールドの向き）。ワールド座標どうしの引き算は精度が落ちるため、
+  // CPU の倍精度で計算済みの modelViewMatrix から求めます
+  varying vec3 vToCamera;
 
   void main() {
     vec3 normal = normalize(vWorldNormal);
-    vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+    vec3 viewDir = normalize(vToCamera);
     // BackSide の内向き法線を使って太陽外周へ広がるソフトなコロナを描きます。
     float radial = max(0.0, dot(normal, -viewDir));
     float glow = pow(radial, 3.6) * 0.85;
@@ -401,9 +440,10 @@ const SUN_CORONA_FRAGMENT_SHADER = /* glsl */ `
  */
 export function createSunMaterial(): {
   material: THREE.ShaderMaterial;
-  uniforms: { uTime: { value: number } };
+  uniforms: { uTime: { value: number }; uFade: { value: number } };
 } {
   const uniforms = {
+    uFade: { value: 1 },
     uTime: { value: 0 },
   };
   const material = new THREE.ShaderMaterial({
@@ -442,6 +482,8 @@ const MOON_VERTEX_SHADER = /* glsl */ `
 `;
 
 const MOON_FRAGMENT_SHADER = /* glsl */ `
+  // 衝突で消える・復活するときの不透明度（1 = 不透明、0 = 見えない）。大きさは変えず、この値で消す・現す
+  uniform float uFade;
   uniform sampler2D uMoonMap;
   uniform vec3 uSunDirection;
   uniform vec3 uLunarEclipse;
@@ -520,6 +562,7 @@ const MOON_FRAGMENT_SHADER = /* glsl */ `
     }
 
     gl_FragColor = vec4(finalColor, 1.0);
+    gl_FragColor.a *= uFade;
   }
 `;
 
@@ -529,6 +572,7 @@ const MOON_FRAGMENT_SHADER = /* glsl */ `
 export function createMoonMaterial(moonMap: THREE.Texture): {
   material: THREE.ShaderMaterial;
   uniforms: {
+    uFade: { value: number };
     uMoonMap: { value: THREE.Texture };
     uSunDirection: { value: THREE.Vector3 };
     uLunarEclipse: { value: THREE.Vector3 };
@@ -539,6 +583,7 @@ export function createMoonMaterial(moonMap: THREE.Texture): {
   };
 } {
   const uniforms = {
+    uFade: { value: 1 },
     uMoonMap: { value: moonMap },
     uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
     uLunarEclipse: { value: new THREE.Vector3(0, 0, 0) },
@@ -559,12 +604,16 @@ const VENUS_VERTEX_SHADER = /* glsl */ `
   varying vec2 vUv;
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
+  // 頂点からカメラへ向かうベクトル（ワールドの向き）。ワールド座標どうしの引き算は精度が落ちるため、
+  // CPU の倍精度で計算済みの modelViewMatrix から求めます
+  varying vec3 vToCamera;
 
   void main() {
     vUv = uv;
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vWorldPosition = worldPos.xyz;
+    vToCamera = -(transpose(mat3(viewMatrix)) * (modelViewMatrix * vec4(position, 1.0)).xyz);
     // 画面上の位置は modelViewMatrix（CPU の倍精度で計算済み）で求めます。
     // ワールド座標（太陽から約13.5）を経由すると、実際の大きさの小さな天体に寄ったときに精度が足りず形が揺れるためです。
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -572,6 +621,8 @@ const VENUS_VERTEX_SHADER = /* glsl */ `
 `;
 
 const VENUS_FRAGMENT_SHADER = /* glsl */ `
+  // 衝突で消える・復活するときの不透明度（1 = 不透明、0 = 見えない）。大きさは変えず、この値で消す・現す
+  uniform float uFade;
   uniform sampler2D uVenusMap;
   uniform vec3 uSunDirection;
   uniform vec3 uImpactDir;
@@ -581,11 +632,14 @@ const VENUS_FRAGMENT_SHADER = /* glsl */ `
   varying vec2 vUv;
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
+  // 頂点からカメラへ向かうベクトル（ワールドの向き）。ワールド座標どうしの引き算は精度が落ちるため、
+  // CPU の倍精度で計算済みの modelViewMatrix から求めます
+  varying vec3 vToCamera;
 
   void main() {
     vec3 normal = normalize(vWorldNormal);
     vec3 sunDir = normalize(uSunDirection);
-    vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+    vec3 viewDir = normalize(vToCamera);
     vec3 albedo = texture2D(uVenusMap, vUv).rgb;
 
     // 分厚い大気を持つ金星は、月よりも柔らかな明暗境界と明るい雲の散乱光を見せます。
@@ -617,6 +671,7 @@ const VENUS_FRAGMENT_SHADER = /* glsl */ `
     }
 
     gl_FragColor = vec4(finalColor, 1.0);
+    gl_FragColor.a *= uFade;
   }
 `;
 
@@ -626,6 +681,7 @@ const VENUS_FRAGMENT_SHADER = /* glsl */ `
 export function createVenusMaterial(venusMap: THREE.Texture): {
   material: THREE.ShaderMaterial;
   uniforms: {
+    uFade: { value: number };
     uVenusMap: { value: THREE.Texture };
     uSunDirection: { value: THREE.Vector3 };
     uImpactDir: { value: THREE.Vector3 };
@@ -634,6 +690,7 @@ export function createVenusMaterial(venusMap: THREE.Texture): {
   };
 } {
   const uniforms = {
+    uFade: { value: 1 },
     uVenusMap: { value: venusMap },
     uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
     uImpactDir: { value: new THREE.Vector3(1, 0, 0) },
@@ -660,6 +717,8 @@ const PLANET_VERTEX_SHADER = /* glsl */ `
 `;
 
 const PLANET_FRAGMENT_SHADER = /* glsl */ `
+  // 衝突で消える・復活するときの不透明度（1 = 不透明、0 = 見えない）。大きさは変えず、この値で消す・現す
+  uniform float uFade;
   uniform sampler2D uMap;
   uniform vec3 uSunDirection;
   uniform float uAmbientBoost;
@@ -698,6 +757,7 @@ const PLANET_FRAGMENT_SHADER = /* glsl */ `
     }
 
     gl_FragColor = vec4(color, 1.0);
+    gl_FragColor.a *= uFade;
   }
 `;
 
@@ -710,6 +770,7 @@ export function createPlanetMaterial(
 ): {
   material: THREE.ShaderMaterial;
   uniforms: {
+    uFade: { value: number };
     uMap: { value: THREE.Texture };
     uSunDirection: { value: THREE.Vector3 };
     uAmbientBoost: { value: number };
@@ -719,6 +780,7 @@ export function createPlanetMaterial(
   };
 } {
   const uniforms = {
+    uFade: { value: 1 },
     uMap: { value: map },
     uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
     uAmbientBoost: { value: ambientBoost },
@@ -740,12 +802,14 @@ export function createPlanetMaterial(
 export function createAtmosphereMaterial(): {
   material: THREE.ShaderMaterial;
   uniforms: {
+    uFade: { value: number };
     uSunDirection: { value: THREE.Vector3 };
     uImpactHeat: { value: number };
     uImpactColor: { value: THREE.Vector3 };
   };
 } {
   const uniforms = {
+    uFade: { value: 1 },
     uSunDirection: { value: new THREE.Vector3(1, 0, 0) },
     uImpactHeat: { value: 0 },
     uImpactColor: { value: new THREE.Vector3(1.0, 0.45, 0.1) },

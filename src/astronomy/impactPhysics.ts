@@ -1315,6 +1315,8 @@ export class SolarNBodyPredictor {
   private readonly impactorPath: Vec3Tuple[];
   /** 基準の天体の配列の番号（基準の天体がなければ -1） */
   private readonly frameIndex: number;
+  /** 基準の天体の ID（なければ null） */
+  private readonly frameBodyId: SolarImpactTargetId | null;
   private readonly framePath: Vec3Tuple[] = [];
   /** これから投げる天体が消えた点を、軌道の最後の点として記録し終えたか */
   private endRecorded = false;
@@ -1365,6 +1367,7 @@ export class SolarNBodyPredictor {
     this.sampleCount = sampleCount;
     this.interval = horizon / Math.max(1, sampleCount - 1);
     this.impactorPath = [this.system.positionOf(this.newIndex)];
+    this.frameBodyId = frameBodyId;
     this.frameIndex =
       frameBodyId === null
         ? -1
@@ -1420,7 +1423,7 @@ export class SolarNBodyPredictor {
           if (center) {
             this.impactorPath.push({ ...center });
             if (this.frameIndex >= 0) {
-              this.framePath.push(system.positionOf(this.frameIndex));
+              this.framePath.push(this.frameCenterAt(ev));
             }
             break;
           }
@@ -1482,11 +1485,23 @@ export class SolarNBodyPredictor {
             y: ev.contactNormalOnPrimary.y * party.normalSign,
             z: ev.contactNormalOnPrimary.z * party.normalSign,
           },
-          frameCenter:
-            this.frameIndex >= 0 ? this.system.positionOf(this.frameIndex) : null,
+          frameCenter: this.frameIndex >= 0 ? this.frameCenterAt(ev) : null,
         });
       }
     }
+  }
+
+  /**
+   * 衝突した瞬間の基準の天体の位置を返します。
+   * 基準の天体が衝突の当事者なら、触れた瞬間のその天体の中心（正確な値）を使います。
+   * そうでなければ、計算を進め終えた時点の位置で近似します（ずれは基準の天体が1点の間隔で動く距離以内）。
+   */
+  private frameCenterAt(ev: SolarCollisionEvent): Vec3Tuple {
+    if (this.frameBodyId !== null) {
+      if (ev.primaryId === this.frameBodyId) return { ...ev.primaryCenterAt };
+      if (ev.secondaryId === this.frameBodyId) return { ...ev.secondaryCenterAt };
+    }
+    return this.system.positionOf(this.frameIndex);
   }
 
   /** ここまでに計算できた予測の結果（途中でも取り出せます） */

@@ -701,7 +701,7 @@ describe("天文計算エンジン (calculations)", () => {
     expect(distance("callisto", "jupiter") / before.callisto).toBeLessThan(1.05);
   });
 
-  it("衝突は実際の大きさで判定し、描いた絵が重なる距離でも実際に触れなければ当たらない", () => {
+  it("衝突は実際の大きさで判定し、実際に触れなければ当たらない", () => {
     const start = createSolarNBodyEntriesFromSnapshot(physicalSnapshot());
     const earth = start.earth;
     // 地球のすぐ近く（0.05 手前）から、地球に対して速さ 5 で地球の中心へ向かって投げる

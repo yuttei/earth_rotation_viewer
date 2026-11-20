@@ -119,8 +119,11 @@ export interface ImpactSystemRig {
   ) => void;
   /** 狙い中のプレビュー模型の位置だけを動かします（基準の天体と一緒に動かすため。予測はやり直しません） */
   moveAimPreview: (spawnWorldPos: THREE.Vector3) => void;
-  /** カメラの向き（毎フレーム）。当たる天体のリングをカメラに正面を向けて描くために使います */
-  setViewQuaternion: (q: THREE.Quaternion) => void;
+  /**
+   * カメラ（毎フレーム）。当たる天体のリングをカメラに正面を向けて描くことと、
+   * 破片・火花・軌跡・予測線を「カメラの近くの基準点からの差」で描くこと（下記 renderBase）に使います。
+   */
+  setCamera: (camera: THREE.Camera) => void;
   /** ドラッグキャンセル時にプレビューを消す */
   cancelAimPreview: () => void;
   /**
@@ -350,6 +353,14 @@ export function createImpactSystemRig(
   jupiterTexture: THREE.Texture
 ): ImpactSystemRig {
   const root = new THREE.Group();
+  /**
+   * 破片・火花・投入天体の軌跡・予測線を描くときの基準点（カメラの位置。太陽系の座標）。
+   * 頂点の位置は 32ビットの小数で GPU に送られるので、太陽から約13.5 の座標をそのまま入れると
+   * 約0.000001（約11 km）刻みに丸められ、小さな天体に寄ったときにがたつきます。
+   * そこで、物体の位置を基準点にし、頂点には「基準点からの差」だけを書きます
+   * （大きな平行移動は CPU の 64ビットで計算する modelViewMatrix 側で扱われます）。
+   */
+  const renderBase = new THREE.Vector3();
   const allGeos: THREE.BufferGeometry[] = [];
   const allMats: THREE.Material[] = [];
 
@@ -725,6 +736,35 @@ export function createImpactSystemRig(
   allGeos.push(bhCoreGeo, bhDiskGeo, bhPhotonGeo, bhJetGeo);
   allMats.push(bhCoreMat, bhDiskMat, bhPhotonMat, bhJetMat);
 
+  /**
+   * 置いた天体の模型の材質（ひな形と複製で共有）と、もとの不透明度です。
+   * 「復活」で置いた天体が消えるとき、大きさは変えずに不透明度で消すために使います。
+   */
+  const impactorFadeTargets = [
+    asteroidMat,
+    cometMat,
+    moonSizeMat,
+    marsSizeMat,
+    jupiterMat,
+    redDwarfBundle.sMat,
+    sunStarBundle.sMat,
+    blueSupergiantBundle.sMat,
+    nsCoreMat,
+    nsBeamMat,
+    bhCoreMat,
+    bhPhotonMat,
+  ].map((mat) => ({ mat, baseOpacity: mat.opacity, baseTransparent: mat.transparent }));
+
+  /** 置いた天体の模型をまとめて、もとの不透明度 × fade にします（1 = 元どおり、0 = 見えない） */
+  const setImpactorFade = (fade: number) => {
+    const f = THREE.MathUtils.clamp(fade, 0, 1);
+    for (const t of impactorFadeTargets) {
+      t.mat.opacity = t.baseOpacity * f;
+      t.mat.transparent = t.baseTransparent || f < 0.999;
+    }
+    bhAccretionUniforms.uOpacity.value = f;
+  };
+
 
   // -------------------------------------------------------------------------
   // 3. 置いた天体1個ぶんの表示（模型＋飛行軌跡トレイル）の作成・破棄
@@ -963,6 +1003,9 @@ export function createImpactSystemRig(
     MAX_DEBRIS
   );
   debrisMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  // InstancedMesh の画面外の判定の範囲（境界球）は最初の描画で1回だけ計算されるので、
+  // 別の場所で起きた爆発の破片が消えないよう、画面外の判定を切ります
+  debrisMesh.frustumCulled = false;
   debrisMesh.visible = false;
   debrisMesh.renderOrder = 5;
   root.add(debrisMesh);
@@ -1005,9 +1048,13 @@ export function createImpactSystemRig(
   }
   let debrisWriteCursor = 0;
 
+  /** 火花の位置（太陽系の座標・64ビット）。GPU へは基準点からの差（sparkPosArr）を送ります */
+  const sparkPosD = new Float64Array(MAX_SPARKS * 3);
   const sparkPosArr = new Float32Array(MAX_SPARKS * 3);
+  /** 火花ごとの点の大きさ（シーン単位）。出てきた爆発の大きさの基準に比例させます */
+  const sparkSizeArr = new Float32Array(MAX_SPARKS);
   const sparkColArr = new Float32Array(MAX_SPARKS * 3);
-  const sparkHomeArr = new Float32Array(MAX_SPARKS * 3);
+  const sparkHomeArr = new Float64Array(MAX_SPARKS * 3);
   const sparkVelList: THREE.Vector3[] = [];
   const sparkLifeList = new Float32Array(MAX_SPARKS);
   const sparkSwallowUids = new Int32Array(MAX_SPARKS).fill(NO_SWALLOW_UID);
@@ -1019,8 +1066,10 @@ export function createImpactSystemRig(
   const sparkGeo = new THREE.BufferGeometry();
   sparkGeo.setAttribute("position", new THREE.BufferAttribute(sparkPosArr, 3));
   sparkGeo.setAttribute("color", new THREE.BufferAttribute(sparkColArr, 3));
+  sparkGeo.setAttribute("aSize", new THREE.BufferAttribute(sparkSizeArr, 1));
   const sparkMat = new THREE.PointsMaterial({
-    size: 0.48,
+    // 点の大きさは火花ごとの aSize（シーン単位）で決めます（size は倍率 1）
+    size: 1,
     map: starTexture,
     vertexColors: true,
     transparent: true,
@@ -1028,6 +1077,13 @@ export function createImpactSystemRig(
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
+  // 火花ごとに大きさを変えられるよう、点の大きさの計算に aSize を掛けます
+  // （同時に起きた大きさの違う爆発の火花が、それぞれの爆発に合った大きさになります）
+  sparkMat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace("void main() {", "attribute float aSize;\nvoid main() {")
+      .replace("gl_PointSize = size;", "gl_PointSize = size * aSize;");
+  };
   const sparkPoints = new THREE.Points(sparkGeo, sparkMat);
   sparkPoints.frustumCulled = false;
   sparkPoints.visible = false;
@@ -1048,7 +1104,7 @@ export function createImpactSystemRig(
   /** 地球に衝撃波が広がり始めてからの秒数（地球に当たっていなければ十分大きな値） */
   let earthShockTimer = Number.POSITIVE_INFINITY;
 
-  /** N体計算の太陽系天体の状態（物理上の位置・速度。描く位置は bodyStates.worldPos） */
+  /** N体計算の太陽系天体の状態（実際の位置・速度。画面にもこの位置で描き、bodyStates.worldPos に写します） */
   let liveBodies = {} as Record<SolarImpactTargetId, SolarNBodyEntry>;
   let nBodyInitialized = false;
 
@@ -1129,6 +1185,7 @@ export function createImpactSystemRig(
   const tmpTangentA = new THREE.Vector3();
   const tmpTangentB = new THREE.Vector3();
   const tmpSwallowTarget = new THREE.Vector3();
+  const tmpDebrisRel = new THREE.Vector3();
   const invRotQuat = new THREE.Quaternion();
   const IMPACTOR_LIGHT_OFFSET = new THREE.Vector3(1.2, 0.8, 1.5);
 
@@ -1170,7 +1227,7 @@ export function createImpactSystemRig(
     return entries;
   };
 
-  /** uid から、まだ存在している投入天体を探し、その描く位置を返します（見つからなければ null）。 */
+  /** uid から、まだ存在している投入天体を探し、その位置を返します（見つからなければ null）。 */
   const findAliveImpactorDisplayPos = (uid: number): THREE.Vector3 | null => {
     if (uid === NO_SWALLOW_UID) return null;
     for (const visual of liveImpactors) {
@@ -1460,9 +1517,10 @@ export function createImpactSystemRig(
       const u = Math.random() * 2 - 1;
       const s = Math.sqrt(1 - u * u);
       sparkSwallowUids[idx] = swallowUid;
-      sparkPosArr[idx * 3] = center.x;
-      sparkPosArr[idx * 3 + 1] = center.y;
-      sparkPosArr[idx * 3 + 2] = center.z;
+      sparkPosD[idx * 3] = center.x;
+      sparkPosD[idx * 3 + 1] = center.y;
+      sparkPosD[idx * 3 + 2] = center.z;
+      sparkSizeArr[idx] = 0.48 * explosionScale;
       sparkHomeArr[idx * 3] = center.x;
       sparkHomeArr[idx * 3 + 1] = center.y;
       sparkHomeArr[idx * 3 + 2] = center.z;
@@ -1485,8 +1543,7 @@ export function createImpactSystemRig(
       true;
     (sparkGeo.getAttribute("color") as THREE.BufferAttribute).needsUpdate =
       true;
-    // 火花の点の大きさも爆発の大きさの基準に合わせます（1つの材質を共有するので、最後の爆発に合わせます）
-    sparkMat.size = 0.48 * explosionScale;
+    (sparkGeo.getAttribute("aSize") as THREE.BufferAttribute).needsUpdate = true;
     debrisMesh.visible = true;
     sparkPoints.visible = true;
   };
@@ -1624,6 +1681,8 @@ export function createImpactSystemRig(
     restoreTimer = 0;
     nBodyInitialized = false;
     earthShockTimer = Number.POSITIVE_INFINITY;
+    // 「復活」で透明にした模型の材質を元の不透明度に戻します
+    setImpactorFade(1);
     for (const visual of liveImpactors) {
       disposeLiveImpactorVisual(visual);
     }
@@ -1683,7 +1742,7 @@ export function createImpactSystemRig(
   // -------------------------------------------------------------------------
   // 先読み予測（狙っている間）：1フレームに最大1回始め、決めた時間ずつ複数フレームに分けて計算
   // -------------------------------------------------------------------------
-  /** まだ予測を始めていない最新の狙い（描く位置・描く空間での速度） */
+  /** まだ予測を始めていない最新の狙い（実際の位置・速度） */
   let pendingAim: {
     impactorId: ImpactorId;
     spawn: THREE.Vector3;
@@ -1736,9 +1795,11 @@ export function createImpactSystemRig(
     const attr = previewGeo.getAttribute("position") as THREE.BufferAttribute;
     for (let i = 0; i < count; i++) {
       toFramePos(predicted.impactorPath[i], predicted.framePath[i], tmpVec);
+      tmpVec.sub(renderBase);
       attr.setXYZ(i, tmpVec.x, tmpVec.y, tmpVec.z);
     }
     attr.needsUpdate = true;
+    previewLine.position.copy(renderBase);
     previewGeo.setDrawRange(0, count);
     previewLine.computeLineDistances();
     previewLine.visible = count >= 2;
@@ -1885,8 +1946,12 @@ export function createImpactSystemRig(
       };
     },
 
-    setViewQuaternion(q: THREE.Quaternion) {
-      viewQuaternion.copy(q);
+    setCamera(camera: THREE.Camera) {
+      camera.getWorldQuaternion(viewQuaternion);
+      // カメラの位置を、このリングの座標（太陽系の座標）に直して基準点にします
+      root.updateWorldMatrix(true, false);
+      camera.getWorldPosition(renderBase);
+      root.worldToLocal(renderBase);
     },
 
     moveAimPreview(spawnWorldPos: THREE.Vector3) {
@@ -1967,7 +2032,7 @@ export function createImpactSystemRig(
       }
 
       const spec = IMPACTOR_MAP[impactorId];
-      // 画面で狙った位置・速度のまま置きます（描く位置 = 物理上の位置。衝突判定は実際の半径）
+      // 画面で狙った位置・速度のまま置きます（画面の位置 = 実際の位置。衝突判定は実際の半径）
       const entry: SolarImpactorEntry = {
         uid: nextImpactorUid,
         specId: impactorId,
@@ -2084,12 +2149,8 @@ export function createImpactSystemRig(
         output.moonScaleFactor = bodyStates.moon.scaleFactor;
         output.moonEarthMagmaGlow = 0;
 
-        // 置いた天体はすべて小さくなって消えていきます
-        for (const visual of liveImpactors) {
-          visual.group.scale.setScalar(
-            Math.max(0.01, remain)
-          );
-        }
+        // 置いた天体はすべて、大きさは実際のまま、だんだん透明になって消えていきます
+        setImpactorFade(remain);
         impactorLight.intensity = IMPACTOR_LIGHT_INTENSITY * remain;
 
         // 飛び散った破片がそれぞれの爆発中心へ逆再生のように集まって消える
@@ -2105,10 +2166,15 @@ export function createImpactSystemRig(
           const fadeScale = p.scale * remain;
           tmpQuat.setFromAxisAngle(p.rotAxis, p.rotAngle);
           tmpScaleVec.setScalar(fadeScale);
-          tmpMatrix.compose(p.pos, tmpQuat, tmpScaleVec);
+          tmpMatrix.compose(
+            tmpDebrisRel.copy(p.pos).sub(renderBase),
+            tmpQuat,
+            tmpScaleVec
+          );
           debrisMesh.setMatrixAt(i, tmpMatrix);
         }
         debrisMesh.instanceMatrix.needsUpdate = true;
+        debrisMesh.position.copy(renderBase);
 
         for (const entry of liveOrbitTrailLines.values()) {
           (entry.line.material as THREE.LineBasicMaterial).opacity =
@@ -2167,7 +2233,13 @@ export function createImpactSystemRig(
         tmpColor.set(spec.explosionColorHex);
         for (let i = 0; i < trailLen; i++) {
           const fade = 1 - i / trailLen;
-          tPosAttr.setXYZ(i, hist[i].x, hist[i].y, hist[i].z);
+          // 基準点（カメラの位置）からの差を書きます（精度を保つため）
+          tPosAttr.setXYZ(
+            i,
+            hist[i].x - renderBase.x,
+            hist[i].y - renderBase.y,
+            hist[i].z - renderBase.z
+          );
           tColAttr.setXYZ(
             i,
             tmpColor.r * fade,
@@ -2176,6 +2248,7 @@ export function createImpactSystemRig(
           );
         }
         tPosAttr.needsUpdate = true;
+        visual.trailPoints.position.copy(renderBase);
         tColAttr.needsUpdate = true;
         visual.trailPoints.visible = true;
       }
@@ -2294,12 +2367,18 @@ export function createImpactSystemRig(
         const fadeScale = p.scale * THREE.MathUtils.clamp(p.life / 1.2, 0, 1);
         tmpQuat.setFromAxisAngle(p.rotAxis, p.rotAngle);
         tmpScaleVec.setScalar(fadeScale);
-        tmpMatrix.compose(p.pos, tmpQuat, tmpScaleVec);
+        // 基準点（カメラの位置）からの差で置きます（精度を保つため）
+        tmpMatrix.compose(
+          tmpDebrisRel.copy(p.pos).sub(renderBase),
+          tmpQuat,
+          tmpScaleVec
+        );
         debrisMesh.setMatrixAt(i, tmpMatrix);
         debrisMesh.setColorAt(i, p.color);
       }
       debrisMesh.instanceMatrix.needsUpdate = true;
       if (debrisMesh.instanceColor) debrisMesh.instanceColor.needsUpdate = true;
+      debrisMesh.position.copy(renderBase);
 
       const spPosAttr = sparkGeo.getAttribute(
         "position"
@@ -2310,9 +2389,9 @@ export function createImpactSystemRig(
           continue;
         }
         sparkLifeList[i] -= safeDt;
-        let sx = spPosAttr.getX(i);
-        let sy = spPosAttr.getY(i);
-        let sz = spPosAttr.getZ(i);
+        let sx = sparkPosD[i * 3];
+        let sy = sparkPosD[i * 3 + 1];
+        let sz = sparkPosD[i * 3 + 2];
         const v = sparkVelList[i];
         if (sparkSwallowUids[i] !== NO_SWALLOW_UID) {
           const swallower = findAliveImpactorDisplayPos(sparkSwallowUids[i]);
@@ -2341,9 +2420,14 @@ export function createImpactSystemRig(
         sx += v.x * safeDt;
         sy += v.y * safeDt;
         sz += v.z * safeDt;
-        spPosAttr.setXYZ(i, sx, sy, sz);
+        sparkPosD[i * 3] = sx;
+        sparkPosD[i * 3 + 1] = sy;
+        sparkPosD[i * 3 + 2] = sz;
+        // GPU へは基準点（カメラの位置）からの差を送ります
+        spPosAttr.setXYZ(i, sx - renderBase.x, sy - renderBase.y, sz - renderBase.z);
       }
       spPosAttr.needsUpdate = true;
+      sparkPoints.position.copy(renderBase);
 
       output.phase = computePhase();
       output.liveImpactorCount = liveImpactors.length;

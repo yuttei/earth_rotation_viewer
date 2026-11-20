@@ -2117,6 +2117,9 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       new THREE.SphereGeometry(1.045, 72, 36),
       atmosphereBundle.material
     );
+    // 地球が透明になって消える間も、地球の本体を先・大気を後に描きます
+    // （中心が同じなので、透明な物の並べ替えだけでは順序が決まらないため）
+    atmosphereMesh.renderOrder = 1;
     earthGroup.add(atmosphereMesh);
 
     // 6b. リアル太陽系・N体万有引力＆天体衝突シミュレーター
@@ -3704,6 +3707,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     ) {
       const f = THREE.MathUtils.clamp(fade, 0, 1);
       bundle.uniforms.uFade.value = f;
+      // 自作のシェーダー（ShaderMaterial）は「不透明」用の書き換えをしないので、作り直しは不要です
       bundle.material.transparent = alwaysTransparent || f < 0.999;
     }
 
@@ -3716,7 +3720,13 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     ) {
       const f = THREE.MathUtils.clamp(fade, 0, 1);
       mat.opacity = baseOpacity * f;
-      mat.transparent = baseTransparent || f < 0.999;
+      // 組み込みの材質は「不透明」として作った描画プログラムのままだと不透明度が効かないので、
+      // 半透明かどうかが変わったときだけ作り直します（2種類ともキャッシュされるので、作り直しは最初の1回だけ）
+      const nextTransparent = baseTransparent || f < 0.999;
+      if (mat.transparent !== nextTransparent) {
+        mat.transparent = nextTransparent;
+        mat.needsUpdate = true;
+      }
     }
 
     // 状態通知は値が変わったときだけ React 側へ送ります（毎フレームの再描画を防ぐため）。

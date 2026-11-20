@@ -760,7 +760,13 @@ export function createImpactSystemRig(
     const f = THREE.MathUtils.clamp(fade, 0, 1);
     for (const t of impactorFadeTargets) {
       t.mat.opacity = t.baseOpacity * f;
-      t.mat.transparent = t.baseTransparent || f < 0.999;
+      // 組み込みの材質は「不透明」として作った描画プログラムのままだと不透明度が効かないので、
+      // 半透明かどうかが変わったときだけ作り直します（2種類ともキャッシュされるので、作り直しは最初の1回だけ）
+      const nextTransparent = t.baseTransparent || f < 0.999;
+      if (t.mat.transparent !== nextTransparent) {
+        t.mat.transparent = nextTransparent;
+        t.mat.needsUpdate = true;
+      }
     }
     bhAccretionUniforms.uOpacity.value = f;
   };

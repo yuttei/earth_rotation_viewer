@@ -11,11 +11,24 @@ import {
   IMPACTOR_SPECS,
   SOLAR_TARGET_MAP,
   SOLAR_TARGET_SPECS,
+  SolarImpactTargetId,
   SolarImpactorEntry,
+  advanceSolarNBody,
+  buildDisplayWarpHosts,
   createSolarNBodyEntriesFromSnapshot,
+  formatImpactorSummaryJa,
   predictSolarNBodyTrajectory,
-  resolveSolarNBodyCollisions,
 } from "../impactPhysics";
+import { warpDisplayToPhysics, warpPhysicsToDisplay } from "../displayWarp";
+import { kmToScene } from "../realBodyData";
+
+/** テスト用：惑星を x 軸上の軌道長半径の位置に、衛星を母惑星の外側の実際の距離に並べた物理上の配置 */
+function physicalSnapshot(): Array<{ id: SolarImpactTargetId; pos: { x: number; y: number; z: number } }> {
+  return SOLAR_TARGET_SPECS.map((s) => {
+    const parentX = s.parentId ? SOLAR_TARGET_MAP[s.parentId].orbitRadius : 0;
+    return { id: s.id, pos: { x: parentX + s.orbitRadius, y: 0, z: 0 } };
+  });
+}
 import {
   EARTH_AXIAL_TILT_DEG,
   SEASON_PRESETS,
@@ -632,65 +645,91 @@ describe("天文計算エンジン (calculations)", () => {
     ).toBeGreaterThan(55);
   });
 
-  it("リアル太陽系N体万有引力・天体衝突シミュレーターの全10種投入天体（複数同時投入を含む）と太陽系15天体の相互衝突・軌道乱れが正しく動作する", () => {
+  it("衝突シミュレーターの10種の投入天体と太陽系15天体が、実在の天体の実際の質量・半径・距離で計算される", () => {
     expect(IMPACTOR_SPECS).toHaveLength(10);
     expect(SOLAR_TARGET_SPECS).toHaveLength(15);
-    expect(IMPACTOR_MAP.redDwarf.isStar).toBe(true);
-    expect(IMPACTOR_MAP.sunStar.isStar).toBe(true);
-    expect(IMPACTOR_MAP.blueSupergiant.isStar).toBe(true);
-    expect(IMPACTOR_MAP.neutronStar.isNeutronStar).toBe(true);
-    expect(IMPACTOR_MAP.blackHole.isBlackHole).toBe(true);
 
-    // 太陽系15天体の初期スナップショットを作成（衛星は母惑星の外側に並べる）
-    const snapshot = SOLAR_TARGET_SPECS.map((s) => {
-      const parentX = s.parentId
-        ? SOLAR_TARGET_MAP[s.parentId].semiMajorAxisScene
-        : 0;
-      return {
-        id: s.id,
-        pos: { x: parentX + s.semiMajorAxisScene, y: 0, z: 0 },
-      };
-    });
+    // 重さ（GM）の比は実際の質量の比（地球 ÷ 太陽 ≒ 3.0 × 10⁻⁶、木星 ÷ 太陽 ≒ 9.5 × 10⁻⁴）
+    const sunGM = SOLAR_TARGET_MAP.sun.gravityGM;
+    expect(SOLAR_TARGET_MAP.earth.gravityGM / sunGM).toBeCloseTo(3.003e-6, 8);
+    expect(SOLAR_TARGET_MAP.jupiter.gravityGM / sunGM).toBeCloseTo(9.546e-4, 6);
+    // 投入天体はモデルにした天体の値（プロキシマ・ケンタウリ 0.1221 M☉、はくちょう座X-1 21.2 M☉）
+    expect(IMPACTOR_MAP.redDwarf.gravityGM / sunGM).toBeCloseTo(0.1221, 6);
+    expect(IMPACTOR_MAP.blackHole.gravityGM / sunGM).toBeCloseTo(21.2, 6);
+    // ブラックホールの衝突判定の半径は事象の地平線（約63 km）
+    expect(IMPACTOR_MAP.blackHole.model.radiusKm).toBeGreaterThan(60);
+    expect(IMPACTOR_MAP.blackHole.model.radiusKm).toBeLessThan(65);
+    expect(IMPACTOR_MAP.blackHole.physicalRadius).toBeCloseTo(kmToScene(IMPACTOR_MAP.blackHole.model.radiusKm), 12);
+    // 画面の表示文
+    expect(formatImpactorSummaryJa(IMPACTOR_MAP.redDwarf)).toBe(
+      "赤色矮星（プロキシマ・ケンタウリ）半径 0.154 R☉・質量 0.122 M☉"
+    );
 
-    // 1) 木星 (x = 5.2044 * 13.5 ≈ 70.26) のすぐ近くへ小惑星を置くと、木星への衝突が予測される
-    const jupX = 5.2044 * 13.5;
-    const startBodies = createSolarNBodyEntriesFromSnapshot(snapshot);
-    // 衝突半径は表示（ズーム）に左右されない固定値 baseRadius になる
-    for (const spec of SOLAR_TARGET_SPECS) {
-      expect(startBodies[spec.id].radius).toBe(spec.baseRadius);
+    // 衝突判定の半径は実際の半径（地球 6,378 km）で、描く半径（約0.277）とは別
+    const bodies = createSolarNBodyEntriesFromSnapshot(physicalSnapshot());
+    expect(bodies.earth.radius).toBeCloseTo(kmToScene(6378.1), 12);
+    expect(SOLAR_TARGET_MAP.earth.displayRadius).toBeCloseTo(realSolarDisplayRadius("earth"), 9);
+    // 月は実際の距離（384,400 km ≒ 0.0347）に置かれる
+    expect(SOLAR_TARGET_MAP.moon.orbitRadius).toBeCloseTo(kmToScene(384400), 9);
+  });
+
+  it("実際の重さでも月と木星4衛星が数年ぶん安定して公転し続ける", () => {
+    const bodies = createSolarNBodyEntriesFromSnapshot(physicalSnapshot());
+    const distance = (satId: SolarImpactTargetId, hostId: SolarImpactTargetId) =>
+      Math.hypot(
+        bodies[satId].pos.x - bodies[hostId].pos.x,
+        bodies[satId].pos.y - bodies[hostId].pos.y,
+        bodies[satId].pos.z - bodies[hostId].pos.z
+      );
+    const before = {
+      moon: distance("moon", "earth"),
+      io: distance("io", "jupiter"),
+      callisto: distance("callisto", "jupiter"),
+    };
+    // 約2年ぶん（18 シミュレーション時間）進める。イオは約400周する
+    let elapsed = 0;
+    while (elapsed < 18) {
+      const { advancedTime, events } = advanceSolarNBody(bodies, [], 0.5);
+      expect(events).toHaveLength(0);
+      elapsed += advancedTime;
     }
-    const hitJupiter = predictSolarNBodyTrajectory(
-      startBodies,
-      [],
-      "asteroid",
-      { x: jupX + 4.8, y: 0, z: 0 },
-      { x: -6.0, y: 0, z: 0 },
-      120,
-      0.036
-    );
-    expect(hitJupiter.hitTargets.some((t) => t.id === "jupiter")).toBe(true);
+    expect(distance("moon", "earth") / before.moon).toBeGreaterThan(0.9);
+    expect(distance("moon", "earth") / before.moon).toBeLessThan(1.1);
+    expect(distance("io", "jupiter") / before.io).toBeGreaterThan(0.95);
+    expect(distance("io", "jupiter") / before.io).toBeLessThan(1.05);
+    expect(distance("callisto", "jupiter") / before.callisto).toBeGreaterThan(0.95);
+    expect(distance("callisto", "jupiter") / before.callisto).toBeLessThan(1.05);
+  });
 
-    // 2) 青色超巨星を内惑星付近に投入すると、惑星たちの軌道が大きく乱れる予測軌跡が算出される
-    const starPerturb = predictSolarNBodyTrajectory(
-      startBodies,
-      [],
-      "blueSupergiant",
-      { x: 10.0, y: 0, z: 6.0 },
-      { x: 0, y: 0, z: 0 },
-      80,
-      0.036
-    );
-    expect(Object.keys(starPerturb.perturbedPaths).length).toBeGreaterThan(3);
+  it("衝突は描いている位置と大きさで判定し、描いた絵が触れれば当たり、離れていれば当たらない", () => {
+    const start = createSolarNBodyEntriesFromSnapshot(physicalSnapshot());
+    const earth = start.earth;
+    // 地球のすぐ近く（0.05 手前）から、地球に対して速さ 5 で地球の中心へ向かって投げる
+    const aimAt = (offset: number) =>
+      predictSolarNBodyTrajectory(
+        start,
+        [],
+        "asteroid",
+        { x: earth.pos.x - 0.05, y: earth.pos.y + offset, z: earth.pos.z },
+        { x: earth.vel.x + 5, y: earth.vel.y, z: earth.vel.z },
+        0.03,
+        30
+      );
+    // 中心をねらえば当たる
+    const centerHit = aimAt(0).hitTargets.find((t) => t.id === "earth");
+    expect(centerHit).toBeDefined();
+    // 当たる天体のリングを描く位置に直すときの母惑星の位置は、衝突した瞬間の地球の位置（予測区間の終わりではない）
+    const earthHostAtHit = centerHit!.hosts.find((h) => h.hostId === "earth")!;
+    expect(earthHostAtHit.center.x).toBeCloseTo(centerHit!.center.x, 9);
+    expect(earthHostAtHit.center.z).toBeCloseTo(centerHit!.center.z, 9);
+    // 地球のまわりは距離を約27.5倍に広げて描くので、物理上 0.005 ずらすと描く位置では 約0.14 ずれる。
+    // これは描いた地球（0.277）と小惑星（0.035）の半径の和より小さいので、描いた絵が触れて当たる
+    expect(aimAt(0.005).hitTargets.some((t) => t.id === "earth")).toBe(true);
+    // 物理上 0.03 ずらすと、描く位置では 約0.8 ずれて、描いた絵どうしが触れないので当たらない
+    expect(aimAt(0.03).hitTargets.some((t) => t.id === "earth")).toBe(false);
+  });
 
-    // 3) 軌道が乱れて太陽系天体同士（例：金星と地球）が接触すると、天体間相互衝突が発生し運動量が保存・合成される
-    const bodies = createSolarNBodyEntriesFromSnapshot(snapshot);
-    bodies.venus.pos = { ...bodies.earth.pos, x: bodies.earth.pos.x - 0.3 };
-    const mutualEvents = resolveSolarNBodyCollisions(bodies, []);
-    expect(mutualEvents.length).toBeGreaterThanOrEqual(1);
-    expect(bodies.venus.alive).toBe(false);
-    expect(bodies.earth.alive).toBe(true);
-
-    // 4) 複数の投入天体を同時に置ける：ぶつかった投入天体同士は強いほう（ブラックホール）が弱いほうを吸収する
+  it("複数の投入天体を同時に置け、ぶつかるとブラックホールや重いほうが軽いほうを取り込む（予測は本物の状態を書き換えない）", () => {
     const makeImpactor = (
       uid: number,
       specId: SolarImpactorEntry["specId"],
@@ -701,61 +740,54 @@ describe("天文計算エンジン (calculations)", () => {
       pos: { x, y: 30, z: 0 },
       vel: { x: 0, y: 0, z: 0 },
       gravityGM: IMPACTOR_MAP[specId].gravityGM,
-      radius: IMPACTOR_MAP[specId].visualRadius,
+      radius: IMPACTOR_MAP[specId].physicalRadius,
       alive: true,
     });
+    // 小惑星をブラックホールの事象の地平線の内側に置くと、次の計算でブラックホールに取り込まれる
     const asteroidA = makeImpactor(1, "asteroid", 0);
-    const blackHoleB = makeImpactor(2, "blackHole", 0.2);
-    const impEvents = resolveSolarNBodyCollisions(
-      createSolarNBodyEntriesFromSnapshot(snapshot),
-      [asteroidA, blackHoleB]
+    const blackHoleB = makeImpactor(2, "blackHole", IMPACTOR_MAP.blackHole.physicalRadius * 0.5);
+    const { events } = advanceSolarNBody(
+      createSolarNBodyEntriesFromSnapshot(physicalSnapshot()),
+      [asteroidA, blackHoleB],
+      1e-6
     );
-    expect(impEvents).toHaveLength(1);
-    expect(impEvents[0].primaryImpactorUid).toBe(2);
-    expect(impEvents[0].effectSpecId).toBe("blackHole");
+    expect(events).toHaveLength(1);
+    expect(events[0].primaryImpactorUid).toBe(2);
+    expect(events[0].effectSpecId).toBe("blackHole");
     expect(asteroidA.alive).toBe(false);
     expect(blackHoleB.alive).toBe(true);
 
-    // 5) すでに飛んでいる天体の重力も予測に入り、予測計算は本物の状態を書き換えない
+    // すでに飛んでいるブラックホールの重力も予測に入り、予測は本物の状態を書き換えない
+    const startBodies = createSolarNBodyEntriesFromSnapshot(physicalSnapshot());
     const existingBlackHole = makeImpactor(3, "blackHole", 12);
-    const withoutExisting = predictSolarNBodyTrajectory(
-      startBodies,
-      [],
-      "asteroid",
-      { x: 0, y: 30, z: 0 },
-      { x: 0, y: 0, z: 0 },
-      20
-    );
-    const withExisting = predictSolarNBodyTrajectory(
-      startBodies,
-      [existingBlackHole],
-      "asteroid",
-      { x: 0, y: 30, z: 0 },
-      { x: 0, y: 0, z: 0 },
-      20
-    );
-    const lastWithout = withoutExisting.impactorPath[withoutExisting.impactorPath.length - 1];
-    const lastWith = withExisting.impactorPath[withExisting.impactorPath.length - 1];
-    // ブラックホール（x = 12）のほうへ引き寄せられるので、x 座標が大きくなる
+    const without = predictSolarNBodyTrajectory(startBodies, [], "asteroid", { x: 0, y: 30, z: 0 }, { x: 0, y: 0, z: 0 }, 0.6, 30);
+    const withBH = predictSolarNBodyTrajectory(startBodies, [existingBlackHole], "asteroid", { x: 0, y: 30, z: 0 }, { x: 0, y: 0, z: 0 }, 0.6, 30);
+    const lastWithout = without.impactorPath[without.impactorPath.length - 1];
+    const lastWith = withBH.impactorPath[withBH.impactorPath.length - 1];
     expect(lastWith.x).toBeGreaterThan(lastWithout.x + 0.5);
     expect(existingBlackHole.pos).toEqual({ x: 12, y: 30, z: 0 });
     expect(startBodies.earth.pos.x).toBeCloseTo(13.5);
-
-    // 6) 1ステップで地球を飛び越えるほど速い天体も、ステップの間の移動（線分）で判定して衝突を見逃さない
-    const sweepBodies = createSolarNBodyEntriesFromSnapshot(snapshot);
-    const ep = sweepBodies.earth.pos;
-    sweepBodies.earth.prevPos = { ...ep };
-    const fastAsteroid = makeImpactor(4, "asteroid", 0);
-    fastAsteroid.prevPos = { x: ep.x - 2, y: ep.y, z: ep.z };
-    fastAsteroid.pos = { x: ep.x + 2, y: ep.y, z: ep.z };
-    const sweepEvents = resolveSolarNBodyCollisions(sweepBodies, [fastAsteroid]);
-    expect(sweepEvents.some((e) => e.primaryId === "earth")).toBe(true);
-    // 衝突点は地球の表面（中心から地球の半径の位置）
-    expect(Math.abs(sweepEvents[0].contactPoint.x - ep.x)).toBeCloseTo(
-      sweepBodies.earth.radius,
-      6
-    );
   });
+
+  it("衛星は母惑星のまわりに広げた位置に描き、描く位置と物理上の位置を行き来できる", () => {
+    const hosts = buildDisplayWarpHosts([
+      { hostId: "earth", center: { x: 13.5, y: 0, z: 0 }, alive: true },
+    ]);
+    // 月（実際の距離 約0.0347）は、簡易モードと同じ見た目の距離（約0.954）に描く
+    const moonPhys = { x: 13.5 + kmToScene(384400), y: 0, z: 0 };
+    const moonDisplay = warpPhysicsToDisplay(moonPhys, hosts, { x: 0, y: 0, z: 0 });
+    expect(moonDisplay.x - 13.5).toBeCloseTo(3.45 * realSolarDisplayRadius("earth"), 6);
+    // 逆の変換で元に戻る（内側・つなぎの部分・外側のどれでも）
+    for (const d of [0.01, 0.2, 1.0, 5.0]) {
+      const back = warpDisplayToPhysics(
+        warpPhysicsToDisplay({ x: 13.5, y: d, z: 0 }, hosts, { x: 0, y: 0, z: 0 }),
+        hosts,
+        { x: 0, y: 0, z: 0 }
+      );
+      expect(back.y).toBeCloseTo(d, 9);
+    }
+  });
+
   it("リアル太陽系モードの惑星の表示半径が実際の半径の比を保ち、太陽は木星より大きく水星の近日点より内側に収まる", () => {
     // 惑星どうしの大きさの比は実際と同じ（例：木星 ÷ 地球 = 11.21）
     expect(
@@ -770,8 +802,72 @@ describe("天文計算エンジン (calculations)", () => {
     expect(REAL_SOLAR_SUN_RADIUS + realSolarDisplayRadius("mercury")).toBeLessThan(
       0.307 * 13.5
     );
-    // 衝突判定の半径も表示半径と同じ値
-    expect(SOLAR_TARGET_MAP.earth.baseRadius).toBeCloseTo(realSolarDisplayRadius("earth"), 6);
-    expect(SOLAR_TARGET_MAP.sun.baseRadius).toBe(REAL_SOLAR_SUN_RADIUS);
+    // 描く半径は表示用の値で、太陽は別縮尺
+    expect(SOLAR_TARGET_MAP.sun.displayRadius).toBe(REAL_SOLAR_SUN_RADIUS);
+  });
+});
+
+describe("描く大きさの順番", () => {
+  it("太陽系の天体と投入天体を合わせて、実際に大きい天体ほど大きく描く", async () => {
+    const { BODY_RADIUS_KM, SUN_RADIUS_KM } = await import("../realBodyData");
+    const { REAL_SOLAR_SUN_RADIUS, realSolarDisplayRadius } = await import("../bodySizes");
+    const { IMPACTOR_SPECS } = await import("../impactPhysics");
+
+    // [名前, 実際の半径（km）, 描く半径] の一覧を作ります
+    const bodies: Array<[string, number, number]> = [["sun", SUN_RADIUS_KM, REAL_SOLAR_SUN_RADIUS]];
+    for (const id of Object.keys(BODY_RADIUS_KM) as Array<keyof typeof BODY_RADIUS_KM>) {
+      bodies.push([id, BODY_RADIUS_KM[id], realSolarDisplayRadius(id)]);
+    }
+    for (const spec of IMPACTOR_SPECS) {
+      bodies.push([spec.id, spec.model.radiusKm, spec.visualRadius]);
+    }
+
+    // 実際の半径の小さい順に並べ、描く半径も同じ順番になっていることを確かめます
+    bodies.sort((a, b) => a[1] - b[1]);
+    for (let i = 1; i < bodies.length; i++) {
+      const [prevName, prevKm, prevDrawn] = bodies[i - 1];
+      const [name, km, drawn] = bodies[i];
+      if (km > prevKm) {
+        expect(drawn, `${prevName} < ${name}`).toBeGreaterThan(prevDrawn);
+      } else {
+        expect(drawn, `${prevName} = ${name}`).toBeCloseTo(prevDrawn, 9);
+      }
+    }
+  });
+});
+
+describe("対消滅", () => {
+  it("同じ種類の天体どうしがぶつかると両方消え、違う種類なら重いほうが残る", async () => {
+    const { IMPACTOR_MAP, SOLAR_TARGET_MAP, SOLAR_TARGET_SPECS, advanceSolarNBody, createSolarNBodyEntriesFromSnapshot } =
+      await import("../impactPhysics");
+    const snapshot = () =>
+      SOLAR_TARGET_SPECS.map((s) => {
+        const parentX = s.parentId ? SOLAR_TARGET_MAP[s.parentId].orbitRadius : 0;
+        return { id: s.id, pos: { x: parentX + s.orbitRadius, y: 0, z: 0 } };
+      });
+    const make = (uid: number, specId: "asteroid" | "comet", x: number) => ({
+      uid,
+      specId,
+      pos: { x, y: 30, z: 0 },
+      vel: { x: 0, y: 0, z: 0 },
+      gravityGM: IMPACTOR_MAP[specId].gravityGM,
+      radius: IMPACTOR_MAP[specId].physicalRadius,
+      alive: true,
+    });
+
+    // 小惑星どうし（描いた絵が重なる距離）：両方消える
+    const a = make(1, "asteroid", 0);
+    const b = make(2, "asteroid", 0.01);
+    const same = advanceSolarNBody(createSolarNBodyEntriesFromSnapshot(snapshot()), [a, b], 1e-6, 10);
+    expect(a.alive).toBe(false);
+    expect(b.alive).toBe(false);
+    expect(same.events.some((e) => e.annihilation)).toBe(true);
+
+    // 小惑星と彗星：対消滅しない（片方が残る）
+    const c = make(3, "asteroid", 0);
+    const d = make(4, "comet", 0.01);
+    const diff = advanceSolarNBody(createSolarNBodyEntriesFromSnapshot(snapshot()), [c, d], 1e-6, 10);
+    expect([c.alive, d.alive].filter(Boolean)).toHaveLength(1);
+    expect(diff.events.some((e) => e.annihilation)).toBe(false);
   });
 });

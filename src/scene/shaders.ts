@@ -420,6 +420,185 @@ export function createSunCoronaMaterial(): THREE.ShaderMaterial {
   });
 }
 
+// ---------------------------------------------------------------------------
+// 投入天体の恒星（プロキシマ・ケンタウリ、リゲル）用の表面とコロナ
+// ---------------------------------------------------------------------------
+
+const STAR_SURFACE_FRAGMENT_SHADER = /* glsl */ `
+  uniform float uTime;
+  // 表面の温度から決めた3つの色（中心の白熱部・ふつうの表面・縁の暗い部分）
+  uniform vec3 uHotColor;
+  uniform vec3 uSurfaceColor;
+  uniform vec3 uLimbColor;
+  // 周辺減光の強さ（0 = 縁まで同じ明るさ、1 = 縁が真っ暗）
+  uniform float uLimbDarkening;
+  // 表面の模様（対流のセル）の細かさと、模様の濃さ
+  uniform float uCellScale;
+  uniform float uCellContrast;
+  // 黒点の量（0 = なし）と、フレア（明るく光る点）の量（0 = なし）
+  uniform float uSpotAmount;
+  uniform float uFlareAmount;
+  // 模様が流れる速さ
+  uniform float uFlowSpeed;
+
+  varying vec3 vLocalNormal;
+  varying vec3 vWorldNormal;
+  varying vec3 vWorldPosition;
+
+  float hash31(vec3 p) {
+    p = fract(p * 0.1031);
+    p += dot(p, p.yzx + 33.33);
+    return fract((p.x + p.y) * p.z);
+  }
+
+  float noise3D(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float n000 = hash31(i + vec3(0.0, 0.0, 0.0));
+    float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
+    float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
+    float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
+    float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
+    float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
+    float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
+    float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
+    float nx00 = mix(n000, n100, f.x);
+    float nx10 = mix(n010, n110, f.x);
+    float nx01 = mix(n001, n101, f.x);
+    float nx11 = mix(n011, n111, f.x);
+    return mix(mix(nx00, nx10, f.y), mix(nx01, nx11, f.y), f.z);
+  }
+
+  float fbm(vec3 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 5; i++) {
+      v += a * noise3D(p);
+      p = p * 2.03 + vec3(1.7, 9.2, 4.3);
+      a *= 0.5;
+    }
+    return v;
+  }
+
+  void main() {
+    vec3 normal = normalize(vWorldNormal);
+    vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+    vec3 dir = normalize(vLocalNormal);
+    float t = uTime * uFlowSpeed;
+
+    // 対流のセル（粒状斑）：ゆっくり形を変えながら流れる明暗の模様
+    float cells = fbm(dir * uCellScale + vec3(t * 0.6, -t * 0.45, t * 0.35));
+    float fine = fbm(dir * uCellScale * 2.6 - vec3(t * 0.9));
+    float pattern = clamp(cells * 0.7 + fine * 0.3, 0.0, 1.0);
+
+    // 周辺減光：恒星の縁は大気を斜めに見るので暗く、赤っぽく見えます（I = 1 - u(1 - μ)）
+    float mu = max(dot(normal, viewDir), 0.0);
+    float limbLight = 1.0 - uLimbDarkening * (1.0 - pow(mu, 0.6));
+
+    vec3 surface = mix(uSurfaceColor, uHotColor, smoothstep(0.35, 0.8, pattern) * uCellContrast + (1.0 - uCellContrast) * 0.5);
+    surface = mix(uLimbColor, surface, smoothstep(0.0, 0.85, mu));
+    surface *= limbLight;
+
+    // 黒点：大きくゆっくり動く暗い斑点
+    if (uSpotAmount > 0.0) {
+      float spotField = fbm(dir * 2.2 + vec3(0.0, t * 0.08, 0.0));
+      float spot = smoothstep(0.62 - uSpotAmount * 0.12, 0.72 - uSpotAmount * 0.12, spotField);
+      surface *= 1.0 - spot * 0.62;
+    }
+
+    // フレア：ときどき明るく光る点（赤色矮星で起きやすい現象）
+    if (uFlareAmount > 0.0) {
+      float flareField = fbm(dir * 6.0 + vec3(t * 1.7));
+      float pulse = 0.5 + 0.5 * sin(uTime * 0.9 + flareField * 12.0);
+      float flare = smoothstep(0.72, 0.86, flareField) * pulse * uFlareAmount;
+      surface += uHotColor * flare * 1.4;
+    }
+
+    gl_FragColor = vec4(surface, 1.0);
+  }
+`;
+
+/** 投入天体の恒星の見た目を決める値 */
+export interface StarSurfaceParams {
+  hotColor: THREE.ColorRepresentation;
+  surfaceColor: THREE.ColorRepresentation;
+  limbColor: THREE.ColorRepresentation;
+  limbDarkening: number;
+  cellScale: number;
+  cellContrast: number;
+  spotAmount: number;
+  flareAmount: number;
+  flowSpeed: number;
+}
+
+/**
+ * 投入天体の恒星（プロキシマ・ケンタウリ、リゲルなど）の表面を描く ShaderMaterial を生成します。
+ * 色は表面の温度から、周辺減光・対流のセル・黒点・フレアは params で決めます。
+ */
+export function createStarSurfaceMaterial(params: StarSurfaceParams): {
+  material: THREE.ShaderMaterial;
+  uniforms: { uTime: { value: number } };
+} {
+  const uniforms = {
+    uTime: { value: 0 },
+    uHotColor: { value: new THREE.Color(params.hotColor) },
+    uSurfaceColor: { value: new THREE.Color(params.surfaceColor) },
+    uLimbColor: { value: new THREE.Color(params.limbColor) },
+    uLimbDarkening: { value: params.limbDarkening },
+    uCellScale: { value: params.cellScale },
+    uCellContrast: { value: params.cellContrast },
+    uSpotAmount: { value: params.spotAmount },
+    uFlareAmount: { value: params.flareAmount },
+    uFlowSpeed: { value: params.flowSpeed },
+  };
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: SUN_VERTEX_SHADER,
+    fragmentShader: STAR_SURFACE_FRAGMENT_SHADER,
+  });
+  return { material, uniforms };
+}
+
+const STAR_CORONA_FRAGMENT_SHADER = /* glsl */ `
+  uniform vec3 uInnerColor;
+  uniform vec3 uOuterColor;
+  uniform float uStrength;
+  varying vec3 vWorldNormal;
+  varying vec3 vWorldPosition;
+
+  void main() {
+    vec3 normal = normalize(vWorldNormal);
+    vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+    // 太陽のコロナと同じ作り：裏側の面の法線を使って、恒星の外周へ柔らかく広がる光を描きます
+    float radial = max(0.0, dot(normal, -viewDir));
+    float glow = pow(radial, 3.6) * uStrength;
+    vec3 color = mix(uOuterColor, uInnerColor, radial);
+    gl_FragColor = vec4(color, glow);
+  }
+`;
+
+/** 投入天体の恒星の外周を包むコロナ（色を指定できる、太陽のコロナと同じ作り）を生成します */
+export function createStarCoronaMaterial(
+  innerColor: THREE.ColorRepresentation,
+  outerColor: THREE.ColorRepresentation,
+  strength = 0.85
+): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uInnerColor: { value: new THREE.Color(innerColor) },
+      uOuterColor: { value: new THREE.Color(outerColor) },
+      uStrength: { value: strength },
+    },
+    vertexShader: SUN_CORONA_VERTEX_SHADER,
+    fragmentShader: STAR_CORONA_FRAGMENT_SHADER,
+    side: THREE.BackSide,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+}
+
 const MOON_VERTEX_SHADER = /* glsl */ `
   varying vec2 vUv;
   varying vec3 vWorldNormal;

@@ -55,7 +55,6 @@ import {
   createCosmicScaleRig,
 } from "./cosmicScale";
 import {
-  IMPACTOR_MAP,
   ImpactorId,
   SOLAR_TARGET_SPECS,
   SolarImpactTargetId,
@@ -160,6 +159,11 @@ interface EarthGlobeCanvasProps {
   onImpactStatusChange?: (status: ImpactStatus) => void;
   /** 衝突シミュレーターで天体を置いた（発射した）ときの通知（実績の判定に使います） */
   onImpactorLaunched?: (impactorId: ImpactorId) => void;
+  /**
+   * 衝突シミュレーターの物理の時間の進み方（実際の1秒で何秒ぶん進めるか）。
+   * アプリの倍速と同じ値で、一時停止中は 0 です（例：「1日/s」なら 86,400）。
+   */
+  impactSimulationSpeed: number;
 }
 
 /**
@@ -478,6 +482,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   restoreImpactSeq,
   onImpactStatusChange,
   onImpactorLaunched,
+  impactSimulationSpeed,
 }) => {
   const hostRef = useRef<HTMLDivElement | null>(null);
   // 衝突の瞬間に画面全体を光らせるフラッシュ用の要素（React の再描画なしで直接 style を更新します）
@@ -530,6 +535,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     activeImpactorId,
     onImpactStatusChange,
     onImpactorLaunched,
+    impactSimulationSpeed,
   });
   latestPropsRef.current = {
     solarState,
@@ -546,6 +552,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     activeImpactorId,
     onImpactStatusChange,
     onImpactorLaunched,
+    impactSimulationSpeed,
   };
 
   // 「すぐ復活」ボタンが押されたら、置いた天体をすべて消し、太陽系の全天体をぬるっと元通りにする演出を始めます。
@@ -2651,7 +2658,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       (s) => ({
         id: s.id,
         pos: new THREE.Vector3(),
-        radius: s.baseRadius,
+        radius: s.displayRadius,
       })
     );
     const solarBaselineMap = new Map<
@@ -2668,7 +2675,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       (s) => ({
         id: s.id,
         pos: new THREE.Vector3(),
-        radius: s.baseRadius,
+        radius: s.displayRadius,
       })
     );
 
@@ -2710,6 +2717,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     // 狙いの状態をまとめて保持します（すべて solarWorldGroup 太陽中心のワールド座標）。
     const impactAim = {
       active: false,
+      /** 天体の上を押したときに、その天体の中心から置いた位置までの距離（描く空間） */
+      clearance: 0,
       targetBodyId: null as SolarImpactTargetId | null,
       targetBodyPos: new THREE.Vector3(),
       planeY: 0,
@@ -2792,6 +2801,9 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       return true;
     };
 
+    /** 天体から引っ張って投げる操作になる距離の余白（描く空間）。投入天体の描く大きさには左右されません */
+    const SLINGSHOT_DRAG_MARGIN = 0.3;
+
     /** ドラッグ距離 d から初速度の大きさを滑らかに算出します。 */
     const computeThrowSpeedFromDragDist = (dragDist: number): number => {
       return Math.min(
@@ -2810,7 +2822,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       clientX: number,
       clientY: number
     ): boolean => {
-      const spec = IMPACTOR_MAP[impactorId];
       if (!setRayFromClient(clientX, clientY)) return false;
 
       const hitBody = findSolarTargetAtClient(clientX, clientY);
@@ -2833,11 +2844,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         } else {
           offsetDir.normalize();
         }
-        const clearance =
-          hitBody.radius * 1.9 + spec.visualRadius * 1.45 + 1.4;
-        impactAim.spawnWorld
-          .copy(hitBody.pos)
-          .addScaledVector(offsetDir, clearance);
+        // 天体の「すぐ近く」に置きます。描いた絵の外側と、実際の大きさで触れない距離のうち遠いほう（impactSystem.ts）
+        impactAim.clearance = impactRig.computeNearBodySpawn(
+          impactorId,
+          hitBody.id,
+          offsetDir,
+          solarBaselineList,
+          impactAim.spawnWorld
+        );
       } else {
         impactAim.targetBodyId = null;
         impactAim.planeY = 0;
@@ -2874,7 +2888,6 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       clientY: number
     ) => {
       if (!setRayFromClient(clientX, clientY)) return;
-      const spec = IMPACTOR_MAP[impactorId];
       const hoverBody = findSolarTargetAtClient(clientX, clientY);
 
       if (!projectToAimPlaneWorld(clientX, clientY, impactAim.planeY, aimTmpWorld)) {
@@ -2885,11 +2898,20 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         impactAim.targetBodyId !== null &&
         aimTmpWorld.distanceTo(impactAim.targetBodyPos) >
           (solarBaselineMap.get(impactAim.targetBodyId)?.radius ?? 1.0) * 1.5 +
-            spec.visualRadius
+            SLINGSHOT_DRAG_MARGIN
       ) {
-        // 天体の上から外側へ引っ張った場合：その天体へ向けたスリングショット投げ込み
-        impactAim.spawnWorld.copy(aimTmpWorld);
-        const pullVec = impactAim.targetBodyPos.clone().sub(aimTmpWorld);
+        // 天体の上から外側へ引っ張った場合：その天体へ向けたスリングショット投げ込み。
+        // 置く位置は引っ張った位置ですが、天体を押したときの「すぐ近く」の距離より内側には置きません
+        // （リゲルのように実際の大きさが大きい天体が、置いた瞬間に相手を飲み込まないように）
+        const fromTarget = aimTmpWorld.clone().sub(impactAim.targetBodyPos);
+        const dragDistFromTarget = fromTarget.length();
+        impactAim.spawnWorld
+          .copy(impactAim.targetBodyPos)
+          .addScaledVector(
+            fromTarget.divideScalar(Math.max(1e-6, dragDistFromTarget)),
+            Math.max(dragDistFromTarget, impactAim.clearance)
+          );
+        const pullVec = impactAim.targetBodyPos.clone().sub(impactAim.spawnWorld);
         const pullDist = pullVec.length();
         const speed = computeThrowSpeedFromDragDist(pullDist);
         impactAim.aimVel
@@ -2899,7 +2921,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       } else if (
         hoverBody &&
         hoverBody.pos.distanceTo(impactAim.spawnWorld) >
-          hoverBody.radius + spec.visualRadius
+          hoverBody.radius + SLINGSHOT_DRAG_MARGIN
       ) {
         // 宇宙空間から特定の太陽系天体（冥王星など黄道面から傾いた天体も含む）の上へドラッグした場合：その天体の3D座標方向へ狙いを合わせます
         const toTarget = hoverBody.pos.clone().sub(impactAim.spawnWorld);
@@ -3910,32 +3932,21 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         camera.clearViewOffset();
       }
 
-      // 3. リアル太陽系モードの距離補正と各惑星・木星4衛星の更新
-      const solarBoostDist =
-        cLevel > 0.001 && anim.active ? anim.solarRefDist : curPose.distance;
+      // 3. リアル太陽系モードの各惑星・木星4衛星の更新
 
       // 太陽サイズ：地上視点では視差なし遠方へ、黄道ビューでは星座と重なりにくいシャープなサイズへ調整します。
       groundSunWorldPos
         .copy(tokyoEyeWorldPos)
         .addScaledVector(sunDirWorld, 75);
       sunMesh.position.set(0, 0, 0).lerp(groundSunWorldPos, g);
-      const solarSunBoost =
-        1.0 +
-        solarBlendEffective *
-          (1 - jFocus) *
-          THREE.MathUtils.clamp((solarBoostDist - 180) / 145, 0, 6.8);
-      // リアル太陽系モードの太陽は別の縮尺で、近くでは木星（3.1）より大きい REAL_SOLAR_SUN_RADIUS（3.4）にします。
-      // 遠景では、これまでどおりの拡大（solarSunBoost）のほうが大きければそちらを使い、遠景の見た目は変えません。
+      // リアル太陽系モードの太陽は別の縮尺で、木星（3.1）より大きい REAL_SOLAR_SUN_RADIUS（3.4）にします。
+      // カメラを寄せても引いても、この大きさは変えません（遠くから見たときに太陽だけ拡大する補正はしません）。
       const realSolarSunSize = THREE.MathUtils.lerp(
         1.0,
         REAL_SOLAR_SUN_RADIUS / SUN_RADIUS,
         planetSizeBlend
       );
-      const baseSunScale = THREE.MathUtils.lerp(
-        Math.max(solarSunBoost, realSolarSunSize),
-        2.15,
-        g
-      );
+      const baseSunScale = THREE.MathUtils.lerp(realSolarSunSize, 2.15, g);
       const sunScale = THREE.MathUtils.lerp(baseSunScale, 0.36, eBlend);
       sunMesh.scale.setScalar(sunScale);
       sunCoronaMesh.position.copy(sunMesh.position);
@@ -4174,7 +4185,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         totalTimeSec,
         solarBaselineList,
         earthQuat,
-        moonMesh.rotation.y
+        moonMesh.rotation.y,
+        latestPropsRef.current.impactSimulationSpeed
       );
       applyImpactToEarthAndMoonShaders(impOut);
       earthTiltGroup.rotation.z = impOut.earthAxisWobbleRad;

@@ -26,6 +26,8 @@ import { SEASON_PRESETS } from "../astronomy/calculations";
 import {
   IMPACTOR_SPECS,
   ImpactorId,
+  formatImpactorMassJa,
+  formatImpactorRadiusJa,
 } from "../astronomy/impactPhysics";
 import { CelestialPhaseDiagram } from "./CelestialPhaseDiagram";
 import { AchievementList } from "./AchievementList";
@@ -335,6 +337,12 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 </div>
               </div>
 
+              <p className="impact-section-hint">
+                重さ・大きさ・距離はすべて<strong>実在の天体の値</strong>で計算します。
+                衝突は画面に描いている大きさで判定し、描いた絵どうしが触れたら当たります。
+                狙っている間に出る予測線と、当たる天体に付くリングを目安に投げてみましょう。
+              </p>
+
               <div className="impact-grid">
                 {IMPACTOR_SPECS.map((spec) => {
                   const isSelected = selectedImpactorId === spec.id;
@@ -368,6 +376,14 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                         </span>
                         <span className="impact-btn-name">{spec.nameJa}</span>
                       </div>
+                      {/* モデルにした実在の天体の名前と、半径・質量 */}
+                      <span className="impact-btn-sub">
+                        {spec.model.nameJa}
+                        <br />
+                        {formatImpactorRadiusJa(spec)}
+                        <br />
+                        {formatImpactorMassJa(spec)}
+                      </span>
                     </button>
                   );
                 })}

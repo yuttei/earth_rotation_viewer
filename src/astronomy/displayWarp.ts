@@ -24,7 +24,8 @@ export interface Vec3Like {
 export interface DisplayWarpHost {
   /**
    * 変換の中心（物理上の位置）。ふつうは母惑星の中心です（惑星そのものは位置を誇張しないので、描く位置と同じ）。
-   * 母惑星が衝突で消えたあとは、生き残っている衛星たちの重心と一緒に動く点です（impactPhysics.ts の resolveSatelliteHost）。
+   * 母惑星が衝突で消えたあとは、生き残っている衛星たちの重心と一緒に動く点、衛星もすべて消えたあとは止めた点です
+   * （impactPhysics.ts の resolveSatelliteHost）。
    */
   center: Vec3Like;
   /** 内側で距離に掛ける倍率（地球と月の系で約 27.5、木星の系で約 122） */
@@ -35,7 +36,8 @@ export interface DisplayWarpHost {
   outerRadius: number;
   /**
    * 変換の効き具合（1 = そのまま効く、0 = 効かない）。
-   * 衝突シミュレーターでは、その系の母惑星か衛星が1つでも残っていれば 1、すべて消えたら 0 にします。
+   * 衝突シミュレーターでは 1 か 0 だけを使います。母惑星も衛星もすべて消え、中心のまわりに生きている天体が
+   * いなくなったときに 0 にします（impactPhysics.ts の resolveSatelliteHost）。
    */
   weight: number;
 }

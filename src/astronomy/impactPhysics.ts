@@ -717,11 +717,38 @@ export interface SatelliteHostSnapshot {
   /**
    * 変換の中心（物理上の位置）。
    * 母惑星が生きている間は母惑星の中心です。母惑星が消えたあとは、生き残っている衛星たちの重心
-   * （GM で重み付けした位置）と一緒に動く点です（resolveSatelliteHost を参照）。
+   * （GM で重み付けした位置）と一緒に動く点、衛星もすべて消えたあとは止めた点です（resolveSatelliteHost を参照）。
    */
   center: Vec3Tuple;
-  /** 変換を使うか（母惑星が生きているか、その系の衛星が1つでも生き残っていれば true） */
+  /** 変換を使うか（false になるのは、母惑星も衛星も消え、中心のまわりに生きている天体もいなくなったあと） */
   active: boolean;
+}
+
+/**
+ * 母惑星が消えたあとの、衛星を広げて描く変換の状態です（母惑星の SolarNBodyEntry が持ちます）。
+ * 母惑星が生きている間は使いません。
+ */
+export interface SatelliteWarpState {
+  /** 母惑星が消えたあと、変換の中心を「生き残っている衛星たちの重心 ＋ このずれ」にします */
+  offset: Vec3Tuple;
+  /** 衛星もすべて消えたあとの、止めた中心（衛星が残っている間は null） */
+  frozenCenter: Vec3Tuple | null;
+  /** 変換を外し終えたか（止めた中心から outerRadius の内側に、生きている天体が1つもいなくなったら true） */
+  ended: boolean;
+}
+
+/** 母惑星が生きている間の状態（ずれ 0・中心を止めていない・変換を外していない） */
+function initialSatelliteWarpState(): SatelliteWarpState {
+  return { offset: { x: 0, y: 0, z: 0 }, frozenCenter: null, ended: false };
+}
+
+/** 状態を複製します（予測で本物の状態を書き換えないため） */
+function cloneSatelliteWarpState(state: SatelliteWarpState): SatelliteWarpState {
+  return {
+    offset: { ...state.offset },
+    frozenCenter: state.frozenCenter ? { ...state.frozenCenter } : null,
+    ended: state.ended,
+  };
 }
 
 /** 重さ GM と位置の組（重心の計算に使います） */
@@ -736,19 +763,24 @@ interface WeightedPoint {
  * 衛星を広げて描く変換の中心を決めます（物理の当たり判定と画面の描く位置で、同じこの関数を使います）。
  *
  * - 母惑星が生きている：母惑星の中心
- * - 母惑星が消えた：生き残っている衛星たちの重心（GM で重み付け）に offset を足した点。
- *   offset は、母惑星が消えた瞬間に「中心が母惑星の位置から動かない」ように決めたずれです（FlatNBodySystem.mergePair）。
- *   これで、消えた瞬間に衛星の描く位置が飛ばず、そのあとは衛星たちの重心と一緒に動きます。
- * - 母惑星も衛星もすべて消えた：変換は使わない（active = false）
+ * - 母惑星が消えた：生き残っている衛星たちの重心（GM で重み付け）に state.offset を足した点。
+ *   offset は、母惑星が消えた瞬間や衛星が合体・消滅した瞬間に「中心が動かない」ように決め直すずれです
+ *   （FlatNBodySystem.keepWarpCentersFixed）。これで、消えた瞬間に衛星の描く位置が飛ばず、
+ *   そのあとは衛星たちの重心と一緒に動きます。
+ * - 衛星もすべて消えた：最後の中心（state.frozenCenter）で止めたまま、変換を残します。
+ *   中心から outerRadius の内側に生きている天体が1つもいなくなったら、変換を外します（state.ended）。
+ *   outerRadius より外では変換しても位置が変わらないので、外したときに何も飛びません。
  *
  * 母惑星が消えても変換を残すのは、衛星どうしを広げて描いたままにするためです。
  * 変換をなくすと衛星が実際の距離に戻り、描く半径の和のほうが距離より大きくなって、すぐにぶつかってしまいます。
+ *
+ * @param satellites 生き残っている衛星（母惑星が生きているときは使わないので、空でかまいません）
  */
 function resolveSatelliteHost(
   hostId: SatelliteHostId,
   hostAlive: boolean,
   hostPos: Vec3Tuple,
-  offset: Vec3Tuple,
+  state: SatelliteWarpState,
   satellites: ReadonlyArray<WeightedPoint>
 ): SatelliteHostSnapshot {
   if (hostAlive) {
@@ -765,22 +797,26 @@ function resolveSatelliteHost(
     y += s.gm * s.y;
     z += s.gm * s.z;
   }
-  if (satellites.length === 0 || gmSum <= 0) {
-    return { hostId, center: { ...hostPos }, active: false };
+  if (satellites.length > 0 && gmSum > 0) {
+    return {
+      hostId,
+      center: {
+        x: x / gmSum + state.offset.x,
+        y: y / gmSum + state.offset.y,
+        z: z / gmSum + state.offset.z,
+      },
+      active: true,
+    };
   }
-  return {
-    hostId,
-    center: {
-      x: x / gmSum + offset.x,
-      y: y / gmSum + offset.y,
-      z: z / gmSum + offset.z,
-    },
-    active: true,
-  };
+  // 衛星もすべて消えた：止めた中心があれば、外し終えるまで変換を残します
+  if (state.frozenCenter) {
+    return { hostId, center: { ...state.frozenCenter }, active: !state.ended };
+  }
+  return { hostId, center: { ...hostPos }, active: false };
 }
 
-/** ずれがまだ決まっていないとき（母惑星が消えていないとき）に使う、ずれ 0 */
-const ZERO_OFFSET: Vec3Tuple = { x: 0, y: 0, z: 0 };
+/** 位置が決まっていないときに使う原点 */
+const ORIGIN: Vec3Tuple = { x: 0, y: 0, z: 0 };
 
 /** 太陽系天体の状態から、各系の変換の中心と、変換を使うかを記録します */
 export function snapshotSatelliteHosts(
@@ -788,18 +824,22 @@ export function snapshotSatelliteHosts(
 ): SatelliteHostSnapshot[] {
   return SATELLITE_DISPLAY_SYSTEMS.map((sys) => {
     const host = bodies[sys.hostId];
+    const hostAlive = host ? host.alive : false;
+    // 母惑星が生きている間は衛星の位置を使わないので、消えたときだけ集めます（計算を軽くするため）
     const satellites: WeightedPoint[] = [];
-    for (const spec of SOLAR_TARGET_SPECS) {
-      if (spec.parentId !== sys.hostId) continue;
-      const sat = bodies[spec.id];
-      if (!sat || !sat.alive) continue;
-      satellites.push({ gm: sat.gravityGM, x: sat.pos.x, y: sat.pos.y, z: sat.pos.z });
+    if (!hostAlive) {
+      for (const spec of SOLAR_TARGET_SPECS) {
+        if (spec.parentId !== sys.hostId) continue;
+        const sat = bodies[spec.id];
+        if (!sat || !sat.alive) continue;
+        satellites.push({ gm: sat.gravityGM, x: sat.pos.x, y: sat.pos.y, z: sat.pos.z });
+      }
     }
     return resolveSatelliteHost(
       sys.hostId,
-      host ? host.alive : false,
-      host ? host.pos : ZERO_OFFSET,
-      host?.warpCenterOffset ?? ZERO_OFFSET,
+      hostAlive,
+      host ? host.pos : ORIGIN,
+      host?.satelliteWarp ?? initialSatelliteWarpState(),
       satellites
     );
   });
@@ -833,7 +873,10 @@ export function buildDisplayWarpHosts(
  * (a) 描いた絵が重ならない距離：天体の今の描く半径 × 1.9 ＋ 投入天体の描く半径 × 1.45 ＋ 1.4。
  *     天体の描く半径は、画面で今描いている値を使います（太陽はどの距離でも 3.4 です）。
  *     ただし巨大な恒星（リゲル、描く半径 268）の描く半径は足しません（足すと数百も離れてしまうため）
- * (b) 実際の大きさで触れない距離：2天体の実際の半径の和 × 1.5 だけ離れた物理上の点を、描く位置に直した距離
+ * (b) 実際の大きさが重ならない距離：2天体の実際の半径の和 × 1.5 だけ離れた物理上の点を、描く位置に直した距離。
+ *     当たりは描く大きさで判定するので、(b) は当たりを避けるためのものではありません。
+ *     N体計算は天体を点として扱うため、実際の大きさより近くに置くと、実際にはありえない強い重力がはたらきます。
+ *     そうした状態から計算を始めないためのものです（今の天体では、(b) で決まるのはリゲルだけです）
  *
  * @param targetPhys 天体の物理上の中心
  * @param targetDrawn 天体を描いている中心
@@ -894,11 +937,10 @@ export interface SolarNBodyEntry {
   parentId: SolarImpactTargetId | null;
   alive: boolean;
   /**
-   * 衛星を持つ母惑星（地球・木星）だけが使う値です。
-   * 母惑星が消えたあと、衛星を広げて描く変換の中心は「生き残っている衛星たちの重心 ＋ このずれ」になります。
-   * 母惑星が消えた瞬間や、衛星が合体・消滅した瞬間に、中心が動かないように決め直します（未設定は 0）。
+   * 衛星を持つ母惑星（地球・木星）だけが使う値です。母惑星が消えたあとの、衛星を広げて描く変換の状態
+   * （中心のずれ・止めた中心・変換を外し終えたか）を持ちます。未設定は、母惑星が生きている間の状態と同じです。
    */
-  warpCenterOffset?: Vec3Tuple;
+  satelliteWarp?: SatelliteWarpState;
 }
 
 /**
@@ -1139,7 +1181,7 @@ export function cloneSolarNBodyEntries(
       ...b,
       pos: { ...b.pos },
       vel: { ...b.vel },
-      warpCenterOffset: b.warpCenterOffset ? { ...b.warpCenterOffset } : undefined,
+      satelliteWarp: b.satelliteWarp ? cloneSatelliteWarpState(b.satelliteWarp) : undefined,
     };
   }
   return copied;
@@ -1214,8 +1256,8 @@ class FlatNBodySystem {
   readonly hostIndex: Record<SatelliteHostId, number>;
   /** 系ごとの衛星の配列の番号（地球の系なら月、木星の系なら4衛星） */
   readonly satelliteIndices: Record<SatelliteHostId, number[]>;
-  /** 系ごとの、母惑星が消えたあとの変換の中心のずれ（SolarNBodyEntry.warpCenterOffset と同じ意味） */
-  readonly warpCenterOffset: Record<SatelliteHostId, Vec3Tuple>;
+  /** 系ごとの、母惑星が消えたあとの変換の状態（SolarNBodyEntry.satelliteWarp と同じ意味） */
+  readonly satelliteWarp: Record<SatelliteHostId, SatelliteWarpState>;
   /** 最後に加速度を計算したときに求めた、ステップの長さの目安（シミュレーション時間） */
   timescale = MAX_STEP_SIM_TIME;
 
@@ -1284,15 +1326,18 @@ class FlatNBodySystem {
     }
     this.hostIndex = { earth: -1, jupiter: -1 };
     this.satelliteIndices = { earth: [], jupiter: [] };
-    this.warpCenterOffset = { earth: { ...ZERO_OFFSET }, jupiter: { ...ZERO_OFFSET } };
+    this.satelliteWarp = {
+      earth: initialSatelliteWarpState(),
+      jupiter: initialSatelliteWarpState(),
+    };
     for (const sys of SATELLITE_DISPLAY_SYSTEMS) {
       const hostI = this.bodyRefs.findIndex(
         (b) => b !== null && b.id === sys.hostId
       );
       this.hostIndex[sys.hostId] = hostI;
       const hostBody = hostI >= 0 ? this.bodyRefs[hostI] : null;
-      if (hostBody?.warpCenterOffset) {
-        this.warpCenterOffset[sys.hostId] = { ...hostBody.warpCenterOffset };
+      if (hostBody?.satelliteWarp) {
+        this.satelliteWarp[sys.hostId] = cloneSatelliteWarpState(hostBody.satelliteWarp);
       }
       this.bodyRefs.forEach((b, index) => {
         if (b !== null && b.parentId === sys.hostId) {
@@ -1320,25 +1365,45 @@ class FlatNBodySystem {
   hostsAt(t: number): SatelliteHostSnapshot[] {
     return SATELLITE_DISPLAY_SYSTEMS.map((sys) => {
       const i = this.hostIndex[sys.hostId];
+      const hostAlive = i >= 0 && this.alive[i] === 1;
+      // 母惑星が生きている間は衛星の位置を使わないので、消えたときだけ集めます（計算を軽くするため）
       const satellites: WeightedPoint[] = [];
-      for (const s of this.satelliteIndices[sys.hostId]) {
-        if (!this.alive[s]) continue;
-        satellites.push({ gm: this.gm[s], ...this.positionAt(s, t) });
+      if (!hostAlive) {
+        for (const s of this.satelliteIndices[sys.hostId]) {
+          if (!this.alive[s]) continue;
+          satellites.push({ gm: this.gm[s], ...this.positionAt(s, t) });
+        }
       }
       return resolveSatelliteHost(
         sys.hostId,
-        i >= 0 && this.alive[i] === 1,
-        i >= 0 ? this.positionAt(i, t) : ZERO_OFFSET,
-        this.warpCenterOffset[sys.hostId],
+        hostAlive,
+        i >= 0 ? this.positionAt(i, t) : ORIGIN,
+        this.satelliteWarp[sys.hostId],
         satellites
       );
     });
   }
 
+  /** 母惑星が生きているか（母惑星が見つからなければ false） */
+  private isHostAlive(hostId: SatelliteHostId): boolean {
+    const i = this.hostIndex[hostId];
+    return i >= 0 && this.alive[i] === 1;
+  }
+
+  /** その系の衛星が1つでも生きているか */
+  private hasLivingSatellite(hostId: SatelliteHostId): boolean {
+    for (const s of this.satelliteIndices[hostId]) {
+      if (this.alive[s]) return true;
+    }
+    return false;
+  }
+
   /**
-   * 天体の合体・消滅のあとに呼び、母惑星が消えている系の変換の中心が、合体・消滅の前と同じ位置になるようにずれを直します。
-   * 例：木星が消えた瞬間、中心は「木星の位置」から「衛星たちの重心」に変わりますが、ずれを足して木星の位置のままにします。
-   * こうすると、衛星の描く位置が急に飛びません（当たり判定でも画面でも同じ）。
+   * 天体の合体・消滅のあとに呼び、母惑星が消えている系の変換の中心が、合体・消滅の前と同じ位置になるようにします。
+   * - 衛星が残っている：ずれ（offset）を直します。
+   *   例：木星が消えた瞬間、中心は「木星の位置」から「衛星たちの重心」に変わりますが、ずれを足して木星の位置のままにします。
+   * - 最後の衛星が消えた：その直前の中心で止めます（frozenCenter）。
+   * こうすると、衛星や系の中にいる天体の描く位置が急に飛びません（当たり判定でも画面でも同じ）。
    * @param t 合体・消滅が起きた、ステップ中の時点
    * @param before 合体・消滅の前に hostsAt(t) で記録した中心
    */
@@ -1347,14 +1412,41 @@ class FlatNBodySystem {
     for (let k = 0; k < after.length; k++) {
       const b = before[k];
       const a = after[k];
-      const hostI = this.hostIndex[a.hostId];
-      const hostAlive = hostI >= 0 && this.alive[hostI] === 1;
-      // 母惑星が生きている系は、中心が母惑星の位置のままなので直す必要はありません
-      if (hostAlive || !b.active || !a.active) continue;
-      const offset = this.warpCenterOffset[a.hostId];
-      offset.x += b.center.x - a.center.x;
-      offset.y += b.center.y - a.center.y;
-      offset.z += b.center.z - a.center.z;
+      // 母惑星が生きている系は、中心が母惑星の位置のままなので直す必要はありません。
+      // 合体・消滅の前から変換を使っていない系も、直すものがありません
+      if (this.isHostAlive(a.hostId) || !b.active) continue;
+      const state = this.satelliteWarp[a.hostId];
+      if (this.hasLivingSatellite(a.hostId)) {
+        state.offset.x += b.center.x - a.center.x;
+        state.offset.y += b.center.y - a.center.y;
+        state.offset.z += b.center.z - a.center.z;
+      } else if (!state.frozenCenter) {
+        state.frozenCenter = { ...b.center };
+      }
+    }
+  }
+
+  /**
+   * ステップの終わりに呼び、衛星がすべて消えて中心を止めた系のうち、中心から outerRadius の内側に
+   * 生きている天体（投入天体も含む）が1つもいなくなった系の変換を外します。
+   * outerRadius より外の天体は、変換があってもなくても同じ位置に描くので、外したときに何も飛びません。
+   */
+  private endEmptyWarps(): void {
+    const { n, px, py, pz, alive } = this;
+    for (const sys of SATELLITE_DISPLAY_SYSTEMS) {
+      const state = this.satelliteWarp[sys.hostId];
+      if (!state.frozenCenter || state.ended || this.isHostAlive(sys.hostId)) continue;
+      const c = state.frozenCenter;
+      let someoneInside = false;
+      for (let i = 0; i < n; i++) {
+        if (!alive[i]) continue;
+        const d = Math.hypot(px[i] - c.x, py[i] - c.y, pz[i] - c.z);
+        if (d < sys.outerRadius) {
+          someoneInside = true;
+          break;
+        }
+      }
+      if (!someoneInside) state.ended = true;
     }
   }
 
@@ -1464,6 +1556,8 @@ class FlatNBodySystem {
       // 天体が合体して重さや数が変わったので、加速度を計算し直します
       this.computeAccelerations();
     }
+    // 中心を止めた系の中に誰もいなくなっていたら、変換を外します（次のステップから使いません）
+    this.endEmptyWarps();
   }
 
   /**
@@ -1663,12 +1757,12 @@ class FlatNBodySystem {
       target.gravityGM = this.gm[i];
       target.alive = this.alive[i] === 1;
     }
-    // 母惑星が消えたあとの変換の中心のずれも、母惑星の天体に書き戻します（次のフレームや予測で使うため）
+    // 母惑星が消えたあとの変換の状態も、母惑星の天体に書き戻します（次のフレームや予測で使うため）
     for (const sys of SATELLITE_DISPLAY_SYSTEMS) {
       const hostI = this.hostIndex[sys.hostId];
       const hostBody = hostI >= 0 ? this.bodyRefs[hostI] : null;
       if (hostBody) {
-        hostBody.warpCenterOffset = { ...this.warpCenterOffset[sys.hostId] };
+        hostBody.satelliteWarp = cloneSatelliteWarpState(this.satelliteWarp[sys.hostId]);
       }
     }
   }
@@ -1703,11 +1797,11 @@ export function advanceSolarNBody(
 export interface SolarNBodyPredictionResult {
   /** これから投げる投入天体の予測軌道点列（物理上の位置） */
   impactorPath: Vec3Tuple[];
-  /** impactorPath の各点の時点での、衛星を持つ母惑星の位置（描く位置に直すときに使います） */
+  /** impactorPath の各点の時点での、衛星を広げて描く変換の中心（ふつうは母惑星の位置）の記録（描く位置に直すときに使います） */
   impactorPathHosts: SatelliteHostSnapshot[][];
   /** 軌道が大きく乱れる太陽・惑星の予測軌跡マップ（物理上の位置） */
   perturbedPaths: Partial<Record<SolarImpactTargetId, Vec3Tuple[]>>;
-  /** 予測中に衝突する太陽系天体と、そのときの中心（物理上の位置）・法線・母惑星の位置のリスト */
+  /** 予測中に衝突する太陽系天体と、そのときの中心（物理上の位置）・法線・変換の中心（ふつうは母惑星の位置）のリスト */
   hitTargets: Array<{
     id: SolarImpactTargetId;
     center: Vec3Tuple;
@@ -1870,7 +1964,7 @@ export class SolarNBodyPredictor {
     return true;
   }
 
-  /** 衝突した太陽系天体を、触れた瞬間の中心・法線・母惑星の位置と一緒に記録します */
+  /** 衝突した太陽系天体を、触れた瞬間の中心・法線・変換の中心（ふつうは母惑星の位置）と一緒に記録します */
   private recordHits(events: SolarCollisionEvent[]): void {
     for (const ev of events) {
       const parties: Array<{

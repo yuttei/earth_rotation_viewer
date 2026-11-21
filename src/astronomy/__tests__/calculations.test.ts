@@ -770,18 +770,35 @@ describe("天文計算エンジン (calculations)", () => {
     expect(startBodies.earth.pos.x).toBeCloseTo(13.5);
   });
 
+  /** テスト用：太陽系天体 target と同じ位置・速度に置いた投入天体（描いた絵がすぐ重なって衝突します） */
+  const impactorOn = (
+    uid: number,
+    specId: SolarImpactorEntry["specId"],
+    target: { pos: { x: number; y: number; z: number }; vel: { x: number; y: number; z: number } }
+  ): SolarImpactorEntry => ({
+    uid,
+    specId,
+    pos: { ...target.pos },
+    vel: { ...target.vel },
+    gravityGM: IMPACTOR_MAP[specId].gravityGM,
+    radius: IMPACTOR_MAP[specId].physicalRadius,
+    alive: true,
+  });
+  /** テスト用：今の木星の系の変換の中心の記録 */
+  const jupiterWarp = (bodies: ReturnType<typeof createSolarNBodyEntriesFromSnapshot>) =>
+    snapshotSatelliteHosts(bodies).find((h) => h.hostId === "jupiter")!;
+  /** テスト用：木星サイズを木星に重ねて対消滅させ、木星を消した状態を作ります */
+  const bodiesWithoutJupiter = () => {
+    const bodies = createSolarNBodyEntriesFromSnapshot(physicalSnapshot());
+    advanceSolarNBody(bodies, [impactorOn(1, "jupiterSize", bodies.jupiter)], 1e-6);
+    expect(bodies.jupiter.alive).toBe(false);
+    return bodies;
+  };
+
   it("母惑星が消えても衛星を広げて描く変換が残り、4衛星どうしはすぐにはぶつからない（予測も同じ判定）", () => {
     const bodies = createSolarNBodyEntriesFromSnapshot(physicalSnapshot());
     // 木星サイズを木星の中心に置くと、同じ天体どうしなので対消滅して、木星が消えます
-    const jupiterSize: SolarImpactorEntry = {
-      uid: 1,
-      specId: "jupiterSize",
-      pos: { ...bodies.jupiter.pos },
-      vel: { ...bodies.jupiter.vel },
-      gravityGM: IMPACTOR_MAP.jupiterSize.gravityGM,
-      radius: IMPACTOR_MAP.jupiterSize.physicalRadius,
-      alive: true,
-    };
+    const jupiterSize = impactorOn(1, "jupiterSize", bodies.jupiter);
     const jupiterAtDeath = { ...bodies.jupiter.pos };
     const first = advanceSolarNBody(bodies, [jupiterSize], 1e-6);
     expect(first.events).toHaveLength(1);
@@ -790,7 +807,7 @@ describe("天文計算エンジン (calculations)", () => {
 
     // 変換の中心は、木星が消えた位置から飛ばない（衛星の描く位置が急に動かない）。
     // ずれを足さずに衛星の重心へ移すと、この並べ方では中心が 約0.1 動いてしまいます
-    const jupiterHost = snapshotSatelliteHosts(bodies).find((h) => h.hostId === "jupiter")!;
+    const jupiterHost = jupiterWarp(bodies);
     expect(jupiterHost.active).toBe(true);
     expect(jupiterHost.center.x).toBeCloseTo(jupiterAtDeath.x, 3);
     expect(jupiterHost.center.z).toBeCloseTo(jupiterAtDeath.z, 3);
@@ -815,6 +832,47 @@ describe("天文計算エンジン (calculations)", () => {
     for (const id of ["io", "europa", "ganymede", "callisto"] as const) {
       expect(bodies[id].alive).toBe(true);
     }
+  });
+
+  it("母惑星が消えたあとに衛星が1つ消えても、変換の中心は動かない", () => {
+    const bodies = bodiesWithoutJupiter();
+    const before = jupiterWarp(bodies);
+    // ブラックホールをカリストに重ねて置くと、カリストが飲み込まれて衛星の重心が変わります
+    const { events } = advanceSolarNBody(bodies, [impactorOn(2, "blackHole", bodies.callisto)], 1e-6);
+    expect(events.some((e) => e.secondaryId === "callisto")).toBe(true);
+    expect(bodies.callisto.alive).toBe(false);
+    // ずれを直し直すので、中心は動かない（直さないと、この並べ方では 約0.03 動きます）
+    const after = jupiterWarp(bodies);
+    expect(after.active).toBe(true);
+    expect(after.center.x).toBeCloseTo(before.center.x, 3);
+    expect(after.center.z).toBeCloseTo(before.center.z, 3);
+  });
+
+  it("衛星が全部消えたら変換の中心をそこで止め、中心のまわりに生きている天体がいなくなってから変換を外す", () => {
+    const bodies = bodiesWithoutJupiter();
+    const before = jupiterWarp(bodies);
+    // 4衛星それぞれにブラックホールを重ねて置き、4衛星をすべて飲み込ませます
+    const blackHoles = (["io", "europa", "ganymede", "callisto"] as const).map((id, k) =>
+      impactorOn(10 + k, "blackHole", bodies[id])
+    );
+    advanceSolarNBody(bodies, blackHoles, 1e-6);
+    for (const id of ["io", "europa", "ganymede", "callisto"] as const) {
+      expect(bodies[id].alive).toBe(false);
+    }
+    // ブラックホールが中にいる間は、中心を止めたまま変換を残す（ブラックホールの描く位置が飛ばない）
+    const frozen = jupiterWarp(bodies);
+    expect(frozen.active).toBe(true);
+    expect(frozen.center.x).toBeCloseTo(before.center.x, 3);
+    expect(frozen.center.z).toBeCloseTo(before.center.z, 3);
+    // 予測も同じ状態から始める
+    const predicted = predictSolarNBodyTrajectory(bodies, blackHoles, "asteroid", { x: 0, y: 30, z: 0 }, { x: 0, y: 0, z: 0 }, 0.01, 3);
+    const predictedStart = predicted.impactorPathHosts[0].find((h) => h.hostId === "jupiter")!;
+    expect(predictedStart.active).toBe(true);
+    expect(predictedStart.center).toEqual(frozen.center);
+    // 中にいた天体がいなくなったら（ここでは置いた天体を消したら）、次のステップの終わりに変換を外す
+    for (const bh of blackHoles) bh.alive = false;
+    advanceSolarNBody(bodies, blackHoles, 1e-6);
+    expect(jupiterWarp(bodies).active).toBe(false);
   });
 
   it("衛星は母惑星のまわりに広げた位置に描き、描く位置と物理上の位置を行き来できる", () => {

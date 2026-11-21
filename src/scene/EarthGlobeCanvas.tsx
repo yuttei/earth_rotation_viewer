@@ -2847,7 +2847,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         } else {
           offsetDir.normalize();
         }
-        // 天体の「すぐ近く」に置きます。描いた絵の外側と、実際の大きさで触れない距離のうち遠いほう（impactSystem.ts）
+        // 天体の「すぐ近く」に置きます。描いた絵の外側と、実際の大きさが重ならない距離のうち遠いほう（impactSystem.ts）
         impactAim.clearance = impactRig.computeNearBodySpawn(
           impactorId,
           hitBody.id,

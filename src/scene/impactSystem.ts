@@ -1297,6 +1297,13 @@ export function createImpactSystemRig(
   const restoreStartHeat = {} as Record<SolarImpactTargetId, number>;
   const restoreStartCrack = {} as Record<SolarImpactTargetId, number>;
   const vanishTimers = {} as Record<SolarImpactTargetId, number>;
+  /**
+   * 衝突で消えた太陽系天体を描く位置（消えた瞬間の描く位置）と、それを記録したか。
+   * 消えた天体は物理上の位置が止まりますが、変換の中心（母惑星が消えたあとは衛星の重心と一緒に動く点）は動くので、
+   * 毎フレーム描く位置に直すと、消えた天体の絵やそれを注視するカメラが動いてしまいます。そこで消えた瞬間の位置にとどめます。
+   */
+  const vanishedDrawnPos = {} as Record<SolarImpactTargetId, THREE.Vector3>;
+  const hasVanishedDrawnPos = {} as Record<SolarImpactTargetId, boolean>;
 
   const bodyStates = {} as Record<
     SolarImpactTargetId,
@@ -1308,6 +1315,8 @@ export function createImpactSystemRig(
     restoreStartHeat[s.id] = 0;
     restoreStartCrack[s.id] = 0;
     vanishTimers[s.id] = 0;
+    vanishedDrawnPos[s.id] = new THREE.Vector3();
+    hasVanishedDrawnPos[s.id] = false;
     bodyStates[s.id] = {
       worldPos: new THREE.Vector3(),
       offsetWorld: new THREE.Vector3(),
@@ -1418,6 +1427,13 @@ export function createImpactSystemRig(
     return "aftermath";
   };
 
+  /** 消えた太陽系天体の描く位置を記録します（最初に消えたときの位置だけを残します） */
+  const rememberVanishedDrawnPos = (id: SolarImpactTargetId, drawn: THREE.Vector3) => {
+    if (hasVanishedDrawnPos[id]) return;
+    vanishedDrawnPos[id].copy(drawn);
+    hasVanishedDrawnPos[id] = true;
+  };
+
   const spawnCollisionExplosion = (
     ev: SolarCollisionEvent,
     earthWorldQuat: THREE.Quaternion,
@@ -1451,6 +1467,13 @@ export function createImpactSystemRig(
     const secondaryDrawn = new THREE.Vector3();
     warpPhysicsToDisplay(ev.primaryCenterAt, contactHosts, primaryDrawn);
     warpPhysicsToDisplay(ev.secondaryCenterAt, contactHosts, secondaryDrawn);
+    // 消えた太陽系天体は、この瞬間の描く位置にとどめます（爆発の位置とそろいます）
+    if (ev.secondaryDestroyed && ev.secondaryId !== "impactor") {
+      rememberVanishedDrawnPos(ev.secondaryId, secondaryDrawn);
+    }
+    if (ev.primaryDestroyed && ev.primaryId !== "impactor") {
+      rememberVanishedDrawnPos(ev.primaryId, primaryDrawn);
+    }
     // リゲル自身が消える衝突か（ブラックホールに飲み込まれる・リゲルどうしで対消滅する）。
     // リゲルは描く半径が 約268 と桁違いに大きいので、この場合だけ爆発をリゲルの大きさに合わせます。
     const specOfUid = (uid: number | null): ImpactorSpec | null => {
@@ -1855,6 +1878,7 @@ export function createImpactSystemRig(
 
     for (const s of SOLAR_TARGET_SPECS) {
       vanishTimers[s.id] = 0;
+      hasVanishedDrawnPos[s.id] = false;
       const st = bodyStates[s.id];
       st.offsetWorld.set(0, 0, 0);
       st.scaleFactor = 1;
@@ -2070,7 +2094,7 @@ export function createImpactSystemRig(
         : baseline
           ? baseline.pos.clone()
           : new THREE.Vector3();
-      // 「絵が重ならない距離」と「実際の大きさで触れない距離」のうち遠いほう（impactPhysics.ts の nearBodySpawnClearance）
+      // 「絵が重ならない距離」と「実際の大きさが重ならない距離」のうち遠いほう（impactPhysics.ts の nearBodySpawnClearance）
       const targetPhys =
         nBodyInitialized && liveBodies[targetId]
           ? liveBodies[targetId].pos
@@ -2366,8 +2390,16 @@ export function createImpactSystemRig(
         const st = bodyStates[s.id];
         if (!live || !base) continue;
 
-        // 物理上の位置を描く位置に直します（衛星は母惑星のまわりに広げた位置）
-        physicsToDisplay(live.pos, st.worldPos);
+        if (live.alive) {
+          // 物理上の位置を描く位置に直します（衛星は母惑星のまわりに広げた位置）
+          physicsToDisplay(live.pos, st.worldPos);
+        } else {
+          // 消えた天体は、消えた瞬間の描く位置にとどめます（記録がなければ、今の位置を記録します）
+          if (!hasVanishedDrawnPos[s.id]) {
+            rememberVanishedDrawnPos(s.id, physicsToDisplay(live.pos, tmpVec));
+          }
+          st.worldPos.copy(vanishedDrawnPos[s.id]);
+        }
         st.offsetWorld.copy(st.worldPos).sub(base.pos);
 
         if (!live.alive) {

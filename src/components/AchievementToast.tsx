@@ -22,6 +22,7 @@ export const AchievementToast: React.FC<AchievementToastProps> = ({ toast }) => 
           <Trophy size={15} className="achievement-toast-icon" aria-hidden="true" />
           <span className="achievement-toast-label">実績解除：</span>
           <span className="achievement-toast-title">
+            {/* シークレットの実績も、達成した瞬間なので本当の名前を出します */}
             {ACHIEVEMENT_MAP[toast.id].titleJa}
           </span>
         </div>

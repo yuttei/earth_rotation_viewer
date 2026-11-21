@@ -157,8 +157,11 @@ interface EarthGlobeCanvasProps {
   restoreImpactSeq: number;
   /** 衝突シミュレーターの状態（飛行中・爆発中・復活中など）が変わったときの通知 */
   onImpactStatusChange?: (status: ImpactStatus) => void;
-  /** 衝突シミュレーターで天体を置いた（発射した）ときの通知（実績の判定に使います） */
-  onImpactorLaunched?: (impactorId: ImpactorId) => void;
+  /**
+   * 衝突シミュレーターで天体を置いた（発射した）ときの通知（実績の判定に使います）。
+   * liveSameTypeCount は、置いた直後（衝突の判定より前）に同じ種類の天体が同時にいくつ置かれているか（今置いた1個を含む）
+   */
+  onImpactorLaunched?: (impactorId: ImpactorId, liveSameTypeCount: number) => void;
   /**
    * 衝突シミュレーターの物理の時間の進み方（実際の1秒で何秒ぶん進めるか）。
    * アプリの倍速と同じ値で、一時停止中は 0 です（例：「1日/s」なら 86,400）。
@@ -3196,7 +3199,11 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           launchVel,
           solarBaselineList
         );
-        latestPropsRef.current.onImpactorLaunched?.(curImpactorId);
+        // 置いた直後に数えるので、同じ天体どうしがぶつかって消える（対消滅）前の数になります
+        latestPropsRef.current.onImpactorLaunched?.(
+          curImpactorId,
+          impactRig.countLiveImpactorsOfType(curImpactorId)
+        );
         return;
       }
       // 発射モード中は、左クリックのタップで天体の詳細カードを開かないようにします。

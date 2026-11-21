@@ -160,7 +160,7 @@ export const COSMIC_BADGE_SPECS: CosmicBadgeSpec[] = [
   },
   {
     id: "solarSystemInGalaxy",
-    label: "☀ 太陽系（オリオン腕・約2.6万光年）",
+    label: "☀ 太陽系（オリオン腕・約2.7万光年）",
     accentColor: "#fbbf24",
     clickableBodyId: "solarSystemInGalaxy",
   },
@@ -964,7 +964,7 @@ export function createCosmicScaleRig(starTexture: THREE.Texture): CosmicScaleRig
   stage1Group.add(mwHero.group);
   registerMaterials(stage1Mats, mwHero.materials, mwHero.geometries);
 
-  // 太陽系の位置（オリオン腕：銀河中心から約2.6万光年 = 半径 12.5）
+  // 太陽系の位置（オリオン腕：銀河中心から約2.7万光年 = 半径 12.5）
   const solarAnchor = new THREE.Group();
   solarAnchor.position.set(10.8, 0.35, 6.2);
   mwHero.group.add(solarAnchor);

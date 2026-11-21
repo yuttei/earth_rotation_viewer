@@ -686,9 +686,9 @@ export const CONSTELLATION_STAR_SPECS = [
     spectralType: "G1III",
     distanceLy: 250,
     descriptionJa:
-      "ししの頭を作る「ししの大がま」の先にある、黄色い輝巨星です。",
+      "ししの頭を作る「ししの大がま」の先にある、黄色い巨星です。",
     descriptionEn:
-      "Epsilon Leonis is a yellow bright giant at the tip of the Sickle, the curved line of stars that makes the lion's head.",
+      "Epsilon Leonis is a yellow giant star at the tip of the Sickle, the curved line of stars that makes the lion's head.",
   },
   {
     id: "muLeo",
@@ -1107,9 +1107,9 @@ export const CONSTELLATION_STAR_SPECS = [
     distanceLy: 300,
     distanceUncertain: true,
     descriptionJa:
-      "さそりの尾の曲がり角にある明るい輝巨星です。日本からは南の低い空に見えます。",
+      "さそりの尾の曲がり角にある明るい巨星です。日本からは南の低い空に見えます。",
     descriptionEn:
-      "Sargas is a bright giant star at the bend of the scorpion's tail. From Japan, it is seen low in the southern sky.",
+      "Sargas is a bright, big star at the bend of the scorpion's tail. From Japan, it is seen low in the southern sky.",
   },
   {
     id: "kappaSco",
@@ -1220,9 +1220,9 @@ export const CONSTELLATION_STAR_SPECS = [
     spectralType: "B2IV",
     distanceLy: 440,
     descriptionJa:
-      "へびつかいの足元にある青白い星で、黄道のすぐそばにあります。太陽は毎年12月上旬ごろ、この星の近くを通ります。",
+      "へびつかいの足元にある青白い星で、黄道のすぐそばにあります。太陽は毎年12月中旬ごろ、この星の近くを通ります。",
     descriptionEn:
-      "Theta Ophiuchi is a blue-white star at the foot of Ophiuchus, close to the path of the Sun. Every year in early December, the Sun passes near this star.",
+      "Theta Ophiuchi is a blue-white star at the foot of Ophiuchus, close to the path of the Sun. Every year in mid-December, the Sun passes near this star.",
   },
   {
     id: "zetaOph",
@@ -2854,7 +2854,7 @@ const POLARIS_PROFILE: CelestialBodyProfile = {
   id: "polaris",
   nameJa: "北極星（ポラリス）",
   nameEn: "Polaris (Alpha Ursae Minoris)",
-  categoryJa: "黄白色の超巨星（こぐま座・こぐま座α星）",
+  categoryJa: "黄白色の超巨星（こぐま座α星）",
   categoryEn: "Yellow-White Supergiant (F8Ib)",
   symbol: "★",
   accentColor: "#fef9c3",

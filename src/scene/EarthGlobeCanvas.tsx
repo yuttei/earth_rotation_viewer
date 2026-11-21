@@ -47,10 +47,7 @@ import {
   CELESTIAL_BODY_PROFILES,
   CelestialBodyId,
 } from "../data/celestialBodies";
-import {
-  ConstellationKey,
-  getConstellationCardId,
-} from "../data/constellationProfiles";
+import { getConstellationCardId } from "../data/constellationProfiles";
 import { createSkyPickRegistry } from "./skyPicking";
 import {
   FEATURED_BRIGHT_STARS,
@@ -1554,7 +1551,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         }
       }
       skyPick.addFigure(
-        getConstellationCardId(sc.id as ConstellationKey),
+        getConstellationCardId(sc.id),
         "constellation",
         seasonalSkyGroup,
         vecs,
@@ -4709,7 +4706,13 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
             : null;
         if (cosmicFocusRadius !== null) {
           rawRadius = cosmicFocusRadius;
-        } else if (FEATURED_STAR_MAP[fId as FeaturedStarId]) {
+        } else if (
+          FEATURED_STAR_MAP[fId as FeaturedStarId] &&
+          (!skyPick.has(fId) ||
+            isRenderedVisible(seasonalBrightStarMeshes.get(fId as FeaturedStarId)))
+        ) {
+          // 主要15恒星の球が描かれているときは、球の位置に寄ります。
+          // 球が描かれていないとき（太陽の真上の視点の外周の星座など）は、下の skyPick の分岐で、描いている星の位置に寄ります。
           const starMesh = seasonalBrightStarMeshes.get(fId as FeaturedStarId);
           if (starMesh) {
             starMesh.getWorldPosition(focusRawPos);
@@ -6366,9 +6369,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
             className="space-badge is-seasonal-constellation is-clickable"
             style={{ display: "none" }}
             onClick={() =>
-              onSelectCelestialBody(
-                getConstellationCardId(sc.id as ConstellationKey)
-              )
+              onSelectCelestialBody(getConstellationCardId(sc.id))
             }
             title={`${sc.nameJa}をタップして詳細を表示`}
           >

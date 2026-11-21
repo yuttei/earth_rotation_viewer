@@ -417,10 +417,10 @@ const BASE_CELESTIAL_BODY_PROFILES: Record<
     facts: [
       { labelJa: "直径", value: "約10万光年" },
       { labelJa: "恒星の数", value: "約2,000〜4,000億個" },
-      { labelJa: "太陽系の位置", value: "中心から約2.6万光年" },
+      { labelJa: "太陽系の位置", value: "中心から約2.7万光年" },
     ],
     descriptionJa:
-      "私たちの太陽系が属する大きな「棒渦巻銀河（銀河系）」です。直径は光の速さでも端から端まで約10万年かかる約10万光年もあり、2,000億〜4,000億個もの星が集まっています。太陽系は中心から約2.6万光年離れた「オリオン腕」のあたりにあり、約2.3億年かけて銀河の中心（巨大ブラックホール・いて座A*）のまわりを1周しています。",
+      "私たちの太陽系が属する大きな「棒渦巻銀河（銀河系）」です。直径は光の速さでも端から端まで約10万年かかる約10万光年もあり、2,000億〜4,000億個もの星が集まっています。太陽系は中心から約2.7万光年離れた「オリオン腕」のあたりにあり、約2.3億年かけて銀河の中心（巨大ブラックホール・いて座A*）のまわりを1周しています。",
     descriptionEn:
       "The Milky Way is our home galaxy. It is a huge spiral galaxy with more than 200 billion stars. It is about 100,000 light-years wide. Our Sun and Earth are not at the center; we live on a spiral arm far from the center. The solar system takes about 230 million years to go around the center once.",
   },

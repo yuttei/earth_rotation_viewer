@@ -6,7 +6,9 @@ import type { CelestialBodyProfile } from "./celestialBodies";
  *
  * 数値の出どころ：
  * - いて座A*：ESO の発表（2022年5月12日、EHT による初の画像）
- * - 太陽系の公転：NASA（時速約82万8,000km、約2億3,000万年で1周、銀河中心から約2.6万光年）
+ * - 太陽系の公転：NASA（時速約82万8,000km、約2億3,000万年で1周）
+ * - 銀河中心までの距離：ESO の約2.7万光年にそろえます（NASA は約2.6万光年と書いており、資料で少し差があります）
+ * - シャプレー超銀河団の銀河団の数：Shapley Supercluster Survey などの論文で「少なくとも25個の Abell 銀河団」
  * - 宇宙マイクロ波背景放射：NASA の COBE・WMAP（約2.725K、宇宙誕生から約38万年後、1965年にペンジアスとウィルソンが発表）
  * - シャプレー超銀河団：距離 約6.5億光年（赤方偏移 0.046 から求めた値。ハッブル定数の値で少し変わります）
  * - スローン・グレートウォール：長さ 約13.7億光年（Gott ほか 2005）
@@ -57,14 +59,14 @@ export const COSMIC_STRUCTURE_PROFILES: Record<
     symbol: "☀",
     accentColor: "#fbbf24",
     facts: [
-      { labelJa: "銀河中心からの距離", value: "約2.6万光年" },
+      { labelJa: "銀河中心からの距離", value: "約2.7万光年" },
       { labelJa: "1周にかかる時間", value: "約2億3,000万年" },
       { labelJa: "回る速さ", value: "時速 約83万km" },
     ],
     descriptionJa:
-      "太陽系は、天の川銀河の中心から約2.6万光年離れた「オリオン腕（オリオン・スパー）」と呼ばれる小さな腕の中にあります。太陽系は時速約83万kmという速さで銀河の中心のまわりを回っていますが、それでも1周するのに約2億3,000万年もかかります。",
+      "太陽系は、天の川銀河の中心から約2.7万光年離れた「オリオン腕（オリオン・スパー）」と呼ばれる小さな腕の中にあります。太陽系は時速約83万kmという速さで銀河の中心のまわりを回っていますが、それでも1周するのに約2億3,000万年もかかります。",
     descriptionEn:
-      "Our solar system is in a small arm of the Milky Way called the Orion Spur, about 26,000 light-years from the center. The solar system moves around the center of the galaxy at about 830,000 kilometers per hour, but one trip around still takes about 230 million years.",
+      "Our solar system is in a small arm of the Milky Way called the Orion Spur, about 27,000 light-years from the center. The solar system moves around the center of the galaxy at about 830,000 kilometers per hour, but one trip around still takes about 230 million years.",
     cardKind: "cosmicStructure",
   },
   virgoSupercluster: {
@@ -96,13 +98,13 @@ export const COSMIC_STRUCTURE_PROFILES: Record<
     accentColor: "#f472b6",
     facts: [
       { labelJa: "距離", value: "約6.5億光年" },
-      { labelJa: "中身", value: "30個以上の大きな銀河団" },
+      { labelJa: "中身", value: "25個以上の大きな銀河団" },
       { labelJa: "方向", value: "ケンタウルス座" },
     ],
     descriptionJa:
-      "ケンタウルス座の方向、約6.5億光年のかなたにある、近くの宇宙で最も重い銀河の集まりのひとつです。30個以上の大きな銀河団が集まっています。天文学者ハーロー・シャプレーにちなんで名づけられ、私たちの銀河の動きにも影響していると考えられています。",
+      "ケンタウルス座の方向、約6.5億光年のかなたにある、近くの宇宙で最も重い銀河の集まりのひとつです。25個以上の大きな銀河団が集まっています。天文学者ハーロー・シャプレーにちなんで名づけられ、私たちの銀河の動きにも影響していると考えられています。",
     descriptionEn:
-      "The Shapley Supercluster is one of the heaviest groups of galaxies near us. It is about 650 million light-years away in the direction of Centaurus and has more than 30 big galaxy clusters. It is named after the astronomer Harlow Shapley, and scientists think it also pulls on our galaxy.",
+      "The Shapley Supercluster is one of the heaviest groups of galaxies near us. It is about 650 million light-years away in the direction of Centaurus and has at least 25 big galaxy clusters. It is named after the astronomer Harlow Shapley, and scientists think it also pulls on our galaxy.",
     cardKind: "cosmicStructure",
   },
   perseusPiscesSupercluster: {

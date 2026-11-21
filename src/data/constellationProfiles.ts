@@ -11,6 +11,7 @@ import {
   SEASONAL_ASTERISMS,
   SEASONAL_CONSTELLATIONS,
   SeasonalAsterism,
+  SeasonalConstellationId,
 } from "../astronomy/seasonalStars";
 
 /**
@@ -21,25 +22,10 @@ import {
  * 星座の形の大きさ（角度）は、アプリが使っている J2000.0 の赤経・赤緯から計算した値です。
  */
 
-/** 季節の星座（seasonalStars.ts）の ID */
-type SeasonalConstellationKey =
-  | "ursaMajor"
-  | "bootes"
-  | "lyra"
-  | "aquila"
-  | "cygnus"
-  | "pegasus"
-  | "andromeda"
-  | "piscisAustrinus"
-  | "orion"
-  | "canisMajor"
-  | "canisMinor"
-  | "auriga";
-
 /** アプリに出てくる星座の ID（黄道13星座・季節の12星座・カシオペヤ座・みなみじゅうじ座） */
 export type ConstellationKey =
   | ZodiacConstellationId
-  | SeasonalConstellationKey
+  | SeasonalConstellationId
   | "cassiopeia"
   | "crux";
 

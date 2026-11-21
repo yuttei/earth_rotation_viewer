@@ -23,7 +23,7 @@ describe("星座の星・星座・星座の形の解説カード", () => {
   it("アプリに描く星座と星座の形には、すべて解説カードがある", () => {
     const keys: ConstellationKey[] = [
       ...ZODIAC_CONSTELLATIONS.map((c) => c.id),
-      ...SEASONAL_CONSTELLATIONS.map((c) => c.id as ConstellationKey),
+      ...SEASONAL_CONSTELLATIONS.map((c) => c.id),
       "cassiopeia",
       "crux",
     ];

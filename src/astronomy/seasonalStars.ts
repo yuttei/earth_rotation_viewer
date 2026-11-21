@@ -61,8 +61,23 @@ export interface FeaturedBrightStar {
   unitDir: [number, number, number];
 }
 
+/** 季節の星座（12星座）の ID */
+export type SeasonalConstellationId =
+  | "ursaMajor"
+  | "bootes"
+  | "lyra"
+  | "aquila"
+  | "cygnus"
+  | "pegasus"
+  | "andromeda"
+  | "piscisAustrinus"
+  | "orion"
+  | "canisMajor"
+  | "canisMinor"
+  | "auriga";
+
 export interface SeasonalConstellation {
-  id: string;
+  id: SeasonalConstellationId;
   nameJa: string;
   season: SeasonTag;
   labelPoint: { lonDeg: number; latDeg: number };

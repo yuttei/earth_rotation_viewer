@@ -565,6 +565,38 @@ export function getMoonPhaseLabelJa(phaseAngleDeg: number): string {
 }
 
 /**
+ * 月の公転軌道（白道）の上に置く、満ち欠けの4つの目印の定義です。
+ * phaseAngleDeg は「月相角」で、地球から見た太陽の方向と月の方向の角度の差（月の黄経 − 太陽の黄経）です。
+ * 月は北から見て反時計回り（黄経が増える向き）に公転するので、
+ * 新月 0°（太陽の方向）→ 上弦 90° → 満月 180°（太陽と反対の方向）→ 下弦 270° の順に進みます。
+ */
+export const MOON_PHASE_POINTS: Array<{
+  id: "newMoon" | "firstQuarter" | "fullMoon" | "lastQuarter";
+  label: string;
+  phaseAngleDeg: number;
+}> = [
+  { id: "newMoon", label: "新月 (0°)", phaseAngleDeg: 0 },
+  { id: "firstQuarter", label: "上弦 (90°)", phaseAngleDeg: 90 },
+  { id: "fullMoon", label: "満月 (180°)", phaseAngleDeg: 180 },
+  { id: "lastQuarter", label: "下弦 (270°)", phaseAngleDeg: 270 },
+];
+
+/**
+ * 白道（黄道面から少し傾いた月の公転軌道）の上で、指定した黄経にある点の黄緯を求めます。
+ * 白道は昇交点（黄経 ascendingNodeDeg）で黄道面を南から北へ横切り、そこから 90° 進んだ所で最も北（黄緯 = 傾き）になります。
+ * 式は tan(黄緯) = tan(傾き) × sin(黄経 − 昇交点黄経) です。
+ */
+export function getMoonOrbitLatitudeDeg(
+  eclipticLongitudeDeg: number,
+  ascendingNodeDeg: number,
+  inclinationDeg: number = MOON_ORBIT_INCLINATION_DEG
+): number {
+  const fromNodeRad = degToRad(eclipticLongitudeDeg - ascendingNodeDeg);
+  const tanLatitude = Math.tan(degToRad(inclinationDeg)) * Math.sin(fromNodeRad);
+  return radToDeg(Math.atan(tanLatitude));
+}
+
+/**
  * 指定された日時の月の黄道座標（視黄経・視黄緯・昇交点黄経）と満ち欠け（月相角・輝面比・月齢）を計算します。
  * Astronomical Almanac の低精度月位置近似式を使用しています。
  */

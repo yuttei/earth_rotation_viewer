@@ -18,6 +18,7 @@ import {
   createSolarNBodyEntriesFromSnapshot,
   formatImpactorSummaryJa,
   predictSolarNBodyTrajectory,
+  snapshotSatelliteHosts,
 } from "../impactPhysics";
 import { warpDisplayToPhysics, warpPhysicsToDisplay } from "../displayWarp";
 import { kmToScene } from "../realBodyData";
@@ -31,6 +32,8 @@ function physicalSnapshot(): Array<{ id: SolarImpactTargetId; pos: { x: number; 
 }
 import {
   EARTH_AXIAL_TILT_DEG,
+  MOON_ORBIT_INCLINATION_DEG,
+  MOON_PHASE_POINTS,
   SEASON_PRESETS,
   SIDEREAL_DAY_SECONDS,
   SIDEREAL_MONTH_DAYS,
@@ -48,6 +51,7 @@ import {
   formatDateTimeParts,
   formatHoursToClock,
   getLocalCompassVectors,
+  getMoonOrbitLatitudeDeg,
   getMoonPhaseLabelJa,
   getNextSeasonDate,
   getSeasonLabelJa,
@@ -325,6 +329,18 @@ describe("天文計算エンジン (calculations)", () => {
     expect(getMoonPhaseLabelJa(90)).toBe("上弦の月");
     expect(getMoonPhaseLabelJa(180)).toBe("満月");
     expect(getMoonPhaseLabelJa(270)).toBe("下弦の月");
+  });
+
+  it("満ち欠けの4つの目印は月相ラベルと向きがそろい、白道の上に乗る", () => {
+    // 目印の月相角を月相ラベルの関数に通すと、同じ名前の月相になる（上弦が 90°＝太陽から反時計回りに 90°）
+    for (const point of MOON_PHASE_POINTS) {
+      const baseName = point.label.split(" ")[0];
+      expect(getMoonPhaseLabelJa(point.phaseAngleDeg).startsWith(baseName)).toBe(true);
+    }
+
+    // 白道の黄緯：昇交点では 0°、そこから 90° 進んだ所で傾きと同じ（最も北）になる
+    expect(getMoonOrbitLatitudeDeg(40, 40)).toBeCloseTo(0, 6);
+    expect(getMoonOrbitLatitudeDeg(130, 40)).toBeCloseTo(MOON_ORBIT_INCLINATION_DEG, 6);
   });
 
   it("getNextSeasonDate は常に現在時刻より未来の次の季節日時を返し、太陽視黄経が目標季節に一致する", () => {
@@ -656,7 +672,7 @@ describe("天文計算エンジン (calculations)", () => {
     // 投入天体はモデルにした天体の値（プロキシマ・ケンタウリ 0.1221 M☉、はくちょう座X-1 21.2 M☉）
     expect(IMPACTOR_MAP.redDwarf.gravityGM / sunGM).toBeCloseTo(0.1221, 6);
     expect(IMPACTOR_MAP.blackHole.gravityGM / sunGM).toBeCloseTo(21.2, 6);
-    // ブラックホールの衝突判定の半径は事象の地平線（約63 km）
+    // ブラックホールの実際の半径は事象の地平線（約63 km）
     expect(IMPACTOR_MAP.blackHole.model.radiusKm).toBeGreaterThan(60);
     expect(IMPACTOR_MAP.blackHole.model.radiusKm).toBeLessThan(65);
     expect(IMPACTOR_MAP.blackHole.physicalRadius).toBeCloseTo(kmToScene(IMPACTOR_MAP.blackHole.model.radiusKm), 12);
@@ -665,7 +681,7 @@ describe("天文計算エンジン (calculations)", () => {
       "赤色矮星（プロキシマ・ケンタウリ）半径 0.154 R☉・質量 0.122 M☉"
     );
 
-    // 衝突判定の半径は実際の半径（地球 6,378 km）で、描く半径（約0.277）とは別
+    // 天体が持つ実際の半径（地球 6,378 km）は、描く半径（約0.277。当たり判定に使う）とは別の値
     const bodies = createSolarNBodyEntriesFromSnapshot(physicalSnapshot());
     expect(bodies.earth.radius).toBeCloseTo(kmToScene(6378.1), 12);
     expect(SOLAR_TARGET_MAP.earth.displayRadius).toBeCloseTo(realSolarDisplayRadius("earth"), 9);
@@ -769,9 +785,114 @@ describe("天文計算エンジン (calculations)", () => {
     expect(startBodies.earth.pos.x).toBeCloseTo(13.5);
   });
 
+  /** テスト用：太陽系天体 target と同じ位置・速度に置いた投入天体（描いた絵がすぐ重なって衝突します） */
+  const impactorOn = (
+    uid: number,
+    specId: SolarImpactorEntry["specId"],
+    target: { pos: { x: number; y: number; z: number }; vel: { x: number; y: number; z: number } }
+  ): SolarImpactorEntry => ({
+    uid,
+    specId,
+    pos: { ...target.pos },
+    vel: { ...target.vel },
+    gravityGM: IMPACTOR_MAP[specId].gravityGM,
+    radius: IMPACTOR_MAP[specId].physicalRadius,
+    alive: true,
+  });
+  /** テスト用：今の木星の系の変換の中心の記録 */
+  const jupiterWarp = (bodies: ReturnType<typeof createSolarNBodyEntriesFromSnapshot>) =>
+    snapshotSatelliteHosts(bodies).find((h) => h.hostId === "jupiter")!;
+  /** テスト用：木星サイズを木星に重ねて対消滅させ、木星を消した状態を作ります */
+  const bodiesWithoutJupiter = () => {
+    const bodies = createSolarNBodyEntriesFromSnapshot(physicalSnapshot());
+    advanceSolarNBody(bodies, [impactorOn(1, "jupiterSize", bodies.jupiter)], 1e-6);
+    expect(bodies.jupiter.alive).toBe(false);
+    return bodies;
+  };
+
+  it("母惑星が消えても衛星を広げて描く変換が残り、4衛星どうしはすぐにはぶつからない（予測も同じ判定）", () => {
+    const bodies = createSolarNBodyEntriesFromSnapshot(physicalSnapshot());
+    // 木星サイズを木星の中心に置くと、同じ天体どうしなので対消滅して、木星が消えます
+    const jupiterSize = impactorOn(1, "jupiterSize", bodies.jupiter);
+    const jupiterAtDeath = { ...bodies.jupiter.pos };
+    const first = advanceSolarNBody(bodies, [jupiterSize], 1e-6);
+    expect(first.events).toHaveLength(1);
+    expect(first.events[0].annihilation).toBe(true);
+    expect(bodies.jupiter.alive).toBe(false);
+
+    // 変換の中心は、木星が消えた位置から飛ばない（衛星の描く位置が急に動かない）。
+    // ずれを足さずに衛星の重心へ移すと、この並べ方では中心が 約0.1 動いてしまいます
+    const jupiterHost = jupiterWarp(bodies);
+    expect(jupiterHost.active).toBe(true);
+    expect(jupiterHost.center.x).toBeCloseTo(jupiterAtDeath.x, 3);
+    expect(jupiterHost.center.z).toBeCloseTo(jupiterAtDeath.z, 3);
+
+    // 予測でも本番でも、そのあと 0.5 シミュレーション時間（約20日）は、4衛星どうしがぶつからない
+    const predicted = predictSolarNBodyTrajectory(
+      bodies,
+      [],
+      "asteroid",
+      { x: 0, y: 30, z: 0 },
+      { x: 0, y: 0, z: 0 },
+      0.5,
+      30
+    );
+    expect(predicted.hitTargets).toHaveLength(0);
+    let elapsed = 0;
+    while (elapsed < 0.5) {
+      const { advancedTime, events } = advanceSolarNBody(bodies, [], 0.5 - elapsed);
+      expect(events.map((e) => `${e.primaryId}<-${e.secondaryId}`)).toEqual([]);
+      elapsed += advancedTime;
+    }
+    for (const id of ["io", "europa", "ganymede", "callisto"] as const) {
+      expect(bodies[id].alive).toBe(true);
+    }
+  });
+
+  it("母惑星が消えたあとに衛星が1つ消えても、変換の中心は動かない", () => {
+    const bodies = bodiesWithoutJupiter();
+    const before = jupiterWarp(bodies);
+    // ブラックホールをカリストに重ねて置くと、カリストが飲み込まれて衛星の重心が変わります
+    const { events } = advanceSolarNBody(bodies, [impactorOn(2, "blackHole", bodies.callisto)], 1e-6);
+    expect(events.some((e) => e.secondaryId === "callisto")).toBe(true);
+    expect(bodies.callisto.alive).toBe(false);
+    // ずれを直し直すので、中心は動かない（直さないと、この並べ方では 約0.03 動きます）
+    const after = jupiterWarp(bodies);
+    expect(after.active).toBe(true);
+    expect(after.center.x).toBeCloseTo(before.center.x, 3);
+    expect(after.center.z).toBeCloseTo(before.center.z, 3);
+  });
+
+  it("衛星が全部消えたら変換の中心をそこで止め、中心のまわりに生きている天体がいなくなってから変換を外す", () => {
+    const bodies = bodiesWithoutJupiter();
+    const before = jupiterWarp(bodies);
+    // 4衛星それぞれにブラックホールを重ねて置き、4衛星をすべて飲み込ませます
+    const blackHoles = (["io", "europa", "ganymede", "callisto"] as const).map((id, k) =>
+      impactorOn(10 + k, "blackHole", bodies[id])
+    );
+    advanceSolarNBody(bodies, blackHoles, 1e-6);
+    for (const id of ["io", "europa", "ganymede", "callisto"] as const) {
+      expect(bodies[id].alive).toBe(false);
+    }
+    // ブラックホールが中にいる間は、中心を止めたまま変換を残す（ブラックホールの描く位置が飛ばない）
+    const frozen = jupiterWarp(bodies);
+    expect(frozen.active).toBe(true);
+    expect(frozen.center.x).toBeCloseTo(before.center.x, 3);
+    expect(frozen.center.z).toBeCloseTo(before.center.z, 3);
+    // 予測も同じ状態から始める
+    const predicted = predictSolarNBodyTrajectory(bodies, blackHoles, "asteroid", { x: 0, y: 30, z: 0 }, { x: 0, y: 0, z: 0 }, 0.01, 3);
+    const predictedStart = predicted.impactorPathHosts[0].find((h) => h.hostId === "jupiter")!;
+    expect(predictedStart.active).toBe(true);
+    expect(predictedStart.center).toEqual(frozen.center);
+    // 中にいた天体がいなくなったら（ここでは置いた天体を消したら）、次のステップの終わりに変換を外す
+    for (const bh of blackHoles) bh.alive = false;
+    advanceSolarNBody(bodies, blackHoles, 1e-6);
+    expect(jupiterWarp(bodies).active).toBe(false);
+  });
+
   it("衛星は母惑星のまわりに広げた位置に描き、描く位置と物理上の位置を行き来できる", () => {
     const hosts = buildDisplayWarpHosts([
-      { hostId: "earth", center: { x: 13.5, y: 0, z: 0 }, alive: true },
+      { hostId: "earth", center: { x: 13.5, y: 0, z: 0 }, active: true },
     ]);
     // 月（実際の距離 約0.0347）は、簡易モードと同じ見た目の距離（約0.954）に描く
     const moonPhys = { x: 13.5 + kmToScene(384400), y: 0, z: 0 };

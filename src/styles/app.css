@@ -276,6 +276,17 @@ input {
   margin-top: -22px;
 }
 
+/* 月の満ち欠けの4つの目印（新月・上弦・満月・下弦）の札：白道リングと同じ青みがかった白で、札を置く点に中央寄せ */
+.space-badge.is-moon-phase {
+  background: rgba(8, 15, 30, 0.72);
+  border: 1px solid rgba(203, 213, 225, 0.4);
+  color: #e2e8f0;
+  font-size: 10px;
+  padding: 2px 7px;
+  margin-left: -30px;
+  margin-top: -10px;
+}
+
 .space-badge.is-zodiac {
   background: rgba(8, 15, 34, 0.8);
   border: 1px solid rgba(125, 211, 252, 0.42);

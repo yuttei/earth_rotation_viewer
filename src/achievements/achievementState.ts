@@ -2,6 +2,8 @@ import {
   AchievementId,
   DISTINCT_BODY_CARDS_GOAL,
   DISTINCT_IMPACTOR_TYPES_GOAL,
+  RIGEL_IMPACTOR_ID,
+  SIMULTANEOUS_RIGELS_GOAL,
 } from "./definitions";
 
 /**
@@ -13,14 +15,22 @@ export interface AchievementState {
   version: 1;
   /** 達成した実績と、その日時（ISO 形式の文字列） */
   unlocked: Partial<Record<AchievementId, string>>;
-  /** 「〇種類」の実績のための累計記録 */
+  /** 「〇種類」「同時に〇個」の実績のための累計記録 */
   progress: {
     /** 解説カードを開いた天体の id（重複なし） */
     openedBodyIds: string[];
     /** 衝突シミュレーターで置いた天体の種類の id（重複なし） */
     placedImpactorIds: string[];
+    /**
+     * これまでに同時に置けたリゲルの数の最大値（0 以上の整数）。
+     * この項目を追加する前の保存データには無いので、読み込むときは 0 として扱います。
+     */
+    maxSimultaneousRigels: number;
   };
 }
+
+/** progress のうち、文字列の配列で累計する項目の名前 */
+type DistinctListKey = "openedBodyIds" | "placedImpactorIds";
 
 /** アプリで起きた出来事（実績の判定に使う入力） */
 export type AchievementEvent =
@@ -28,8 +38,11 @@ export type AchievementEvent =
   | { type: "unlock"; id: AchievementId }
   /** 天体の解説カードを開いた */
   | { type: "open-body"; bodyId: string }
-  /** 衝突シミュレーターで天体を置いた */
-  | { type: "place-impactor"; impactorId: string };
+  /**
+   * 衝突シミュレーターで天体を置いた。
+   * liveSameTypeCount は、置いた直後（衝突の判定より前）に、同じ種類の天体が同時にいくつ置かれているか（今置いた1個を含む）
+   */
+  | { type: "place-impactor"; impactorId: string; liveSameTypeCount: number };
 
 export interface AchievementUpdateResult {
   /** 更新後の状態（何も変わらなければ、渡した状態と同じオブジェクト） */
@@ -43,7 +56,7 @@ export function createEmptyAchievementState(): AchievementState {
   return {
     version: 1,
     unlocked: {},
-    progress: { openedBodyIds: [], placedImpactorIds: [] },
+    progress: { openedBodyIds: [], placedImpactorIds: [], maxSimultaneousRigels: 0 },
   };
 }
 
@@ -80,6 +93,15 @@ export function applyAchievementEvent(
     if (progress.placedImpactorIds.length >= DISTINCT_IMPACTOR_TYPES_GOAL) {
       candidates.push("place-five-impactor-types");
     }
+    // リゲルを置いたときは、同時に置かれているリゲルの数の最大記録を更新します
+    if (event.impactorId === RIGEL_IMPACTOR_ID) {
+      if (event.liveSameTypeCount > progress.maxSimultaneousRigels) {
+        progress = { ...progress, maxSimultaneousRigels: event.liveSameTypeCount };
+      }
+      if (progress.maxSimultaneousRigels >= SIMULTANEOUS_RIGELS_GOAL) {
+        candidates.push("five-rigels-at-once");
+      }
+    }
   }
 
   // まだ達成していないものだけを「新しく達成」として記録します
@@ -107,7 +129,7 @@ export function applyAchievementEvent(
 /** 累計リストに、まだ入っていない値だけを追加します（入っていればそのまま返します）。 */
 function addDistinct(
   progress: AchievementState["progress"],
-  key: keyof AchievementState["progress"],
+  key: DistinctListKey,
   value: string
 ): AchievementState["progress"] {
   if (progress[key].includes(value)) {

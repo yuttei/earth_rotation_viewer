@@ -1394,8 +1394,8 @@ export function App() {
 
   /** 衝突シミュレーターで天体が置かれたとき（キャンバスから呼ばれます） */
   const handleImpactorLaunched = useCallback(
-    (impactorId: ImpactorId) => {
-      recordAchievement({ type: "place-impactor", impactorId });
+    (impactorId: ImpactorId, liveSameTypeCount: number) => {
+      recordAchievement({ type: "place-impactor", impactorId, liveSameTypeCount });
     },
     [recordAchievement]
   );

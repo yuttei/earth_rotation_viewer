@@ -150,6 +150,11 @@ export interface ImpactSystemRig {
     launchVel: THREE.Vector3,
     baselineBodies: ReadonlyArray<SolarBaselineBodyInput>
   ) => void;
+  /**
+   * 今置かれている（まだ消えていない）投入天体のうち、指定した種類のものがいくつあるかを数えます。
+   * launchImpactor の直後に呼ぶと、置いた瞬間（次のフレームの衝突の判定より前）の数が分かります（実績の判定に使います）。
+   */
+  countLiveImpactorsOfType: (impactorId: ImpactorId) => number;
   /** 「復活」ボタンが押されたときに3.2秒かけて全天体を元の公転軌道へ「ぬるっと復活」させる */
   triggerSmoothRestore: () => void;
   /** 即座に完全リセット */
@@ -2163,6 +2168,17 @@ export function createImpactSystemRig(
       };
       nextImpactorUid += 1;
       liveImpactors.push(createLiveImpactorVisual(entry));
+    },
+
+    countLiveImpactorsOfType(impactorId: ImpactorId): number {
+      let count = 0;
+      for (const visual of liveImpactors) {
+        // 衝突で消えた天体は、次のフレームで一覧から片付けるまで残っていることがあるので、生きているものだけ数えます
+        if (visual.entry.specId === impactorId && visual.entry.alive) {
+          count += 1;
+        }
+      }
+      return count;
     },
 
     triggerSmoothRestore() {

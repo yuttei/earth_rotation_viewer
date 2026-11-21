@@ -5,7 +5,9 @@ import {
   ACHIEVEMENT_CATEGORIES,
   DISTINCT_BODY_CARDS_GOAL,
   DISTINCT_IMPACTOR_TYPES_GOAL,
+  SIMULTANEOUS_RIGELS_GOAL,
   AchievementId,
+  getAchievementListTitle,
 } from "../achievements/definitions";
 import { AchievementState, countUnlocked } from "../achievements/achievementState";
 
@@ -17,7 +19,8 @@ interface AchievementListProps {
 
 /**
  * 観察パネルの「実績」タブの中身です。
- * 進捗（n/22）と、分類ごとの実績一覧（未達成のものも「やること」を表示）を並べます。
+ * 進捗（n/23。全体の数は定義の個数から数えます）と、分類ごとの実績一覧（未達成のものも「やること」を表示）を並べます。
+ * シークレットの実績は、達成するまで名前だけを「？？？」にします（やることと進捗は表示します）。
  */
 export const AchievementList: React.FC<AchievementListProps> = ({
   state,
@@ -27,13 +30,17 @@ export const AchievementList: React.FC<AchievementListProps> = ({
   const done = countUnlocked(state);
   const percent = Math.round((done / total) * 100);
 
-  /** 「〇種類」の実績は、未達成のあいだ今の累計（例：2/5）を添えます */
+  /** 「〇種類」「同時に〇個」の実績は、未達成のあいだ今の累計や最大記録（例：2/5）を添えます */
   const progressText = (id: AchievementId): string | null => {
     if (id === "open-five-body-cards") {
       return `${Math.min(state.progress.openedBodyIds.length, DISTINCT_BODY_CARDS_GOAL)}/${DISTINCT_BODY_CARDS_GOAL}`;
     }
     if (id === "place-five-impactor-types") {
       return `${Math.min(state.progress.placedImpactorIds.length, DISTINCT_IMPACTOR_TYPES_GOAL)}/${DISTINCT_IMPACTOR_TYPES_GOAL}`;
+    }
+    if (id === "five-rigels-at-once") {
+      // これまでに同時に置けたリゲルの最大数
+      return `${Math.min(state.progress.maxSimultaneousRigels, SIMULTANEOUS_RIGELS_GOAL)}/${SIMULTANEOUS_RIGELS_GOAL}`;
     }
     return null;
   };
@@ -85,6 +92,9 @@ export const AchievementList: React.FC<AchievementListProps> = ({
               {items.map((item) => {
                 const isDone = state.unlocked[item.id] !== undefined;
                 const extra = isDone ? null : progressText(item.id);
+                const title = getAchievementListTitle(item, isDone);
+                // 名前を隠しているときは、読み上げソフトにもシークレットであることを伝えます
+                const isHiddenSecret = title !== item.titleJa;
                 return (
                   <li
                     key={item.id}
@@ -105,7 +115,13 @@ export const AchievementList: React.FC<AchievementListProps> = ({
                     )}
                     <div className="achievement-item-text">
                       <span className="achievement-item-title">
-                        {item.titleJa}
+                        {isHiddenSecret ? (
+                          <span aria-label="シークレット実績（名前は達成すると表示）">
+                            {title}
+                          </span>
+                        ) : (
+                          title
+                        )}
                         {extra && (
                           <span className="achievement-item-count">{extra}</span>
                         )}
@@ -125,7 +141,12 @@ export const AchievementList: React.FC<AchievementListProps> = ({
           type="button"
           className="choice-btn achievement-reset-btn"
           onClick={handleReset}
-          disabled={done === 0 && state.progress.openedBodyIds.length === 0 && state.progress.placedImpactorIds.length === 0}
+          disabled={
+            done === 0 &&
+            state.progress.openedBodyIds.length === 0 &&
+            state.progress.placedImpactorIds.length === 0 &&
+            state.progress.maxSimultaneousRigels === 0
+          }
         >
           <RotateCcw size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
           記録を消す

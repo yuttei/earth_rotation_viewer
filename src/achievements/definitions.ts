@@ -1,7 +1,8 @@
 /**
  * 実績（アチーブメント）の定義データです。
- * アプリで体験してほしい操作を、分類ごとに22個のチェックリストとしてまとめています。
+ * アプリで体験してほしい操作を、分類ごとに23個のチェックリストとしてまとめています。
  * 未達成の実績も「やること」（hintJa）をそのまま表示して、次に試す操作の道案内にします。
+ * そのうち「シークレット」の実績は、達成するまで名前だけを「？？？」で隠します（やることと進捗は見せます）。
  */
 
 /** 実績の分類 */
@@ -37,7 +38,8 @@ export type AchievementId =
   | "reach-observable-universe"
   | "place-impactor"
   | "place-five-impactor-types"
-  | "restore-solar-system";
+  | "restore-solar-system"
+  | "five-rigels-at-once";
 
 export interface AchievementCategory {
   id: AchievementCategoryId;
@@ -52,6 +54,8 @@ export interface AchievementDefinition {
   titleJa: string;
   /** やること（未達成のときも表示する、操作の道案内） */
   hintJa: string;
+  /** true なら「シークレット」：達成するまで一覧では名前を隠します（省略したら隠しません） */
+  isSecret?: boolean;
 }
 
 /** 一覧に表示する分類の順番 */
@@ -68,6 +72,14 @@ export const ACHIEVEMENT_CATEGORIES: AchievementCategory[] = [
 /** 「〇種類」の累計で達成する実績に必要な種類数 */
 export const DISTINCT_BODY_CARDS_GOAL = 5;
 export const DISTINCT_IMPACTOR_TYPES_GOAL = 5;
+
+/** 「同時に〇個」で達成する実績で数える投入天体の id（青色超巨星＝リゲル） */
+export const RIGEL_IMPACTOR_ID = "blueSupergiant";
+/** リゲルを同時にいくつ置いたら達成か */
+export const SIMULTANEOUS_RIGELS_GOAL = 5;
+
+/** シークレットの実績を、達成するまで一覧で表示するときの名前 */
+export const SECRET_ACHIEVEMENT_TITLE = "？？？";
 
 export const ACHIEVEMENTS: AchievementDefinition[] = [
   {
@@ -202,6 +214,13 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     titleJa: "太陽系の復活",
     hintJa: "天体衝突シミュレーターの「復活」で、太陽系を元に戻す",
   },
+  {
+    id: "five-rigels-at-once",
+    category: "impact",
+    titleJa: "ドパガキ",
+    hintJa: `天体衝突シミュレーターで、リゲル（青色超巨星）を同時に${SIMULTANEOUS_RIGELS_GOAL}つ置く`,
+    isSecret: true,
+  },
 ];
 
 /** id から実績の定義を引くための表 */
@@ -213,6 +232,21 @@ export const ACHIEVEMENT_MAP: Record<AchievementId, AchievementDefinition> =
     },
     {} as Record<AchievementId, AchievementDefinition>
   );
+
+/**
+ * 一覧に表示する実績の名前を返します。
+ * シークレットの実績は、まだ達成していないあいだだけ「？？？」にします（達成したら本当の名前）。
+ * 達成の通知は達成した瞬間に出すものなので、この関数を使わず本当の名前（titleJa）をそのまま出します。
+ */
+export function getAchievementListTitle(
+  def: AchievementDefinition,
+  isUnlocked: boolean
+): string {
+  if (def.isSecret === true && !isUnlocked) {
+    return SECRET_ACHIEVEMENT_TITLE;
+  }
+  return def.titleJa;
+}
 
 /** 文字列が実績の id として正しいかを調べます（保存データの読み込みで使います）。 */
 export function isAchievementId(value: string): value is AchievementId {

@@ -86,7 +86,7 @@ function parseAchievementState(raw: string | null): AchievementState {
     }
   }
 
-  // 累計記録：文字列の配列だけを、重複を除いて残します
+  // 累計記録：文字列の配列だけを、重複を除いて残します（リゲルの最大数は 0 以上の整数だけを残します）
   const progress = isPlainObject(parsed.progress) ? parsed.progress : {};
   return {
     version: 1,
@@ -94,6 +94,7 @@ function parseAchievementState(raw: string | null): AchievementState {
     progress: {
       openedBodyIds: readStringList(progress.openedBodyIds),
       placedImpactorIds: readStringList(progress.placedImpactorIds),
+      maxSimultaneousRigels: readCount(progress.maxSimultaneousRigels),
     },
   };
 }
@@ -171,6 +172,17 @@ export function recordAchievementEventWithStorage(
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 数（0 以上の整数）を読み込みます。
+ * 項目が無い（この項目を追加する前の古い保存データ）・数でない・負の数・小数のときは 0 にします。
+ */
+function readCount(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    return 0;
+  }
+  return value;
 }
 
 function readStringList(value: unknown): string[] {

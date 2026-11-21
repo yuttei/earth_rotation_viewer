@@ -3,7 +3,7 @@ import {
   applyAchievementEvent,
   createEmptyAchievementState,
 } from "../achievementState";
-import { ACHIEVEMENTS } from "../definitions";
+import { ACHIEVEMENTS, ACHIEVEMENT_MAP, getAchievementListTitle } from "../definitions";
 import {
   ACHIEVEMENT_STORAGE_NAME,
   AchievementStorage,
@@ -31,10 +31,10 @@ const NOW = "2026-11-19T00:00:00.000Z";
 const LATER = "2026-11-20T00:00:00.000Z";
 
 describe("実績機能 (achievements)", () => {
-  it("22個の実績の id が重複しない", () => {
+  it("23個の実績の id が重複しない", () => {
     const ids = ACHIEVEMENTS.map((a) => a.id);
-    expect(ids).toHaveLength(22);
-    expect(new Set(ids).size).toBe(22);
+    expect(ids).toHaveLength(23);
+    expect(new Set(ids).size).toBe(23);
   });
 
   it("達成した実績は記録され、同じ実績をもう一度達成しても日時が変わらず通知もされない", () => {
@@ -59,12 +59,35 @@ describe("実績機能 (achievements)", () => {
     let state = createEmptyAchievementState();
     const unlockedOrder: string[] = [];
     for (const impactorId of ["asteroid", "asteroid", "comet", "moonSize", "marsSize", "blackHole"]) {
-      const result = applyAchievementEvent(state, { type: "place-impactor", impactorId }, NOW);
+      const result = applyAchievementEvent(state, { type: "place-impactor", impactorId, liveSameTypeCount: 1 }, NOW);
       state = result.state;
       unlockedOrder.push(...result.newlyUnlocked);
     }
     expect(state.progress.placedImpactorIds).toHaveLength(5);
     expect(unlockedOrder).toEqual(["place-impactor", "place-five-impactor-types"]);
+  });
+
+  it("リゲルを同時に5つ置くとシークレット実績を達成し、それまでは名前を隠して最大数を記録する", () => {
+    const rigel = ACHIEVEMENT_MAP["five-rigels-at-once"];
+    expect(getAchievementListTitle(rigel, false)).toBe("？？？");
+    expect(getAchievementListTitle(rigel, true)).toBe("ドパガキ");
+
+    // 同時に3つまで置いたあと、対消滅で減ってから置き直しても、最大記録は 3 のまま
+    let state = createEmptyAchievementState();
+    for (const count of [1, 2, 3, 1]) {
+      state = applyAchievementEvent(state, { type: "place-impactor", impactorId: "blueSupergiant", liveSameTypeCount: count }, NOW).state;
+    }
+    expect(state.progress.maxSimultaneousRigels).toBe(3);
+    expect(state.unlocked["five-rigels-at-once"]).toBeUndefined();
+
+    // ほかの天体を5つ同時に置いても達成しない
+    state = applyAchievementEvent(state, { type: "place-impactor", impactorId: "asteroid", liveSameTypeCount: 5 }, NOW).state;
+    expect(state.unlocked["five-rigels-at-once"]).toBeUndefined();
+
+    // リゲルが同時に5つになった瞬間に達成
+    const result = applyAchievementEvent(state, { type: "place-impactor", impactorId: "blueSupergiant", liveSameTypeCount: 5 }, NOW);
+    expect(result.newlyUnlocked).toEqual(["five-rigels-at-once"]);
+    expect(result.state.progress.maxSimultaneousRigels).toBe(5);
   });
 
   it("複数タブで開いても、保存データを読み直してから反映するので、ほかのタブの記録や消去を上書きしない", () => {
@@ -146,7 +169,26 @@ describe("実績機能 (achievements)", () => {
       })
     );
     expect(messy.unlocked).toEqual({ "ground-sky": NOW });
-    expect(messy.progress).toEqual({ openedBodyIds: ["sun"], placedImpactorIds: [] });
+    expect(messy.progress).toEqual({ openedBodyIds: ["sun"], placedImpactorIds: [], maxSimultaneousRigels: 0 });
+
+    // リゲルの最大数を記録する前の古い保存データも読め、最大数は 0 になる（壊れた値も 0）
+    const old = loadAchievementState(
+      createMemoryStorage({
+        [ACHIEVEMENT_STORAGE_NAME]: JSON.stringify({
+          version: 1,
+          unlocked: { "place-impactor": NOW },
+          progress: { openedBodyIds: [], placedImpactorIds: ["blueSupergiant"] },
+        }),
+      })
+    );
+    expect(old.unlocked).toEqual({ "place-impactor": NOW });
+    expect(old.progress.maxSimultaneousRigels).toBe(0);
+    const badCount = loadAchievementState(
+      createMemoryStorage({
+        [ACHIEVEMENT_STORAGE_NAME]: JSON.stringify({ version: 1, unlocked: {}, progress: { maxSimultaneousRigels: -2.5 } }),
+      })
+    );
+    expect(badCount.progress.maxSimultaneousRigels).toBe(0);
 
     // localStorage が使えない環境（読み込み時に例外）でも空の状態で動く
     const throwingStorage: AchievementStorage = {

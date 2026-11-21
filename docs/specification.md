@@ -823,7 +823,7 @@ J2000.0 の平均軌道要素（NASA JPL / Astronomical Almanac 準拠）を用�
 | 3D グラフィックス | Three.js | WebGL 3D 地球儀・カスタム GLSL シェーダー・連続軌道補間カメラ・座標投影（`^0.176.0`） |
 | 地図データ | World Atlas / TopoJSON Client | 天文図解モード向け大陸輪郭ポリゴン・海岸線生成（`world-atlas` `^2.0.2`、`topojson-client` `^3.1.0`） |
 | アイコン | Lucide React | 操作 UI 用アイコン（`^0.511.0`） |
-| ビルド・テスト | Vite / Vitest | 開発サーバー・本番バンドル（`@vitejs/plugin-react` `^4.4.1`）、単体テスト（`vitest` `^3.1.3`、`environment: "node"`） |
+| ビルド・テスト | Vite / Vitest | 開発サーバー・本番バンドル（`@vitejs/plugin-react` `^4.4.1`）、単体テスト（`vitest` `^5.1.1`、`environment: "node"`） |
 | 開発・CI 環境 | Nix Flake / GitHub Actions / gitleaks | `aarch64-darwin` 向け `nodejs_22` 等の一括提供、PR 時の自動検証（`check.yml`）、コミット前秘匿情報検査（`.githooks/pre-commit`） |
 
 ### 4.2 ファイル・モジュール役割

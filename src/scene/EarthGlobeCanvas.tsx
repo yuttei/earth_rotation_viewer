@@ -223,6 +223,70 @@ interface CameraSnapshot {
 const PICK_MIN_SCREEN_RADIUS_PX = 14;
 /** リアル太陽系モードで月の札を出す、地球と月の画面上の最小の間隔（px） */
 const MOON_BADGE_MIN_GAP_PX = 30;
+
+/**
+ * 画面上の札が占める四角形を、札を置く点（anchor）からのずれ（px）で表したものです。
+ * left・top は左と上へのずれ（負の値）、right・bottom は右と下へのずれ（正の値）です。
+ */
+interface BadgeScreenBox {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/**
+ * 「☾ 月」の札がおおよそ占める範囲です（.space-badge の margin-left: -34px・margin-top: -26px と、
+ * 「☾ 月 (欠けていく月)」など長めの文字の幅・高さから、少し大きめに見積もっています）。
+ */
+const MOON_BADGE_SCREEN_BOX: BadgeScreenBox = { left: -34, right: 100, top: -26, bottom: 0 };
+/**
+ * 満ち欠けの札（「上弦 (90°)」など）がおおよそ占める範囲です
+ * （.space-badge.is-moon-phase の margin-left: -30px・margin-top: -10px と、文字の幅・高さからの見積もり）。
+ */
+const MOON_PHASE_BADGE_SCREEN_BOX: BadgeScreenBox = { left: -30, right: 45, top: -10, bottom: 10 };
+/** 満ち欠けの札と、月の札・月の本体との間に空けたい最小のすき間（px） */
+const MOON_PHASE_BADGE_GAP_PX = 6;
+
+/**
+ * 画面上の2つの札の四角形が重なる（または gapPx より近い）かどうかを調べます。
+ * (ax, ay) と (bx, by) はそれぞれの札を置く点の画面座標（px）です。
+ */
+function badgeBoxesOverlap(
+  ax: number,
+  ay: number,
+  aBox: BadgeScreenBox,
+  bx: number,
+  by: number,
+  bBox: BadgeScreenBox,
+  gapPx: number
+): boolean {
+  // 横方向：a の右端が b の左端より右にあり、かつ a の左端が b の右端より左にあれば、横の範囲が重なっています。
+  const overlapX =
+    ax + aBox.right + gapPx > bx + bBox.left && ax + aBox.left - gapPx < bx + bBox.right;
+  // 縦方向も同じ考え方で調べます。横と縦の両方が重なっていれば、四角形どうしが重なっています。
+  const overlapY =
+    ay + aBox.bottom + gapPx > by + bBox.top && ay + aBox.top - gapPx < by + bBox.bottom;
+  return overlapX && overlapY;
+}
+
+/**
+ * 画面上の札の四角形と、円（月の本体など）が重なる（または gapPx より近い）かどうかを調べます。
+ * 円の中心から、四角形の中でいちばん近い点までの距離が、円の半径 + gapPx より小さければ重なっています。
+ */
+function badgeBoxOverlapsCircle(
+  ax: number,
+  ay: number,
+  aBox: BadgeScreenBox,
+  cx: number,
+  cy: number,
+  radiusPx: number,
+  gapPx: number
+): boolean {
+  const nearestX = Math.min(Math.max(cx, ax + aBox.left), ax + aBox.right);
+  const nearestY = Math.min(Math.max(cy, ay + aBox.top), ay + aBox.bottom);
+  return Math.hypot(cx - nearestX, cy - nearestY) < radiusPx + gapPx;
+}
 /** 公転軌道半径（地球半径 = 1.0 に対する観察用スケール） */
 const ORBIT_RADIUS = 13.5;
 /** 太陽の半径（地球半径 = 1.0 に対する観察用スケール） */
@@ -2030,10 +2094,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     moonPhaseGuideDisposables.push(earthSunDirLineGeo, earthSunDirLineMat);
     moonPhaseGuideGroup.add(new THREE.Line(earthSunDirLineGeo, earthSunDirLineMat));
     // 名前の札を白道からどれだけ内側（地球側）に寄せるか。
-    // 内側に置くと、月が目印に重なっても札が月を隠さず、白道の外にある「☀ 太陽」の札や画面の端とも重なりません。
+    // 内側に置くと、白道の外にある「☀ 太陽」の札や画面の端と重なりません。
+    // 月が目印の近くにいて札が「☾ 月」の札や月の本体に重なるときは、描画ループでその札だけを隠します。
     const MOON_PHASE_LABEL_INSET = 0.55;
     // カメラ位置の計算に使う作業用ベクトル（毎フレーム new しないよう使い回します）
     const moonPhaseCamOffset = new THREE.Vector3();
+    // 満ち欠けの札と月の重なりを調べるときに使う、月の中心の位置と倍率の作業用ベクトル
+    const moonPhaseMoonWorld = new THREE.Vector3();
+    const moonPhaseMoonScale = new THREE.Vector3();
 
     // 5. 地軸の傾きグループ（黄道面 Y = 0 に対して +X 軸周りに -23.439° 傾けた赤道座標系）
     const earthTiltGroup = new THREE.Group();
@@ -5470,18 +5538,77 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       }
 
       // 月の満ち欠けの4つの目印の名前の札（新月・上弦・満月・下弦）
+      const showMoonPhaseBadges = moonPhaseGuideGroup.visible && moonSystemGroup.visible;
+      // 月が目印の近くにいると、満ち欠けの札が「☾ 月」の札や月の本体に重なります。
+      // そのときは「☾ 月」の札にいまの月相の名前が出ているので、重なる満ち欠けの札だけを隠します。
+      // 重なりは画面上の位置（px）で調べるので、画面の大きさが変わっても同じように働きます。
+      let moonCenterX = 0;
+      let moonCenterY = 0;
+      let moonRadiusPx = 0;
+      let moonBadgeX = 0;
+      let moonBadgeY = 0;
+      if (showMoonPhaseBadges) {
+        moonMesh.getWorldPosition(moonPhaseMoonWorld);
+        // 月の本体の実際の倍率（親のまとまりの倍率と月自身の倍率をかけたもの）
+        moonMesh.getWorldScale(moonPhaseMoonScale);
+        // 月の中心の画面座標
+        badgeGapA.copy(moonPhaseMoonWorld).project(camera);
+        moonCenterX = (badgeGapA.x * 0.5 + 0.5) * hostW;
+        moonCenterY = (-badgeGapA.y * 0.5 + 0.5) * hostH;
+        // 月の縁（中心から画面の上へ月の半径だけずらした点）の画面座標から、画面上の月の半径を求めます。
+        badgeGapB
+          .copy(moonPhaseMoonWorld)
+          .addScaledVector(camera.up, MOON_RADIUS * moonPhaseMoonScale.x)
+          .project(camera);
+        moonRadiusPx = Math.hypot(
+          (badgeGapB.x - badgeGapA.x) * 0.5 * hostW,
+          (badgeGapB.y - badgeGapA.y) * 0.5 * hostH
+        );
+        // 「☾ 月」の札を置く点（月の本体の札の表示と同じく、月の中心から画面の上へ MOON_RADIUS + 0.18）
+        badgeGapB
+          .copy(moonPhaseMoonWorld)
+          .addScaledVector(camera.up, MOON_RADIUS + 0.18)
+          .project(camera);
+        moonBadgeX = (badgeGapB.x * 0.5 + 0.5) * hostW;
+        moonBadgeY = (-badgeGapB.y * 0.5 + 0.5) * hostH;
+      }
       for (const mp of MOON_PHASE_POINTS) {
         const el = moonPhaseBadgeRefs.current.get(mp.id) ?? null;
         const anchor = moonPhaseLabelAnchors.get(mp.id);
         if (anchor) {
           anchor.getWorldPosition(tmpWorldPos);
+          let overlapsMoon = false;
+          if (showMoonPhaseBadges) {
+            badgeGapA.copy(tmpWorldPos).project(camera);
+            const labelX = (badgeGapA.x * 0.5 + 0.5) * hostW;
+            const labelY = (-badgeGapA.y * 0.5 + 0.5) * hostH;
+            overlapsMoon =
+              badgeBoxesOverlap(
+                labelX,
+                labelY,
+                MOON_PHASE_BADGE_SCREEN_BOX,
+                moonBadgeX,
+                moonBadgeY,
+                MOON_BADGE_SCREEN_BOX,
+                MOON_PHASE_BADGE_GAP_PX
+              ) ||
+              badgeBoxOverlapsCircle(
+                labelX,
+                labelY,
+                MOON_PHASE_BADGE_SCREEN_BOX,
+                moonCenterX,
+                moonCenterY,
+                moonRadiusPx,
+                MOON_PHASE_BADGE_GAP_PX
+              );
+          }
           updateFloatingBadgeAtPosition(
             el,
             tmpWorldPos,
             camera,
             hostW,
             hostH,
-            moonPhaseGuideGroup.visible && moonSystemGroup.visible,
+            showMoonPhaseBadges && !overlapsMoon,
             curInspectorOpen,
             false
           );

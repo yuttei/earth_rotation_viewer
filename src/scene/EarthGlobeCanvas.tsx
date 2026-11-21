@@ -291,7 +291,10 @@ function badgeBoxOverlapsCircle(
 const ORBIT_RADIUS = 13.5;
 /** 太陽の半径（地球半径 = 1.0 に対する観察用スケール） */
 const SUN_RADIUS = 1.85;
-/** 月の半径（実際の月/地球比 0.273。bodySizes.ts の BODY_RADIUS_EARTH から取り、衝突判定の半径と同じ値にそろえます） */
+/**
+ * 月の半径（実際の月/地球比 0.273。bodySizes.ts の BODY_RADIUS_EARTH から取ります）。
+ * リアル太陽系で描く月の半径（当たり判定の半径と同じ）は、この値に共通の倍率を掛けたものです。
+ */
 const MOON_RADIUS = BODY_RADIUS_EARTH.moon;
 /**
  * 地上視点で描く月の基準の半径です。太陽の地上での見かけの半径（3.9775 ÷ 距離75）と同じ角度に、
@@ -2969,7 +2972,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         } else {
           offsetDir.normalize();
         }
-        // 天体の「すぐ近く」に置きます。描いた絵の外側と、実際の大きさで触れない距離のうち遠いほう（impactSystem.ts）
+        // 天体の「すぐ近く」に置きます。描いた絵の外側と、実際の大きさが重ならない距離のうち遠いほう（impactSystem.ts）
         impactAim.clearance = impactRig.computeNearBodySpawn(
           impactorId,
           hitBody.id,
@@ -3027,7 +3030,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       ) {
         // 天体の上から外側へ引っ張った場合：その天体へ向けたスリングショット投げ込み。
         // 置く位置は引っ張った位置ですが、天体を押したときの「すぐ近く」の距離より内側には置きません
-        // （リゲルのように実際の大きさが大きい天体が、置いた瞬間に相手を飲み込まないように）
+        // （置いた瞬間に、描いた絵どうしが重なってぶつからないように。ただしリゲルは描く大きさが桁違いなので、
+        //   置いた瞬間に中の天体を飲み込むことがあります）
         const fromTarget = aimTmpWorld.clone().sub(impactAim.targetBodyPos);
         const dragDistFromTarget = fromTarget.length();
         impactAim.spawnWorld

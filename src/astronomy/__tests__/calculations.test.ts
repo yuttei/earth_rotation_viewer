@@ -32,6 +32,8 @@ function physicalSnapshot(): Array<{ id: SolarImpactTargetId; pos: { x: number; 
 }
 import {
   EARTH_AXIAL_TILT_DEG,
+  MOON_ORBIT_INCLINATION_DEG,
+  MOON_PHASE_POINTS,
   SEASON_PRESETS,
   SIDEREAL_DAY_SECONDS,
   SIDEREAL_MONTH_DAYS,
@@ -49,6 +51,7 @@ import {
   formatDateTimeParts,
   formatHoursToClock,
   getLocalCompassVectors,
+  getMoonOrbitLatitudeDeg,
   getMoonPhaseLabelJa,
   getNextSeasonDate,
   getSeasonLabelJa,
@@ -326,6 +329,18 @@ describe("天文計算エンジン (calculations)", () => {
     expect(getMoonPhaseLabelJa(90)).toBe("上弦の月");
     expect(getMoonPhaseLabelJa(180)).toBe("満月");
     expect(getMoonPhaseLabelJa(270)).toBe("下弦の月");
+  });
+
+  it("満ち欠けの4つの目印は月相ラベルと向きがそろい、白道の上に乗る", () => {
+    // 目印の月相角を月相ラベルの関数に通すと、同じ名前の月相になる（上弦が 90°＝太陽から反時計回りに 90°）
+    for (const point of MOON_PHASE_POINTS) {
+      const baseName = point.label.split(" ")[0];
+      expect(getMoonPhaseLabelJa(point.phaseAngleDeg).startsWith(baseName)).toBe(true);
+    }
+
+    // 白道の黄緯：昇交点では 0°、そこから 90° 進んだ所で傾きと同じ（最も北）になる
+    expect(getMoonOrbitLatitudeDeg(40, 40)).toBeCloseTo(0, 6);
+    expect(getMoonOrbitLatitudeDeg(130, 40)).toBeCloseTo(MOON_ORBIT_INCLINATION_DEG, 6);
   });
 
   it("getNextSeasonDate は常に現在時刻より未来の次の季節日時を返し、太陽視黄経が目標季節に一致する", () => {

@@ -13,10 +13,12 @@ import {
 import {
   EARTH_AXIAL_TILT_DEG,
   MOON_ORBIT_INCLINATION_DEG,
+  MOON_PHASE_POINTS,
   VENUS_ASCENDING_NODE_DEG,
   VENUS_ORBIT_INCLINATION_DEG,
   degToRad,
   getLocalCompassVectors,
+  getMoonOrbitLatitudeDeg,
   latLonToVector3Tuple,
   observeCity,
 } from "../astronomy/calculations";
@@ -221,6 +223,70 @@ interface CameraSnapshot {
 const PICK_MIN_SCREEN_RADIUS_PX = 14;
 /** リアル太陽系モードで月の札を出す、地球と月の画面上の最小の間隔（px） */
 const MOON_BADGE_MIN_GAP_PX = 30;
+
+/**
+ * 画面上の札が占める四角形を、札を置く点（anchor）からのずれ（px）で表したものです。
+ * left・top は左と上へのずれ（負の値）、right・bottom は右と下へのずれ（正の値）です。
+ */
+interface BadgeScreenBox {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/**
+ * 「☾ 月」の札がおおよそ占める範囲です（.space-badge の margin-left: -34px・margin-top: -26px と、
+ * 「☾ 月 (欠けていく月)」など長めの文字の幅・高さから、少し大きめに見積もっています）。
+ */
+const MOON_BADGE_SCREEN_BOX: BadgeScreenBox = { left: -34, right: 100, top: -26, bottom: 0 };
+/**
+ * 満ち欠けの札（「上弦 (90°)」など）がおおよそ占める範囲です
+ * （.space-badge.is-moon-phase の margin-left: -30px・margin-top: -10px と、文字の幅・高さからの見積もり）。
+ */
+const MOON_PHASE_BADGE_SCREEN_BOX: BadgeScreenBox = { left: -30, right: 45, top: -10, bottom: 10 };
+/** 満ち欠けの札と、月の札・月の本体との間に空けたい最小のすき間（px） */
+const MOON_PHASE_BADGE_GAP_PX = 6;
+
+/**
+ * 画面上の2つの札の四角形が重なる（または gapPx より近い）かどうかを調べます。
+ * (ax, ay) と (bx, by) はそれぞれの札を置く点の画面座標（px）です。
+ */
+function badgeBoxesOverlap(
+  ax: number,
+  ay: number,
+  aBox: BadgeScreenBox,
+  bx: number,
+  by: number,
+  bBox: BadgeScreenBox,
+  gapPx: number
+): boolean {
+  // 横方向：a の右端が b の左端より右にあり、かつ a の左端が b の右端より左にあれば、横の範囲が重なっています。
+  const overlapX =
+    ax + aBox.right + gapPx > bx + bBox.left && ax + aBox.left - gapPx < bx + bBox.right;
+  // 縦方向も同じ考え方で調べます。横と縦の両方が重なっていれば、四角形どうしが重なっています。
+  const overlapY =
+    ay + aBox.bottom + gapPx > by + bBox.top && ay + aBox.top - gapPx < by + bBox.bottom;
+  return overlapX && overlapY;
+}
+
+/**
+ * 画面上の札の四角形と、円（月の本体など）が重なる（または gapPx より近い）かどうかを調べます。
+ * 円の中心から、四角形の中でいちばん近い点までの距離が、円の半径 + gapPx より小さければ重なっています。
+ */
+function badgeBoxOverlapsCircle(
+  ax: number,
+  ay: number,
+  aBox: BadgeScreenBox,
+  cx: number,
+  cy: number,
+  radiusPx: number,
+  gapPx: number
+): boolean {
+  const nearestX = Math.min(Math.max(cx, ax + aBox.left), ax + aBox.right);
+  const nearestY = Math.min(Math.max(cy, ay + aBox.top), ay + aBox.bottom);
+  return Math.hypot(cx - nearestX, cy - nearestY) < radiusPx + gapPx;
+}
 /** 公転軌道半径（地球半径 = 1.0 に対する観察用スケール） */
 const ORBIT_RADIUS = 13.5;
 /** 太陽の半径（地球半径 = 1.0 に対する観察用スケール） */
@@ -494,6 +560,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   const impactRigRef = useRef<ImpactSystemRig | null>(null);
   const labelButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const seasonBadgeRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
+  // 月の満ち欠けの4つの目印（新月・上弦・満月・下弦）の名前の札
+  const moonPhaseBadgeRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
   const compassBadgeRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
   const planetBadgeRefs = useRef<Map<SolarBodyId, HTMLButtonElement>>(
     new Map()
@@ -1980,6 +2048,63 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       })
     );
     moonSystemGroup.add(earthMoonLine);
+
+    // 4.6 月の満ち欠けの補助線（「太陽の真上」視点の季節点・太陽-地球の動径ラインの月の版）
+    // 白道の上に「新月・上弦・満月・下弦」の4つの目印を置き、地球から太陽の方向へ向かう線を引きます。
+    // 4つの目印は太陽の向きに合わせて毎フレーム地球のまわりを回ります（位置は描画ループで更新します）。
+    const moonPhaseGuideGroup = new THREE.Group();
+    moonPhaseGuideGroup.visible = false;
+    moonSystemGroup.add(moonPhaseGuideGroup);
+    // 後片付け（dispose）するためにジオメトリとマテリアルを覚えておく入れ物
+    const moonPhaseGuideDisposables: Array<{ dispose: () => void }> = [];
+
+    // 目印の色：新月は暗め、満月は明るく、上弦・下弦はその中間にして、月の明るさの違いを色の濃さで表します。
+    const MOON_PHASE_MARKER_COLORS: Record<string, number> = {
+      newMoon: 0x94a3b8,
+      firstQuarter: 0xcbd5e1,
+      fullMoon: 0xf8fafc,
+      lastQuarter: 0xcbd5e1,
+    };
+    const moonPhaseMarkerGeo = new THREE.SphereGeometry(0.075, 12, 12);
+    moonPhaseGuideDisposables.push(moonPhaseMarkerGeo);
+    // 目印の球（白道の上）と、名前の札を出す位置（白道の少し内側）をそれぞれ覚えておきます。
+    const moonPhaseMarkerObjects = new Map<string, THREE.Mesh>();
+    const moonPhaseLabelAnchors = new Map<string, THREE.Object3D>();
+    for (const mp of MOON_PHASE_POINTS) {
+      const markerMat = new THREE.MeshBasicMaterial({
+        color: MOON_PHASE_MARKER_COLORS[mp.id],
+      });
+      moonPhaseGuideDisposables.push(markerMat);
+      const marker = new THREE.Mesh(moonPhaseMarkerGeo, markerMat);
+      moonPhaseGuideGroup.add(marker);
+      moonPhaseMarkerObjects.set(mp.id, marker);
+
+      const labelAnchor = new THREE.Object3D();
+      moonPhaseGuideGroup.add(labelAnchor);
+      moonPhaseLabelAnchors.set(mp.id, labelAnchor);
+    }
+
+    // 地球の中心から新月の目印（太陽の方向）へ向かう線。地球-月の線と並べると、2本のなす角が月相角になります。
+    const earthSunDirLineGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(MOON_ORBIT_RADIUS, 0, 0),
+    ]);
+    const earthSunDirLineMat = new THREE.LineBasicMaterial({
+      color: 0xfbbf24,
+      transparent: true,
+      opacity: 0.42,
+    });
+    moonPhaseGuideDisposables.push(earthSunDirLineGeo, earthSunDirLineMat);
+    moonPhaseGuideGroup.add(new THREE.Line(earthSunDirLineGeo, earthSunDirLineMat));
+    // 名前の札を白道からどれだけ内側（地球側）に寄せるか。
+    // 内側に置くと、白道の外にある「☀ 太陽」の札や画面の端と重なりません。
+    // 月が目印の近くにいて札が「☾ 月」の札や月の本体に重なるときは、描画ループでその札だけを隠します。
+    const MOON_PHASE_LABEL_INSET = 0.55;
+    // カメラ位置の計算に使う作業用ベクトル（毎フレーム new しないよう使い回します）
+    const moonPhaseCamOffset = new THREE.Vector3();
+    // 満ち欠けの札と月の重なりを調べるときに使う、月の中心の位置と倍率の作業用ベクトル
+    const moonPhaseMoonWorld = new THREE.Vector3();
+    const moonPhaseMoonScale = new THREE.Vector3();
 
     // 5. 地軸の傾きグループ（黄道面 Y = 0 に対して +X 軸周りに -23.439° 傾けた赤道座標系）
     const earthTiltGroup = new THREE.Group();
@@ -4782,6 +4907,55 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         !isGroundView &&
         !isEclipticSkyView &&
         !isRealSolarSystem;
+
+      // 月の満ち欠けの補助線は、月の系を見る距離（isMoonView）で、黄道面をある程度上（または下）から
+      // 見下ろしているときだけ出します。黄道面を真横から見ると4つの目印と札が一直線に重なって読めないためです。
+      // sin(25°) ≒ 0.42 より、カメラが黄道面から 25° 以上離れていれば表示します。
+      moonPhaseCamOffset.copy(camera.position).sub(earthOrbitPos).normalize();
+      const moonPhaseViewFromAbove = Math.abs(moonPhaseCamOffset.y) >= 0.42;
+      const showMoonPhaseGuide =
+        !hideSolarForCosmic &&
+        curLayers.moonAndOrbit &&
+        isMoonView &&
+        !isRealSolarSystem &&
+        moonPhaseViewFromAbove;
+      moonPhaseGuideGroup.visible = showMoonPhaseGuide;
+      if (showMoonPhaseGuide) {
+        // 4つの目印を「太陽の黄経 + 月相角」の黄経の位置に置きます。
+        // 黄経 λ の向きは (cos λ, 0, −sin λ) で、北から見て反時計回りに増えます（月の本体の置き方と同じ）。
+        for (const mp of MOON_PHASE_POINTS) {
+          const lonDeg = curSolar.sunEclipticLongitudeDeg + mp.phaseAngleDeg;
+          // 白道は黄道面から約5°傾いているので、その黄経での白道の高さ（黄緯）に合わせて目印を乗せます。
+          const latDeg = getMoonOrbitLatitudeDeg(lonDeg, curMoon.ascendingNodeDeg);
+          const lonRad = degToRad(lonDeg);
+          const latRad = degToRad(latDeg);
+          const dirX = Math.cos(latRad) * Math.cos(lonRad);
+          const dirY = Math.sin(latRad);
+          const dirZ = -Math.cos(latRad) * Math.sin(lonRad);
+          moonPhaseMarkerObjects
+            .get(mp.id)
+            ?.position.set(dirX, dirY, dirZ)
+            .multiplyScalar(MOON_ORBIT_RADIUS);
+          moonPhaseLabelAnchors
+            .get(mp.id)
+            ?.position.set(dirX, dirY, dirZ)
+            .multiplyScalar(MOON_ORBIT_RADIUS - MOON_PHASE_LABEL_INSET);
+          // 太陽方向の線は、地球の中心から新月の目印までを結びます。
+          if (mp.id === "newMoon") {
+            const sunDirLineAttr = earthSunDirLineGeo.getAttribute(
+              "position"
+            ) as THREE.BufferAttribute;
+            sunDirLineAttr.setXYZ(
+              1,
+              dirX * MOON_ORBIT_RADIUS,
+              dirY * MOON_ORBIT_RADIUS,
+              dirZ * MOON_ORBIT_RADIUS
+            );
+            sunDirLineAttr.needsUpdate = true;
+          }
+        }
+        moonPhaseGuideGroup.updateMatrixWorld(true);
+      }
       moonEclipticRefRing.visible =
         !hideSolarForCosmic &&
         curLayers.moonAndOrbit &&
@@ -5367,6 +5541,84 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         }
       }
 
+      // 月の満ち欠けの4つの目印の名前の札（新月・上弦・満月・下弦）
+      const showMoonPhaseBadges = moonPhaseGuideGroup.visible && moonSystemGroup.visible;
+      // 月が目印の近くにいると、満ち欠けの札が「☾ 月」の札や月の本体に重なります。
+      // そのときは「☾ 月」の札にいまの月相の名前が出ているので、重なる満ち欠けの札だけを隠します。
+      // 重なりは画面上の位置（px）で調べるので、画面の大きさが変わっても同じように働きます。
+      let moonCenterX = 0;
+      let moonCenterY = 0;
+      let moonRadiusPx = 0;
+      let moonBadgeX = 0;
+      let moonBadgeY = 0;
+      if (showMoonPhaseBadges) {
+        moonMesh.getWorldPosition(moonPhaseMoonWorld);
+        // 月の本体の実際の倍率（親のまとまりの倍率と月自身の倍率をかけたもの）
+        moonMesh.getWorldScale(moonPhaseMoonScale);
+        // 月の中心の画面座標
+        badgeGapA.copy(moonPhaseMoonWorld).project(camera);
+        moonCenterX = (badgeGapA.x * 0.5 + 0.5) * hostW;
+        moonCenterY = (-badgeGapA.y * 0.5 + 0.5) * hostH;
+        // 月の縁（中心から画面の上へ月の半径だけずらした点）の画面座標から、画面上の月の半径を求めます。
+        badgeGapB
+          .copy(moonPhaseMoonWorld)
+          .addScaledVector(camera.up, MOON_RADIUS * moonPhaseMoonScale.x)
+          .project(camera);
+        moonRadiusPx = Math.hypot(
+          (badgeGapB.x - badgeGapA.x) * 0.5 * hostW,
+          (badgeGapB.y - badgeGapA.y) * 0.5 * hostH
+        );
+        // 「☾ 月」の札を置く点（月の本体の札の表示と同じく、月の中心から画面の上へ MOON_RADIUS + 0.18）
+        badgeGapB
+          .copy(moonPhaseMoonWorld)
+          .addScaledVector(camera.up, MOON_RADIUS + 0.18)
+          .project(camera);
+        moonBadgeX = (badgeGapB.x * 0.5 + 0.5) * hostW;
+        moonBadgeY = (-badgeGapB.y * 0.5 + 0.5) * hostH;
+      }
+      for (const mp of MOON_PHASE_POINTS) {
+        const el = moonPhaseBadgeRefs.current.get(mp.id) ?? null;
+        const anchor = moonPhaseLabelAnchors.get(mp.id);
+        if (anchor) {
+          anchor.getWorldPosition(tmpWorldPos);
+          let overlapsMoon = false;
+          if (showMoonPhaseBadges) {
+            badgeGapA.copy(tmpWorldPos).project(camera);
+            const labelX = (badgeGapA.x * 0.5 + 0.5) * hostW;
+            const labelY = (-badgeGapA.y * 0.5 + 0.5) * hostH;
+            overlapsMoon =
+              badgeBoxesOverlap(
+                labelX,
+                labelY,
+                MOON_PHASE_BADGE_SCREEN_BOX,
+                moonBadgeX,
+                moonBadgeY,
+                MOON_BADGE_SCREEN_BOX,
+                MOON_PHASE_BADGE_GAP_PX
+              ) ||
+              badgeBoxOverlapsCircle(
+                labelX,
+                labelY,
+                MOON_PHASE_BADGE_SCREEN_BOX,
+                moonCenterX,
+                moonCenterY,
+                moonRadiusPx,
+                MOON_PHASE_BADGE_GAP_PX
+              );
+          }
+          updateFloatingBadgeAtPosition(
+            el,
+            tmpWorldPos,
+            camera,
+            hostW,
+            hostH,
+            showMoonPhaseBadges && !overlapsMoon,
+            curInspectorOpen,
+            false
+          );
+        }
+      }
+
       // 地上視点時のカシオペア座（W字形）ラベル
       tmpWorldPos
         .copy(cassiopeiaGroup.position)
@@ -5631,6 +5883,7 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       for (const mat of realOrbitMaterials) mat.dispose();
       for (const entry of extraPlanetMap.values()) entry.material.dispose();
       for (const mat of extraDisposableMaterials) mat.dispose();
+      for (const item of moonPhaseGuideDisposables) item.dispose();
       for (const geo of zodiacDisposableGeos) geo.dispose();
       for (const mat of zodiacDisposableMats) mat.dispose();
       sunBundle.material.dispose();
@@ -5837,6 +6090,23 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
             style={{ display: "none" }}
           >
             {sp.label}
+          </span>
+        ))}
+
+        {MOON_PHASE_POINTS.map((mp) => (
+          <span
+            key={mp.id}
+            ref={(el) => {
+              if (el) {
+                moonPhaseBadgeRefs.current.set(mp.id, el);
+              } else {
+                moonPhaseBadgeRefs.current.delete(mp.id);
+              }
+            }}
+            className="space-badge is-moon-phase"
+            style={{ display: "none" }}
+          >
+            {mp.label}
           </span>
         ))}
 

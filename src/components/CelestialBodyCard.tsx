@@ -4,6 +4,7 @@ import {
   CELESTIAL_BODY_PROFILES,
   CelestialBodyId,
 } from "../data/celestialBodies";
+import { SkyObjectIllustration } from "./SkyObjectIllustration";
 
 interface CelestialBodyCardProps {
   /** 現在フォーカス表示中の天体ID */
@@ -24,6 +25,14 @@ const CelestialIllustration: React.FC<{
   const gradId = `cb-grad-${bodyId}-${uid}`;
   const glowId = `cb-glow-${bodyId}-${uid}`;
   const clipId = `cb-clip-${bodyId}-${uid}`;
+
+  // 星座の星・星座・星座の形・宇宙の構造など、種類（cardKind）がある対象は、種類ごとの共通の絵を描きます
+  const kindProfile = CELESTIAL_BODY_PROFILES[bodyId];
+  if (kindProfile.cardKind) {
+    return (
+      <SkyObjectIllustration profile={kindProfile} idPrefix={`cb-kind-${uid}`} />
+    );
+  }
 
   const cx = 80;
   const cy = 62;

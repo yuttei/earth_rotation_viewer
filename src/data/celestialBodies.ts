@@ -1,10 +1,33 @@
+import {
+  CONSTELLATION_STAR_PROFILES,
+  ConstellationStarId,
+  SpectralLetter,
+  StarSizeClass,
+} from "./constellationStarProfiles";
+import {
+  ASTERISM_PROFILES,
+  AsterismCardId,
+  CONSTELLATION_PROFILES,
+  ConstellationCardId,
+} from "./constellationProfiles";
+import {
+  COSMIC_STRUCTURE_PROFILES,
+  CosmicStructureId,
+} from "./cosmicStructureProfiles";
+
 /**
  * 太陽系15天体（太陽・月・9天体・木星の主要4衛星）・主要15恒星・銀河〜宇宙規模の11構造（計41件）の
  * 解説データ（日本語説明・中学英語レベルの説明・基本データ）をまとめたファイルです。
  * 3D画面で天体・恒星・銀河構造やラベルをタップしたときの詳細カード表示に使用します。
+ *
+ * このほかに、次のファイルの解説データもここでまとめます。
+ * - constellationStarProfiles.ts：星座の星（北極星・北斗七星・黄道や四季の星座の星など）とすばる
+ * - constellationProfiles.ts：アプリに出てくる27星座と、6つの星座の形（大三角など）
+ * - cosmicStructureProfiles.ts：銀河中心・超銀河団・宇宙マイクロ波背景放射などの宇宙の構造
  */
 
-export type CelestialBodyId =
+/** もとからある41件（太陽系・主要15恒星・銀河〜宇宙の構造）の ID */
+type BaseCelestialBodyId =
   | "sun"
   | "mercury"
   | "venus"
@@ -47,6 +70,35 @@ export type CelestialBodyId =
   | "fomalhaut"
   | "alphaCentauri";
 
+/** 解説カードを開けるすべての天体・星座・構造の ID */
+export type CelestialBodyId =
+  | BaseCelestialBodyId
+  | ConstellationStarId
+  | ConstellationCardId
+  | AsterismCardId
+  | CosmicStructureId;
+
+/**
+ * 解説カードの絵の描き分けに使う、対象の種類です。
+ * 書いていないとき（もとからある41件）は、ID ごとの専用の絵を描きます。
+ */
+export type CelestialCardKind =
+  | "star"
+  | "starCluster"
+  | "constellation"
+  | "asterism"
+  | "cosmicStructure";
+
+/** 星座や星座の形を、説明カードに絵として描くための星と線です。 */
+export interface SkyFigure {
+  /** 星の位置（黄経・黄緯）と明るさ（等級） */
+  points: Array<{ lonDeg: number; latDeg: number; mag: number }>;
+  /** 線で結ぶ星の番号の組 */
+  edges: Array<[number, number]>;
+  /** 線の色 */
+  lineColor: string;
+}
+
 export interface CelestialBodyFact {
   labelJa: string;
   value: string;
@@ -72,10 +124,16 @@ export interface CelestialBodyProfile {
   descriptionJa: string;
   /** 中学英語レベルのやさしい英語説明文 */
   descriptionEn: string;
+  /** 説明カードの絵の種類（書いていないときは ID ごとの専用の絵） */
+  cardKind?: CelestialCardKind;
+  /** 星の絵の色と大きさ（cardKind が "star" のとき） */
+  starVisual?: { spectralLetter: SpectralLetter; sizeClass: StarSizeClass };
+  /** 星座や星座の形の絵（cardKind が "constellation" か "asterism" のとき） */
+  figure?: SkyFigure;
 }
 
-export const CELESTIAL_BODY_PROFILES: Record<
-  CelestialBodyId,
+const BASE_CELESTIAL_BODY_PROFILES: Record<
+  BaseCelestialBodyId,
   CelestialBodyProfile
 > = {
   sun: {
@@ -816,4 +874,16 @@ export const CELESTIAL_BODY_PROFILES: Record<
     descriptionEn:
       "Alpha Centauri is the closest star system to our Sun, just 4.37 light-years away! It is made of three stars: two stars very similar to our Sun, plus a small red star called Proxima Centauri, which is the very closest star to Earth and even has a planet of its own.",
   },
+};
+
+/** 解説カードを開けるすべての天体・星座・構造の解説データです。 */
+export const CELESTIAL_BODY_PROFILES: Record<
+  CelestialBodyId,
+  CelestialBodyProfile
+> = {
+  ...BASE_CELESTIAL_BODY_PROFILES,
+  ...CONSTELLATION_STAR_PROFILES,
+  ...CONSTELLATION_PROFILES,
+  ...ASTERISM_PROFILES,
+  ...COSMIC_STRUCTURE_PROFILES,
 };

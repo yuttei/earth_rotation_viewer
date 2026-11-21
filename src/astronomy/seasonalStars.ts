@@ -1,4 +1,4 @@
-import { CelestialBodyId } from "../data/celestialBodies";
+import type { CelestialBodyId } from "../data/celestialBodies";
 import { degToRad } from "./calculations";
 import {
   ZodiacStarPoint,
@@ -95,6 +95,8 @@ interface RawStarInput {
   mag: number;
   nameJa?: string;
   colorHex?: string;
+  /** この星を押したときに開く解説カードの ID */
+  bodyId?: CelestialBodyId;
 }
 
 function buildSeasonalStars(
@@ -108,6 +110,7 @@ function buildSeasonalStars(
       mag: s.mag,
       nameJa: s.nameJa,
       colorHex: s.colorHex,
+      bodyId: s.bodyId,
     };
   });
 }
@@ -340,13 +343,13 @@ export const SEASONAL_CONSTELLATIONS: SeasonalConstellation[] = [
     season: "spring",
     labelPoint: equatorialToEclipticDeg(12.25, 59.5),
     stars: buildSeasonalStars([
-      { raHours: 11.062, decDeg: 61.75, mag: 1.79, nameJa: "ドゥーベ", colorHex: "#fde68a" }, // 0: α UMa
-      { raHours: 11.031, decDeg: 56.38, mag: 2.37, nameJa: "メラク", colorHex: "#e0f2fe" }, // 1: β UMa
-      { raHours: 11.897, decDeg: 53.69, mag: 2.44, nameJa: "フェクダ", colorHex: "#e0f2fe" }, // 2: γ UMa
-      { raHours: 12.257, decDeg: 57.03, mag: 3.31, nameJa: "メグレズ", colorHex: "#e0f2fe" }, // 3: δ UMa
-      { raHours: 12.900, decDeg: 55.96, mag: 1.77, nameJa: "アリオト", colorHex: "#e0f2fe" }, // 4: ε UMa
-      { raHours: 13.399, decDeg: 54.93, mag: 2.27, nameJa: "ミザール", colorHex: "#e0f2fe" }, // 5: ζ UMa
-      { raHours: 13.792, decDeg: 49.31, mag: 1.86, nameJa: "アルカイド", colorHex: "#bae6fd" }, // 6: η UMa
+      { raHours: 11.062, decDeg: 61.75, mag: 1.79, nameJa: "ドゥーベ", colorHex: "#fde68a", bodyId: "dubhe" }, // 0: α UMa
+      { raHours: 11.031, decDeg: 56.38, mag: 2.37, nameJa: "メラク", colorHex: "#e0f2fe", bodyId: "merak" }, // 1: β UMa
+      { raHours: 11.897, decDeg: 53.69, mag: 2.44, nameJa: "フェクダ", colorHex: "#e0f2fe", bodyId: "phecda" }, // 2: γ UMa
+      { raHours: 12.257, decDeg: 57.03, mag: 3.31, nameJa: "メグレズ", colorHex: "#e0f2fe", bodyId: "megrez" }, // 3: δ UMa
+      { raHours: 12.900, decDeg: 55.96, mag: 1.77, nameJa: "アリオト", colorHex: "#e0f2fe", bodyId: "alioth" }, // 4: ε UMa
+      { raHours: 13.399, decDeg: 54.93, mag: 2.27, nameJa: "ミザール", colorHex: "#e0f2fe", bodyId: "mizar" }, // 5: ζ UMa
+      { raHours: 13.792, decDeg: 49.31, mag: 1.86, nameJa: "アルカイド", colorHex: "#bae6fd", bodyId: "alkaid" }, // 6: η UMa
     ]),
     edges: [
       [0, 1],
@@ -364,13 +367,13 @@ export const SEASONAL_CONSTELLATIONS: SeasonalConstellation[] = [
     season: "spring",
     labelPoint: equatorialToEclipticDeg(14.65, 31.5),
     stars: buildSeasonalStars([
-      { raHours: 14.261, decDeg: 19.18, mag: -0.05, nameJa: "アークトゥルス", colorHex: "#fdba74" }, // 0: α Boo
-      { raHours: 13.911, decDeg: 18.4, mag: 2.68, nameJa: "ムフリド" }, // 1: η Boo
-      { raHours: 14.75, decDeg: 27.07, mag: 2.35, nameJa: "イザール" }, // 2: ε Boo
-      { raHours: 15.258, decDeg: 33.31, mag: 3.49 }, // 3: δ Boo
-      { raHours: 15.032, decDeg: 40.39, mag: 3.49, nameJa: "ネクカル" }, // 4: β Boo
-      { raHours: 14.535, decDeg: 38.31, mag: 3.03, nameJa: "セギヌス" }, // 5: γ Boo
-      { raHours: 14.531, decDeg: 30.37, mag: 3.57 }, // 6: ρ Boo
+      { raHours: 14.261, decDeg: 19.18, mag: -0.05, nameJa: "アークトゥルス", colorHex: "#fdba74", bodyId: "arcturus" }, // 0: α Boo
+      { raHours: 13.911, decDeg: 18.4, mag: 2.68, nameJa: "ムフリド", bodyId: "muphrid" }, // 1: η Boo
+      { raHours: 14.75, decDeg: 27.07, mag: 2.35, nameJa: "イザール", bodyId: "izar" }, // 2: ε Boo
+      { raHours: 15.258, decDeg: 33.31, mag: 3.49, bodyId: "deltaBoo" }, // 3: δ Boo
+      { raHours: 15.032, decDeg: 40.39, mag: 3.49, nameJa: "ネクカル", bodyId: "nekkar" }, // 4: β Boo
+      { raHours: 14.535, decDeg: 38.31, mag: 3.03, nameJa: "セギヌス", bodyId: "seginus" }, // 5: γ Boo
+      { raHours: 14.531, decDeg: 30.37, mag: 3.57, bodyId: "rhoBoo" }, // 6: ρ Boo
     ]),
     edges: [
       [0, 1],
@@ -390,12 +393,12 @@ export const SEASONAL_CONSTELLATIONS: SeasonalConstellation[] = [
     season: "summer",
     labelPoint: equatorialToEclipticDeg(18.85, 35.8),
     stars: buildSeasonalStars([
-      { raHours: 18.616, decDeg: 38.78, mag: 0.03, nameJa: "ベガ", colorHex: "#bfdbfe" }, // 0: α Lyr
-      { raHours: 18.74, decDeg: 39.67, mag: 4.6 }, // 1: ε Lyr
-      { raHours: 18.746, decDeg: 37.6, mag: 4.36 }, // 2: ζ Lyr
-      { raHours: 18.908, decDeg: 36.9, mag: 4.3 }, // 3: δ Lyr
-      { raHours: 18.982, decDeg: 32.69, mag: 3.24, nameJa: "スラファト" }, // 4: γ Lyr
-      { raHours: 18.835, decDeg: 33.36, mag: 3.52, nameJa: "シェリアク" }, // 5: β Lyr
+      { raHours: 18.616, decDeg: 38.78, mag: 0.03, nameJa: "ベガ", colorHex: "#bfdbfe", bodyId: "vega" }, // 0: α Lyr
+      { raHours: 18.74, decDeg: 39.67, mag: 4.6, bodyId: "epsilonLyr" }, // 1: ε Lyr
+      { raHours: 18.746, decDeg: 37.6, mag: 4.36, bodyId: "zetaLyr" }, // 2: ζ Lyr
+      { raHours: 18.908, decDeg: 36.9, mag: 4.3, bodyId: "deltaLyr" }, // 3: δ Lyr
+      { raHours: 18.982, decDeg: 32.69, mag: 3.24, nameJa: "スラファト", bodyId: "sulafat" }, // 4: γ Lyr
+      { raHours: 18.835, decDeg: 33.36, mag: 3.52, nameJa: "シェリアク", bodyId: "sheliak" }, // 5: β Lyr
     ]),
     edges: [
       [0, 1],
@@ -413,13 +416,13 @@ export const SEASONAL_CONSTELLATIONS: SeasonalConstellation[] = [
     season: "summer",
     labelPoint: equatorialToEclipticDeg(19.65, 3.2),
     stars: buildSeasonalStars([
-      { raHours: 19.846, decDeg: 8.87, mag: 0.76, nameJa: "アルタイル", colorHex: "#f0f9ff" }, // 0: α Aql
-      { raHours: 19.771, decDeg: 10.61, mag: 2.72, nameJa: "タラゼド", colorHex: "#fde68a" }, // 1: γ Aql
-      { raHours: 19.922, decDeg: 6.41, mag: 3.71, nameJa: "アルシャイン" }, // 2: β Aql
-      { raHours: 19.425, decDeg: 3.11, mag: 3.36 }, // 3: δ Aql
-      { raHours: 19.09, decDeg: 13.86, mag: 2.99 }, // 4: ζ Aql
-      { raHours: 19.104, decDeg: -4.88, mag: 3.43 }, // 5: λ Aql
-      { raHours: 20.188, decDeg: -0.82, mag: 3.24 }, // 6: θ Aql
+      { raHours: 19.846, decDeg: 8.87, mag: 0.76, nameJa: "アルタイル", colorHex: "#f0f9ff", bodyId: "altair" }, // 0: α Aql
+      { raHours: 19.771, decDeg: 10.61, mag: 2.72, nameJa: "タラゼド", colorHex: "#fde68a", bodyId: "tarazed" }, // 1: γ Aql
+      { raHours: 19.922, decDeg: 6.41, mag: 3.71, nameJa: "アルシャイン", bodyId: "alshain" }, // 2: β Aql
+      { raHours: 19.425, decDeg: 3.11, mag: 3.36, bodyId: "deltaAql" }, // 3: δ Aql
+      { raHours: 19.09, decDeg: 13.86, mag: 2.99, bodyId: "zetaAql" }, // 4: ζ Aql
+      { raHours: 19.104, decDeg: -4.88, mag: 3.43, bodyId: "lambdaAql" }, // 5: λ Aql
+      { raHours: 20.188, decDeg: -0.82, mag: 3.24, bodyId: "thetaAql" }, // 6: θ Aql
     ]),
     edges: [
       [1, 0],
@@ -437,13 +440,13 @@ export const SEASONAL_CONSTELLATIONS: SeasonalConstellation[] = [
     season: "summer",
     labelPoint: equatorialToEclipticDeg(20.4, 42.5),
     stars: buildSeasonalStars([
-      { raHours: 20.691, decDeg: 45.28, mag: 1.25, nameJa: "デネブ", colorHex: "#dbeafe" }, // 0: α Cyg
-      { raHours: 20.37, decDeg: 40.26, mag: 2.23, nameJa: "サドル", colorHex: "#fef3c7" }, // 1: γ Cyg
-      { raHours: 19.512, decDeg: 27.96, mag: 3.05, nameJa: "アルビレオ", colorHex: "#fde68a" }, // 2: β Cyg
-      { raHours: 19.75, decDeg: 45.13, mag: 2.87 }, // 3: δ Cyg
-      { raHours: 20.77, decDeg: 33.97, mag: 2.48, nameJa: "ギェナー" }, // 4: ε Cyg
-      { raHours: 19.284, decDeg: 53.37, mag: 3.79 }, // 5: κ Cyg
-      { raHours: 21.216, decDeg: 30.23, mag: 3.21 }, // 6: ζ Cyg
+      { raHours: 20.691, decDeg: 45.28, mag: 1.25, nameJa: "デネブ", colorHex: "#dbeafe", bodyId: "deneb" }, // 0: α Cyg
+      { raHours: 20.37, decDeg: 40.26, mag: 2.23, nameJa: "サドル", colorHex: "#fef3c7", bodyId: "sadr" }, // 1: γ Cyg
+      { raHours: 19.512, decDeg: 27.96, mag: 3.05, nameJa: "アルビレオ", colorHex: "#fde68a", bodyId: "albireo" }, // 2: β Cyg
+      { raHours: 19.75, decDeg: 45.13, mag: 2.87, bodyId: "deltaCyg" }, // 3: δ Cyg
+      { raHours: 20.77, decDeg: 33.97, mag: 2.48, nameJa: "ギェナー", bodyId: "gienah" }, // 4: ε Cyg
+      { raHours: 19.284, decDeg: 53.37, mag: 3.79, bodyId: "kappaCyg" }, // 5: κ Cyg
+      { raHours: 21.216, decDeg: 30.23, mag: 3.21, bodyId: "zetaCyg" }, // 6: ζ Cyg
     ]),
     edges: [
       [0, 1],
@@ -462,13 +465,13 @@ export const SEASONAL_CONSTELLATIONS: SeasonalConstellation[] = [
     season: "autumn",
     labelPoint: equatorialToEclipticDeg(22.9, 23.0),
     stars: buildSeasonalStars([
-      { raHours: 23.079, decDeg: 15.21, mag: 2.49, nameJa: "マルカブ", colorHex: "#dbeafe" }, // 0: α Peg
-      { raHours: 23.063, decDeg: 28.08, mag: 2.42, nameJa: "シェアト", colorHex: "#fdba74" }, // 1: β Peg
-      { raHours: 0.221, decDeg: 15.18, mag: 2.83, nameJa: "アルゲニブ", colorHex: "#bae6fd" }, // 2: γ Peg
-      { raHours: 0.14, decDeg: 29.09, mag: 2.06, nameJa: "アルフェラッツ", colorHex: "#dbeafe" }, // 3: α And (共有)
-      { raHours: 21.736, decDeg: 9.88, mag: 2.38, nameJa: "エニフ", colorHex: "#fde68a" }, // 4: ε Peg
-      { raHours: 22.691, decDeg: 10.83, mag: 3.41, nameJa: "ホマム" }, // 5: ζ Peg
-      { raHours: 22.717, decDeg: 30.22, mag: 2.94, nameJa: "マタル" }, // 6: η Peg
+      { raHours: 23.079, decDeg: 15.21, mag: 2.49, nameJa: "マルカブ", colorHex: "#dbeafe", bodyId: "markab" }, // 0: α Peg
+      { raHours: 23.063, decDeg: 28.08, mag: 2.42, nameJa: "シェアト", colorHex: "#fdba74", bodyId: "scheat" }, // 1: β Peg
+      { raHours: 0.221, decDeg: 15.18, mag: 2.83, nameJa: "アルゲニブ", colorHex: "#bae6fd", bodyId: "algenib" }, // 2: γ Peg
+      { raHours: 0.14, decDeg: 29.09, mag: 2.06, nameJa: "アルフェラッツ", colorHex: "#dbeafe", bodyId: "alpheratz" }, // 3: α And (共有)
+      { raHours: 21.736, decDeg: 9.88, mag: 2.38, nameJa: "エニフ", colorHex: "#fde68a", bodyId: "enif" }, // 4: ε Peg
+      { raHours: 22.691, decDeg: 10.83, mag: 3.41, nameJa: "ホマム", bodyId: "homam" }, // 5: ζ Peg
+      { raHours: 22.717, decDeg: 30.22, mag: 2.94, nameJa: "マタル", bodyId: "matar" }, // 6: η Peg
     ]),
     edges: [
       [0, 1],
@@ -486,12 +489,12 @@ export const SEASONAL_CONSTELLATIONS: SeasonalConstellation[] = [
     season: "autumn",
     labelPoint: equatorialToEclipticDeg(1.2, 39.2),
     stars: buildSeasonalStars([
-      { raHours: 0.14, decDeg: 29.09, mag: 2.06, nameJa: "アルフェラッツ", colorHex: "#dbeafe" }, // 0: α And
-      { raHours: 0.655, decDeg: 30.86, mag: 3.27 }, // 1: δ And
-      { raHours: 1.162, decDeg: 35.62, mag: 2.07, nameJa: "ミラク", colorHex: "#fdba74" }, // 2: β And
-      { raHours: 2.065, decDeg: 42.33, mag: 2.1, nameJa: "アルマク", colorHex: "#fde68a" }, // 3: γ And
-      { raHours: 0.946, decDeg: 38.5, mag: 3.87 }, // 4: μ And
-      { raHours: 0.83, decDeg: 41.08, mag: 4.53 }, // 5: ν And (M31付近)
+      { raHours: 0.14, decDeg: 29.09, mag: 2.06, nameJa: "アルフェラッツ", colorHex: "#dbeafe", bodyId: "alpheratz" }, // 0: α And
+      { raHours: 0.655, decDeg: 30.86, mag: 3.27, bodyId: "deltaAnd" }, // 1: δ And
+      { raHours: 1.162, decDeg: 35.62, mag: 2.07, nameJa: "ミラク", colorHex: "#fdba74", bodyId: "mirach" }, // 2: β And
+      { raHours: 2.065, decDeg: 42.33, mag: 2.1, nameJa: "アルマク", colorHex: "#fde68a", bodyId: "almach" }, // 3: γ And
+      { raHours: 0.946, decDeg: 38.5, mag: 3.87, bodyId: "muAnd" }, // 4: μ And
+      { raHours: 0.83, decDeg: 41.08, mag: 4.53, bodyId: "nuAnd" }, // 5: ν And (M31付近)
     ]),
     edges: [
       [0, 1],
@@ -507,7 +510,7 @@ export const SEASONAL_CONSTELLATIONS: SeasonalConstellation[] = [
     season: "autumn",
     labelPoint: equatorialToEclipticDeg(22.5, -31.8),
     stars: buildSeasonalStars([
-      { raHours: 22.961, decDeg: -29.62, mag: 1.16, nameJa: "フォーマルハウト", colorHex: "#e0f2fe" }, // 0: α PsA
+      { raHours: 22.961, decDeg: -29.62, mag: 1.16, nameJa: "フォーマルハウト", colorHex: "#e0f2fe", bodyId: "fomalhaut" }, // 0: α PsA
       { raHours: 22.674, decDeg: -27.04, mag: 4.18 }, // 1: ε PsA
       { raHours: 22.932, decDeg: -32.54, mag: 4.2 }, // 2: δ PsA
       { raHours: 22.525, decDeg: -32.35, mag: 4.29 }, // 3: β PsA
@@ -529,14 +532,14 @@ export const SEASONAL_CONSTELLATIONS: SeasonalConstellation[] = [
     season: "winter",
     labelPoint: equatorialToEclipticDeg(5.6, 1.5),
     stars: buildSeasonalStars([
-      { raHours: 5.92, decDeg: 7.41, mag: 0.5, nameJa: "ベテルギウス", colorHex: "#fb923c" }, // 0: α Ori
-      { raHours: 5.419, decDeg: 6.35, mag: 1.64, nameJa: "ベラトリックス", colorHex: "#bae6fd" }, // 1: γ Ori
-      { raHours: 5.242, decDeg: -8.2, mag: 0.13, nameJa: "リゲル", colorHex: "#93c5fd" }, // 2: β Ori
-      { raHours: 5.796, decDeg: -9.67, mag: 2.09, nameJa: "サイフ", colorHex: "#bae6fd" }, // 3: κ Ori
-      { raHours: 5.533, decDeg: -0.3, mag: 2.23, nameJa: "ミンタカ", colorHex: "#bae6fd" }, // 4: δ Ori (三つ星)
-      { raHours: 5.604, decDeg: -1.2, mag: 1.69, nameJa: "アルニラム", colorHex: "#bae6fd" }, // 5: ε Ori (三つ星)
-      { raHours: 5.679, decDeg: -1.94, mag: 1.77, nameJa: "アルニタク", colorHex: "#bae6fd" }, // 6: ζ Ori (三つ星)
-      { raHours: 5.586, decDeg: 9.93, mag: 3.39, nameJa: "メイサ" }, // 7: λ Ori (頭)
+      { raHours: 5.92, decDeg: 7.41, mag: 0.5, nameJa: "ベテルギウス", colorHex: "#fb923c", bodyId: "betelgeuse" }, // 0: α Ori
+      { raHours: 5.419, decDeg: 6.35, mag: 1.64, nameJa: "ベラトリックス", colorHex: "#bae6fd", bodyId: "bellatrix" }, // 1: γ Ori
+      { raHours: 5.242, decDeg: -8.2, mag: 0.13, nameJa: "リゲル", colorHex: "#93c5fd", bodyId: "rigel" }, // 2: β Ori
+      { raHours: 5.796, decDeg: -9.67, mag: 2.09, nameJa: "サイフ", colorHex: "#bae6fd", bodyId: "saiph" }, // 3: κ Ori
+      { raHours: 5.533, decDeg: -0.3, mag: 2.23, nameJa: "ミンタカ", colorHex: "#bae6fd", bodyId: "mintaka" }, // 4: δ Ori (三つ星)
+      { raHours: 5.604, decDeg: -1.2, mag: 1.69, nameJa: "アルニラム", colorHex: "#bae6fd", bodyId: "alnilam" }, // 5: ε Ori (三つ星)
+      { raHours: 5.679, decDeg: -1.94, mag: 1.77, nameJa: "アルニタク", colorHex: "#bae6fd", bodyId: "alnitak" }, // 6: ζ Ori (三つ星)
+      { raHours: 5.586, decDeg: 9.93, mag: 3.39, nameJa: "メイサ", bodyId: "meissa" }, // 7: λ Ori (頭)
     ]),
     edges: [
       [0, 7],
@@ -556,12 +559,12 @@ export const SEASONAL_CONSTELLATIONS: SeasonalConstellation[] = [
     season: "winter",
     labelPoint: equatorialToEclipticDeg(6.95, -23.0),
     stars: buildSeasonalStars([
-      { raHours: 6.753, decDeg: -16.72, mag: -1.46, nameJa: "シリウス", colorHex: "#bae6fd" }, // 0: α CMa
-      { raHours: 6.378, decDeg: -17.96, mag: 1.98, nameJa: "ミルザム", colorHex: "#bae6fd" }, // 1: β CMa
-      { raHours: 7.063, decDeg: -15.63, mag: 4.11 }, // 2: γ CMa
-      { raHours: 7.14, decDeg: -26.39, mag: 1.83, nameJa: "ウェズン", colorHex: "#fef3c7" }, // 3: δ CMa
-      { raHours: 6.977, decDeg: -28.97, mag: 1.5, nameJa: "アダーラ", colorHex: "#bae6fd" }, // 4: ε CMa
-      { raHours: 7.402, decDeg: -29.3, mag: 2.45, nameJa: "アルドラ" }, // 5: η CMa
+      { raHours: 6.753, decDeg: -16.72, mag: -1.46, nameJa: "シリウス", colorHex: "#bae6fd", bodyId: "sirius" }, // 0: α CMa
+      { raHours: 6.378, decDeg: -17.96, mag: 1.98, nameJa: "ミルザム", colorHex: "#bae6fd", bodyId: "mirzam" }, // 1: β CMa
+      { raHours: 7.063, decDeg: -15.63, mag: 4.11, bodyId: "gammaCMa" }, // 2: γ CMa
+      { raHours: 7.14, decDeg: -26.39, mag: 1.83, nameJa: "ウェズン", colorHex: "#fef3c7", bodyId: "wezen" }, // 3: δ CMa
+      { raHours: 6.977, decDeg: -28.97, mag: 1.5, nameJa: "アダーラ", colorHex: "#bae6fd", bodyId: "adhara" }, // 4: ε CMa
+      { raHours: 7.402, decDeg: -29.3, mag: 2.45, nameJa: "アルドラ", bodyId: "aludra" }, // 5: η CMa
     ]),
     edges: [
       [1, 0],
@@ -577,8 +580,8 @@ export const SEASONAL_CONSTELLATIONS: SeasonalConstellation[] = [
     season: "winter",
     labelPoint: equatorialToEclipticDeg(7.35, 11.4),
     stars: buildSeasonalStars([
-      { raHours: 7.655, decDeg: 5.22, mag: 0.34, nameJa: "プロキオン", colorHex: "#fef9c3" }, // 0: α CMi
-      { raHours: 7.453, decDeg: 8.29, mag: 2.89, nameJa: "ゴメイサ", colorHex: "#dbeafe" }, // 1: β CMi
+      { raHours: 7.655, decDeg: 5.22, mag: 0.34, nameJa: "プロキオン", colorHex: "#fef9c3", bodyId: "procyon" }, // 0: α CMi
+      { raHours: 7.453, decDeg: 8.29, mag: 2.89, nameJa: "ゴメイサ", colorHex: "#dbeafe", bodyId: "gomeisa" }, // 1: β CMi
     ]),
     edges: [[0, 1]],
   },
@@ -588,11 +591,11 @@ export const SEASONAL_CONSTELLATIONS: SeasonalConstellation[] = [
     season: "winter",
     labelPoint: equatorialToEclipticDeg(5.55, 39.5),
     stars: buildSeasonalStars([
-      { raHours: 5.278, decDeg: 46.0, mag: 0.08, nameJa: "カペラ", colorHex: "#fde68a" }, // 0: α Aur
-      { raHours: 5.992, decDeg: 44.95, mag: 1.9, nameJa: "メンカリナン" }, // 1: β Aur
-      { raHours: 5.995, decDeg: 37.21, mag: 2.65 }, // 2: θ Aur
-      { raHours: 5.438, decDeg: 28.61, mag: 1.65, nameJa: "エルナト" }, // 3: β Tau (五角形の底)
-      { raHours: 4.95, decDeg: 33.17, mag: 2.69, nameJa: "ハッサレー" }, // 4: ι Aur
+      { raHours: 5.278, decDeg: 46.0, mag: 0.08, nameJa: "カペラ", colorHex: "#fde68a", bodyId: "capella" }, // 0: α Aur
+      { raHours: 5.992, decDeg: 44.95, mag: 1.9, nameJa: "メンカリナン", bodyId: "menkalinan" }, // 1: β Aur
+      { raHours: 5.995, decDeg: 37.21, mag: 2.65, bodyId: "thetaAur" }, // 2: θ Aur
+      { raHours: 5.438, decDeg: 28.61, mag: 1.65, nameJa: "エルナト", bodyId: "elnath" }, // 3: β Tau (五角形の底)
+      { raHours: 4.95, decDeg: 33.17, mag: 2.69, nameJa: "ハッサレー", bodyId: "hassaleh" }, // 4: ι Aur
     ]),
     edges: [
       [0, 1],

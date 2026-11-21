@@ -43,7 +43,12 @@ import {
   SIMPLE_MODE_MOON_ORBIT_RADIUS,
   realSolarDisplayRadius,
 } from "../astronomy/bodySizes";
-import { CelestialBodyId } from "../data/celestialBodies";
+import {
+  CELESTIAL_BODY_PROFILES,
+  CelestialBodyId,
+} from "../data/celestialBodies";
+import { getConstellationCardId } from "../data/constellationProfiles";
+import { createSkyPickRegistry } from "./skyPicking";
 import {
   FEATURED_BRIGHT_STARS,
   FEATURED_STAR_MAP,
@@ -570,17 +575,17 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     new Map()
   );
   const galileanBadgeRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
-  const zodiacBadgeRefs = useRef<Map<ZodiacConstellationId, HTMLSpanElement>>(
+  const zodiacBadgeRefs = useRef<Map<ZodiacConstellationId, HTMLElement>>(
     new Map()
   );
   const eclipticCardinalBadgeRefs = useRef<Map<string, HTMLSpanElement>>(
     new Map()
   );
   const cosmicBadgeRefs = useRef<Map<CosmicBadgeId, HTMLElement>>(new Map());
-  const seasonalConstellationBadgeRefs = useRef<Map<string, HTMLSpanElement>>(
+  const seasonalConstellationBadgeRefs = useRef<Map<string, HTMLElement>>(
     new Map()
   );
-  const seasonalAsterismBadgeRefs = useRef<Map<string, HTMLSpanElement>>(
+  const seasonalAsterismBadgeRefs = useRef<Map<string, HTMLElement>>(
     new Map()
   );
   const featuredStarBadgeRefs = useRef<Map<FeaturedStarId, HTMLButtonElement>>(
@@ -590,9 +595,9 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
   const earthBadgeRef = useRef<HTMLButtonElement | null>(null);
   const moonBadgeRef = useRef<HTMLButtonElement | null>(null);
   const venusBadgeRef = useRef<HTMLButtonElement | null>(null);
-  const polarisBadgeRef = useRef<HTMLSpanElement | null>(null);
-  const cassiopeiaBadgeRef = useRef<HTMLSpanElement | null>(null);
-  const southernCrossBadgeRef = useRef<HTMLSpanElement | null>(null);
+  const polarisBadgeRef = useRef<HTMLButtonElement | null>(null);
+  const cassiopeiaBadgeRef = useRef<HTMLButtonElement | null>(null);
+  const southernCrossBadgeRef = useRef<HTMLButtonElement | null>(null);
 
   const latestPropsRef = useRef({
     solarState,
@@ -712,9 +717,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         focusedBodyId === "comaCluster" ||
         focusedBodyId === "greatAttractor" ||
         focusedBodyId === "laniakea" ||
-        focusedBodyId === "observableUniverse";
-      f.orbitYaw = isCosmicFocus ? 0.36 : 0.48;
-      f.orbitPitch = isCosmicFocus ? 0.48 : 0.24;
+        focusedBodyId === "observableUniverse" ||
+        CELESTIAL_BODY_PROFILES[focusedBodyId].cardKind === "cosmicStructure";
+      // 星座と星座の形は、天球の中心側から正面に見る向き（ずらさない）で寄ります
+      const focusKind = CELESTIAL_BODY_PROFILES[focusedBodyId].cardKind;
+      const isSkyFigureFocus =
+        focusKind === "constellation" || focusKind === "asterism";
+      f.orbitYaw = isSkyFigureFocus ? 0 : isCosmicFocus ? 0.36 : 0.48;
+      f.orbitPitch = isSkyFigureFocus ? 0 : isCosmicFocus ? 0.48 : 0.24;
       f.zoomFactor = 1.0;
     } else if (f.activeId !== null) {
       // 詳細カードを閉じたときは、直前の元のカメラ視点へ滑らかに戻します。
@@ -941,6 +951,16 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
     starPoints.renderOrder = 0;
     starsGroup.add(starPoints);
 
+    // 星座の星・星座の線を押して解説カードを開くための当たり判定（skyPicking.ts）
+    const skyPick = createSkyPickRegistry();
+    // 先頭の星（北極星）を押せるようにします
+    skyPick.addStar(
+      "polaris",
+      starsGroup,
+      new THREE.Vector3(starPositions[0], starPositions[1], starPositions[2]),
+      { horizonCheck: true, focusRadius: 2.4 }
+    );
+
     // 2.5 黄道ライン・天の赤道・黄道13星座（黄道12星座＋へびつかい座）天球グループ
     const ZODIAC_RADIUS = 112;
     const zodiacGroup = new THREE.Group();
@@ -1089,6 +1109,12 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           uz * ZODIAC_RADIUS
         );
         starVectors.push(vec);
+        if (st.bodyId) {
+          skyPick.addStar(st.bodyId, zodiacGroup, vec, {
+            horizonCheck: true,
+            focusRadius: 2.4,
+          });
+        }
         zodiacStarCoords.push(vec.x, vec.y, vec.z);
         // 等級が明るい星ほど明るく・アンタレスやアルデバランなどは暖色寄りにします。
         const lum = THREE.MathUtils.clamp(1.18 - st.mag * 0.14, 0.55, 1.0);
@@ -1107,6 +1133,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           edgePts.push(starVectors[aIdx], starVectors[bIdx]);
         }
       }
+      skyPick.addFigure(
+        getConstellationCardId(c.id),
+        "constellation",
+        zodiacGroup,
+        starVectors,
+        c.edges,
+        { horizonCheck: true, sphereRadius: ZODIAC_RADIUS }
+      );
       const lineGeo = new THREE.BufferGeometry().setFromPoints(edgePts);
       const lineMat = new THREE.LineBasicMaterial({
         color: c.isThirteenth ? 0xd8b4fe : 0x7dd3fc,
@@ -1189,6 +1223,12 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           uz * SUN_ORBIT_ZODIAC_RADIUS
         );
         orbitStarVecs.push(v);
+        if (st.bodyId) {
+          skyPick.addStar(st.bodyId, sunOverheadZodiacGroup, v, {
+            horizonCheck: false,
+            focusRadius: 0.9,
+          });
+        }
         orbitZodiacStarCoords.push(v.x, v.y, v.z);
 
         const lum = THREE.MathUtils.clamp(1.18 - st.mag * 0.14, 0.58, 1.0);
@@ -1219,6 +1259,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           orbitEdgePts.push(orbitStarVecs[aIdx], orbitStarVecs[bIdx]);
         }
       }
+      skyPick.addFigure(
+        getConstellationCardId(c.id),
+        "constellation",
+        sunOverheadZodiacGroup,
+        orbitStarVecs,
+        c.edges,
+        { horizonCheck: false, sphereRadius: SUN_ORBIT_ZODIAC_RADIUS }
+      );
       const orbitLineGeo = new THREE.BufferGeometry().setFromPoints(
         orbitEdgePts
       );
@@ -1297,6 +1345,12 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         uz * ZODIAC_RADIUS
       );
       cassiopeiaStarVecs.push(v);
+      if (st.bodyId) {
+        skyPick.addStar(st.bodyId, cassiopeiaGroup, v, {
+          horizonCheck: true,
+          focusRadius: 2.4,
+        });
+      }
       cassiopeiaStarCoords.push(v.x, v.y, v.z);
       cassiopeiaStarCols.push(0.92, 0.97, 1.0);
     }
@@ -1306,6 +1360,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         cassiopeiaEdgePts.push(cassiopeiaStarVecs[a], cassiopeiaStarVecs[b]);
       }
     }
+    skyPick.addFigure(
+      getConstellationCardId("cassiopeia"),
+      "constellation",
+      cassiopeiaGroup,
+      cassiopeiaStarVecs,
+      CASSIOPEIA_CONSTELLATION.edges,
+      { horizonCheck: true, sphereRadius: ZODIAC_RADIUS }
+    );
     const cassiopeiaLineGeo = new THREE.BufferGeometry().setFromPoints(
       cassiopeiaEdgePts
     );
@@ -1370,6 +1432,12 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         uz * ZODIAC_RADIUS
       );
       scStarVecs.push(v);
+      if (st.bodyId) {
+        skyPick.addStar(st.bodyId, southernCrossGroup, v, {
+          horizonCheck: true,
+          focusRadius: 2.4,
+        });
+      }
       scStarCoords.push(v.x, v.y, v.z);
       // 上端のガクルックス（γ Cru）は赤色巨星のため暖かなオレンジ色、他は青白色で描画します。
       if (st.nameJa === "ガクルックス") {
@@ -1384,6 +1452,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         scEdgePts.push(scStarVecs[a], scStarVecs[b]);
       }
     }
+    skyPick.addFigure(
+      getConstellationCardId("crux"),
+      "constellation",
+      southernCrossGroup,
+      scStarVecs,
+      SOUTHERN_CROSS_CONSTELLATION.edges,
+      { horizonCheck: true, sphereRadius: ZODIAC_RADIUS }
+    );
     const scLineGeo = new THREE.BufferGeometry().setFromPoints(scEdgePts);
     const scLineMat = new THREE.LineBasicMaterial({
       color: 0x38bdf8,
@@ -1455,6 +1531,12 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           uz * ZODIAC_RADIUS
         );
         vecs.push(v);
+        if (st.bodyId) {
+          skyPick.addStar(st.bodyId, seasonalSkyGroup, v, {
+            horizonCheck: true,
+            focusRadius: 2.4,
+          });
+        }
         seasonalConstStarCoords.push(v.x, v.y, v.z);
         tmpStarColor.set(st.colorHex ?? "#e2e8f0");
         seasonalConstStarCols.push(
@@ -1468,6 +1550,14 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           seasonalConstEdgePts.push(vecs[a], vecs[b]);
         }
       }
+      skyPick.addFigure(
+        getConstellationCardId(sc.id),
+        "constellation",
+        seasonalSkyGroup,
+        vecs,
+        sc.edges,
+        { horizonCheck: true, sphereRadius: ZODIAC_RADIUS }
+      );
       const [lx, ly, lz] = eclipticToWorldUnitVector(
         sc.labelPoint.lonDeg,
         sc.labelPoint.latDeg
@@ -1542,6 +1632,10 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           segPts.push(verts[a], verts[b]);
         }
       }
+      skyPick.addFigure(ast.id, "asterism", seasonalSkyGroup, verts, ast.edges, {
+        horizonCheck: true,
+        sphereRadius: ASTERISM_RADIUS,
+      });
       const astGeo = new THREE.BufferGeometry().setFromPoints(segPts);
       const baseOp = ast.dashed ? 0.54 : 0.78;
       const astMat = ast.dashed
@@ -2778,7 +2872,11 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
             Math.max(pickTmpScale.x, pickTmpScale.y, pickTmpScale.z),
         });
       }
-      return pickNearestBodyOnScreen(clientX, clientY, items);
+      // 太陽系の天体と主要15恒星を先に調べ、どれにも当たらなかったときだけ星座の星・星座の線を調べます。
+      // （細かい星が多い視点でも、天体のすぐそばを押したときに星を選んでしまわないようにするため）
+      const bodyHit = pickNearestBodyOnScreen(clientX, clientY, items);
+      if (bodyHit) return bodyHit;
+      return skyPick.pick(clientX, clientY, camera, rect);
     };
 
     // ---------------------------------------------------------------------
@@ -4608,7 +4706,13 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
             : null;
         if (cosmicFocusRadius !== null) {
           rawRadius = cosmicFocusRadius;
-        } else if (FEATURED_STAR_MAP[fId as FeaturedStarId]) {
+        } else if (
+          FEATURED_STAR_MAP[fId as FeaturedStarId] &&
+          (!skyPick.has(fId) ||
+            isRenderedVisible(seasonalBrightStarMeshes.get(fId as FeaturedStarId)))
+        ) {
+          // 主要15恒星の球が描かれているときは、球の位置に寄ります。
+          // 球が描かれていないとき（太陽の真上の視点の外周の星座など）は、下の skyPick の分岐で、描いている星の位置に寄ります。
           const starMesh = seasonalBrightStarMeshes.get(fId as FeaturedStarId);
           if (starMesh) {
             starMesh.getWorldPosition(focusRawPos);
@@ -4617,6 +4721,9 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
             focusRawPos.copy(earthOrbitPos);
             rawRadius = 1.0;
           }
+        } else if (skyPick.has(fId)) {
+          // 星座の星・星座・星座の形は、画面に描いている位置に寄ります
+          rawRadius = skyPick.getFocus(fId, focusRawPos) ?? 1.0;
         } else if (fId === "sun") {
           sunMesh.getWorldPosition(focusRawPos);
           rawRadius = SUN_RADIUS * sunMesh.scale.x;
@@ -4794,6 +4901,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
       const isCosmicView = cLevel >= 0.85;
       const isGroundView = !isCosmicView && g >= 0.55;
       const isEclipticSkyView = !isCosmicView && eBlend >= 0.55;
+      // 地上視点では、地平線より下の星座の星・線を押せないようにします
+      skyPick.setGroundUp(isGroundView ? tokyoUpWorld : null);
       const isRealSolarSystem =
         !isCosmicView &&
         !isGroundView &&
@@ -5385,6 +5494,10 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         if (lastPolarisBadgeText !== nextPolarisText) {
           polarisBadgeRef.current.textContent = nextPolarisText;
           lastPolarisBadgeText = nextPolarisText;
+          // 北極星の札だけを押せるようにします（天の南極には星がないため、説明は開きません）
+          const isNorth = curGroundLatDeg >= 0;
+          polarisBadgeRef.current.classList.toggle("is-clickable", isNorth);
+          polarisBadgeRef.current.dataset.pole = isNorth ? "north" : "south";
         }
       }
       polarisAnchor.getWorldPosition(tmpWorldPos);
@@ -6040,29 +6153,45 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
           </button>
         ))}
 
-        <span
+        <button
+          type="button"
           ref={polarisBadgeRef}
-          className="space-badge is-polaris"
+          className="space-badge is-polaris is-clickable"
           style={{ display: "none" }}
+          data-pole="north"
+          onClick={() => {
+            if (polarisBadgeRef.current?.dataset.pole === "north") {
+              onSelectCelestialBody("polaris");
+            }
+          }}
+          title="北極星をタップして詳細を表示"
         >
           ★ 北極星 (高度 35.7°)
-        </span>
+        </button>
 
-        <span
+        <button
+          type="button"
           ref={cassiopeiaBadgeRef}
-          className="space-badge is-polaris"
+          className="space-badge is-polaris is-clickable"
           style={{ display: "none" }}
+          onClick={() =>
+            onSelectCelestialBody(getConstellationCardId("cassiopeia"))
+          }
+          title="カシオペヤ座をタップして詳細を表示"
         >
           ★ カシオペア座 (W字)
-        </span>
+        </button>
 
-        <span
+        <button
+          type="button"
           ref={southernCrossBadgeRef}
-          className="space-badge is-polaris"
+          className="space-badge is-polaris is-clickable"
           style={{ display: "none" }}
+          onClick={() => onSelectCelestialBody(getConstellationCardId("crux"))}
+          title="南十字星をタップして詳細を表示"
         >
           ✦ 南十字星 (みなみじゅうじ座)
-        </span>
+        </button>
 
         {TOKYO_COMPASS_POINTS.map((cp) => (
           <span
@@ -6118,7 +6247,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         ))}
 
         {ZODIAC_CONSTELLATIONS.map((c) => (
-          <span
+          <button
+            type="button"
             key={c.id}
             ref={(el) => {
               if (el) {
@@ -6127,14 +6257,16 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
                 zodiacBadgeRefs.current.delete(c.id);
               }
             }}
-            className={`space-badge is-zodiac ${
+            className={`space-badge is-zodiac is-clickable ${
               c.isThirteenth ? "is-thirteenth" : ""
             }`}
             style={{ display: "none" }}
+            onClick={() => onSelectCelestialBody(getConstellationCardId(c.id))}
+            title={`${c.nameJa}をタップして詳細を表示`}
           >
             {c.symbol} {c.nameJa}
             {c.isThirteenth ? " (13)" : ""}
-          </span>
+          </button>
         ))}
 
         {ECLIPTIC_CARDINAL_POINTS.map((cp) => (
@@ -6200,7 +6332,8 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
         )}
 
         {SEASONAL_ASTERISMS.map((ast) => (
-          <span
+          <button
+            type="button"
             key={ast.id}
             ref={(el) => {
               if (el) {
@@ -6209,19 +6342,22 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
                 seasonalAsterismBadgeRefs.current.delete(ast.id);
               }
             }}
-            className="space-badge is-asterism"
+            className="space-badge is-asterism is-clickable"
             style={{
               display: "none",
               borderColor: `${ast.colorHex}aa`,
               color: ast.colorHex,
             }}
+            onClick={() => onSelectCelestialBody(ast.id)}
+            title={`${ast.nameJa}をタップして詳細を表示`}
           >
             {ast.nameJa}
-          </span>
+          </button>
         ))}
 
         {SEASONAL_CONSTELLATIONS.map((sc) => (
-          <span
+          <button
+            type="button"
             key={sc.id}
             ref={(el) => {
               if (el) {
@@ -6230,11 +6366,15 @@ export const EarthGlobeCanvas: React.FC<EarthGlobeCanvasProps> = ({
                 seasonalConstellationBadgeRefs.current.delete(sc.id);
               }
             }}
-            className="space-badge is-seasonal-constellation"
+            className="space-badge is-seasonal-constellation is-clickable"
             style={{ display: "none" }}
+            onClick={() =>
+              onSelectCelestialBody(getConstellationCardId(sc.id))
+            }
+            title={`${sc.nameJa}をタップして詳細を表示`}
           >
             {sc.nameJa}
-          </span>
+          </button>
         ))}
 
         {FEATURED_BRIGHT_STARS.map((star) => (

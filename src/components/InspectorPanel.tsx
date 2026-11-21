@@ -1258,7 +1258,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                   <li className="guide-check-item is-pass">
                     <span className="guide-check-mark" aria-label="2">2</span>
                     <span>
-                      <strong>天の川銀河（直径 約10万光年）</strong>：約2,000億〜4,000億個の星が集まる棒渦巻銀河。太陽系は中心（いて座A*）から約2.6万光年の<strong>オリオン腕</strong>にあります。
+                      <strong>天の川銀河（直径 約10万光年）</strong>：約2,000億〜4,000億個の星が集まる棒渦巻銀河。太陽系は中心（いて座A*）から約2.7万光年の<strong>オリオン腕</strong>にあります。
                     </span>
                   </li>
                   <li className="guide-check-item is-pass">

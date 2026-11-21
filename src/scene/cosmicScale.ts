@@ -160,15 +160,15 @@ export const COSMIC_BADGE_SPECS: CosmicBadgeSpec[] = [
   },
   {
     id: "solarSystemInGalaxy",
-    label: "☀ 太陽系（オリオン腕・約2.6万光年）",
+    label: "☀ 太陽系（オリオン腕・約2.7万光年）",
     accentColor: "#fbbf24",
-    clickableBodyId: "sun",
+    clickableBodyId: "solarSystemInGalaxy",
   },
   {
     id: "galacticCenter",
     label: "◎ 銀河中心（いて座A*）",
     accentColor: "#fde68a",
-    clickableBodyId: "milkyWay",
+    clickableBodyId: "galacticCenter",
   },
   {
     id: "andromeda",
@@ -246,19 +246,19 @@ export const COSMIC_BADGE_SPECS: CosmicBadgeSpec[] = [
     id: "virgoSuperclusterNode",
     label: "◎ おとめ座超銀河団（天の川の住所）",
     accentColor: "#7dd3fc",
-    clickableBodyId: "virgoCluster",
+    clickableBodyId: "virgoSupercluster",
   },
   {
     id: "shapleySupercluster",
     label: "◈ シャプレー超銀河団（さらに奥の重力源）",
     accentColor: "#f472b6",
-    clickableBodyId: "laniakea",
+    clickableBodyId: "shapleySupercluster",
   },
   {
     id: "perseusPisces",
     label: "◈ ペルセウス座・うお座超銀河団",
     accentColor: "#a5b4fc",
-    clickableBodyId: null,
+    clickableBodyId: "perseusPiscesSupercluster",
   },
   {
     id: "observableUniverse",
@@ -270,19 +270,19 @@ export const COSMIC_BADGE_SPECS: CosmicBadgeSpec[] = [
     id: "cmbHorizon",
     label: "◎ 宇宙マイクロ波背景放射 (CMB・約138億年前)",
     accentColor: "#fbbf24",
-    clickableBodyId: "observableUniverse",
+    clickableBodyId: "cosmicMicrowaveBackground",
   },
   {
     id: "cosmicVoid",
     label: "◯ 超空洞（ボイド：銀河がほぼない空間）",
     accentColor: "#94a3b8",
-    clickableBodyId: null,
+    clickableBodyId: "cosmicVoid",
   },
   {
     id: "cosmicWeb",
     label: "❖ 銀河フィラメント（コズミック・ウェブ）",
     accentColor: "#c4b5fd",
-    clickableBodyId: "observableUniverse",
+    clickableBodyId: "cosmicWeb",
   },
   {
     id: "ourPositionInUniverse",
@@ -964,7 +964,7 @@ export function createCosmicScaleRig(starTexture: THREE.Texture): CosmicScaleRig
   stage1Group.add(mwHero.group);
   registerMaterials(stage1Mats, mwHero.materials, mwHero.geometries);
 
-  // 太陽系の位置（オリオン腕：銀河中心から約2.6万光年 = 半径 12.5）
+  // 太陽系の位置（オリオン腕：銀河中心から約2.7万光年 = 半径 12.5）
   const solarAnchor = new THREE.Group();
   solarAnchor.position.set(10.8, 0.35, 6.2);
   mwHero.group.add(solarAnchor);
@@ -2446,6 +2446,46 @@ export function createCosmicScaleRig(starTexture: THREE.Texture): CosmicScaleRig
         outPos.set(0, 0, 0);
         stage6Group.localToWorld(outPos);
         return 28.5;
+      }
+      // 名前の札から開く宇宙の構造（札が出ている階層の、その構造の位置へ寄ります）
+      if (bodyId === "galacticCenter") {
+        outPos.set(0, 0, 0);
+        stage1Group.localToWorld(outPos);
+        return 6.0;
+      }
+      if (bodyId === "solarSystemInGalaxy") {
+        solarAnchor.getWorldPosition(outPos);
+        return 3.0;
+      }
+      if (bodyId === "virgoSupercluster") {
+        outPos.copy(virgoSuperPos);
+        stage5Group.localToWorld(outPos);
+        return 9.5;
+      }
+      if (bodyId === "shapleySupercluster") {
+        outPos.copy(shapleyPos);
+        stage5Group.localToWorld(outPos);
+        return 8.0;
+      }
+      if (bodyId === "perseusPiscesSupercluster") {
+        outPos.copy(perseusPos);
+        stage5Group.localToWorld(outPos);
+        return 8.0;
+      }
+      if (bodyId === "cosmicMicrowaveBackground") {
+        outPos.set(0, 0, 0);
+        stage6Group.localToWorld(outPos);
+        return 28.5;
+      }
+      if (bodyId === "cosmicVoid") {
+        outPos.copy(featuredVoidPos);
+        stage6Group.localToWorld(outPos);
+        return 6.0;
+      }
+      if (bodyId === "cosmicWeb") {
+        outPos.set(0, 0, 0);
+        stage6Group.localToWorld(outPos);
+        return 16.0;
       }
       return null;
     },

@@ -1,3 +1,4 @@
+import type { CelestialBodyId } from "../data/celestialBodies";
 import { EARTH_AXIAL_TILT_DEG, degToRad, radToDeg } from "./calculations";
 
 function normalizeDeg360(deg: number): number {
@@ -30,6 +31,8 @@ export interface ZodiacStarPoint {
   mag: number;
   /** 1等星など代表的な星の日本語名（任意） */
   nameJa?: string;
+  /** この星を押したときに開く解説カードの ID（説明がない星は書きません） */
+  bodyId?: CelestialBodyId;
 }
 
 /** 黄道13星座の定義データ（国際天文学連合 IAU 境界・J2000.0 準拠） */
@@ -121,6 +124,7 @@ interface RawStarSpec {
   decDeg: number;
   mag: number;
   nameJa?: string;
+  bodyId?: CelestialBodyId;
 }
 
 function buildStars(specs: RawStarSpec[]): ZodiacStarPoint[] {
@@ -132,6 +136,7 @@ function buildStars(specs: RawStarSpec[]): ZodiacStarPoint[] {
       latDeg: ec.latDeg,
       mag: s.mag,
       nameJa: s.nameJa,
+      bodyId: s.bodyId,
     });
   }
   return result;
@@ -156,22 +161,22 @@ export const ZODIAC_CONSTELLATIONS: ZodiacConstellation[] = [
     labelLatDeg: 11.5,
     stars: buildStars([
       // 西の魚（サークレット）
-      { raHours: 23.063, decDeg: 3.82, mag: 4.5 }, // 0: β Psc
-      { raHours: 23.286, decDeg: 3.28, mag: 3.7 }, // 1: γ Psc
-      { raHours: 23.466, decDeg: 6.38, mag: 4.3 }, // 2: θ Psc
-      { raHours: 23.666, decDeg: 5.63, mag: 4.1 }, // 3: ι Psc
-      { raHours: 23.702, decDeg: 1.78, mag: 4.5 }, // 4: λ Psc
-      { raHours: 23.449, decDeg: 1.26, mag: 4.9 }, // 5: κ Psc
+      { raHours: 23.063, decDeg: 3.82, mag: 4.5, bodyId: "betaPsc" }, // 0: β Psc
+      { raHours: 23.286, decDeg: 3.28, mag: 3.7, bodyId: "gammaPsc" }, // 1: γ Psc
+      { raHours: 23.466, decDeg: 6.38, mag: 4.3, bodyId: "thetaPsc" }, // 2: θ Psc
+      { raHours: 23.666, decDeg: 5.63, mag: 4.1, bodyId: "iotaPsc" }, // 3: ι Psc
+      { raHours: 23.702, decDeg: 1.78, mag: 4.5, bodyId: "lambdaPsc" }, // 4: λ Psc
+      { raHours: 23.449, decDeg: 1.26, mag: 4.9, bodyId: "kappaPsc" }, // 5: κ Psc
       // 紐の結び目（アルレシャ）へ
-      { raHours: 23.988, decDeg: 6.86, mag: 4.0 }, // 6: ω Psc
-      { raHours: 0.815, decDeg: 7.59, mag: 4.4 }, // 7: δ Psc
-      { raHours: 1.048, decDeg: 7.89, mag: 4.3 }, // 8: ε Psc
-      { raHours: 2.034, decDeg: 2.76, mag: 3.8, nameJa: "アルレシャ" }, // 9: α Psc
+      { raHours: 23.988, decDeg: 6.86, mag: 4.0, bodyId: "omegaPsc" }, // 6: ω Psc
+      { raHours: 0.815, decDeg: 7.59, mag: 4.4, bodyId: "deltaPsc" }, // 7: δ Psc
+      { raHours: 1.048, decDeg: 7.89, mag: 4.3, bodyId: "epsilonPsc" }, // 8: ε Psc
+      { raHours: 2.034, decDeg: 2.76, mag: 3.8, nameJa: "アルレシャ", bodyId: "alrescha" }, // 9: α Psc
       // 北の魚へ
-      { raHours: 1.756, decDeg: 9.16, mag: 4.3 }, // 10: ο Psc
-      { raHours: 1.525, decDeg: 15.35, mag: 3.6 }, // 11: η Psc
-      { raHours: 1.139, decDeg: 24.58, mag: 4.5 }, // 12: τ Psc
-      { raHours: 1.325, decDeg: 27.26, mag: 4.7 }, // 13: υ Psc
+      { raHours: 1.756, decDeg: 9.16, mag: 4.3, bodyId: "omicronPsc" }, // 10: ο Psc
+      { raHours: 1.525, decDeg: 15.35, mag: 3.6, bodyId: "etaPsc" }, // 11: η Psc
+      { raHours: 1.229, decDeg: 24.58, mag: 4.5, bodyId: "phiPsc" }, // 12: φ Psc
+      { raHours: 1.325, decDeg: 27.26, mag: 4.7, bodyId: "upsilonPsc" }, // 13: υ Psc
     ]),
     edges: [
       [0, 1],
@@ -202,11 +207,11 @@ export const ZODIAC_CONSTELLATIONS: ZodiacConstellation[] = [
     labelLonDeg: 40.5,
     labelLatDeg: 15.0,
     stars: buildStars([
-      { raHours: 1.892, decDeg: 19.29, mag: 3.9 }, // 0: γ Ari (メサルティム)
-      { raHours: 1.911, decDeg: 20.81, mag: 2.6 }, // 1: β Ari (シェラタン)
-      { raHours: 2.120, decDeg: 23.46, mag: 2.0, nameJa: "ハマル" }, // 2: α Ari
-      { raHours: 2.833, decDeg: 27.26, mag: 3.6 }, // 3: 41 Ari
-      { raHours: 3.193, decDeg: 19.73, mag: 4.3 }, // 4: δ Ari
+      { raHours: 1.892, decDeg: 19.29, mag: 3.9, bodyId: "mesarthim" }, // 0: γ Ari (メサルティム)
+      { raHours: 1.911, decDeg: 20.81, mag: 2.6, bodyId: "sheratan" }, // 1: β Ari (シェラタン)
+      { raHours: 2.120, decDeg: 23.46, mag: 2.0, nameJa: "ハマル", bodyId: "hamal" }, // 2: α Ari
+      { raHours: 2.833, decDeg: 27.26, mag: 3.6, bodyId: "ari41" }, // 3: 41 Ari
+      { raHours: 3.193, decDeg: 19.73, mag: 4.3, bodyId: "deltaAri" }, // 4: δ Ari
     ]),
     edges: [
       [0, 1],
@@ -228,17 +233,17 @@ export const ZODIAC_CONSTELLATIONS: ZodiacConstellation[] = [
     labelLatDeg: 10.0,
     stars: buildStars([
       // ヒアデス星団のV字顔＋アルデバラン
-      { raHours: 4.599, decDeg: 16.51, mag: 0.9, nameJa: "アルデバラン" }, // 0: α Tau
-      { raHours: 4.477, decDeg: 15.87, mag: 3.4 }, // 1: θ2 Tau
-      { raHours: 4.330, decDeg: 15.63, mag: 3.7 }, // 2: γ Tau
-      { raHours: 4.382, decDeg: 17.54, mag: 3.8 }, // 3: δ Tau
-      { raHours: 4.477, decDeg: 19.18, mag: 3.5 }, // 4: ε Tau
+      { raHours: 4.599, decDeg: 16.51, mag: 0.9, nameJa: "アルデバラン", bodyId: "aldebaran" }, // 0: α Tau
+      { raHours: 4.477, decDeg: 15.87, mag: 3.4, bodyId: "theta2Tau" }, // 1: θ2 Tau
+      { raHours: 4.330, decDeg: 15.63, mag: 3.7, bodyId: "gammaTau" }, // 2: γ Tau
+      { raHours: 4.382, decDeg: 17.54, mag: 3.8, bodyId: "deltaTau" }, // 3: δ Tau
+      { raHours: 4.477, decDeg: 19.18, mag: 3.5, bodyId: "epsilonTau" }, // 4: ε Tau
       // 長い2本の角
-      { raHours: 5.438, decDeg: 28.61, mag: 1.7, nameJa: "エルナト" }, // 5: β Tau
-      { raHours: 5.627, decDeg: 21.14, mag: 3.0 }, // 6: ζ Tau
+      { raHours: 5.438, decDeg: 28.61, mag: 1.7, nameJa: "エルナト", bodyId: "elnath" }, // 5: β Tau
+      { raHours: 5.627, decDeg: 21.14, mag: 3.0, bodyId: "zetaTau" }, // 6: ζ Tau
       // 胴体とすばる（プレアデス）
-      { raHours: 4.011, decDeg: 12.49, mag: 3.5 }, // 7: λ Tau
-      { raHours: 3.791, decDeg: 24.11, mag: 2.9, nameJa: "すばる" }, // 8: η Tau (プレアデス)
+      { raHours: 4.011, decDeg: 12.49, mag: 3.5, bodyId: "lambdaTau" }, // 7: λ Tau
+      { raHours: 3.791, decDeg: 24.11, mag: 2.9, nameJa: "すばる", bodyId: "pleiades" }, // 8: η Tau (プレアデス)
     ]),
     edges: [
       [6, 0],
@@ -264,16 +269,16 @@ export const ZODIAC_CONSTELLATIONS: ZodiacConstellation[] = [
     labelLatDeg: 13.0,
     stars: buildStars([
       // カストル側
-      { raHours: 7.577, decDeg: 31.89, mag: 1.6, nameJa: "カストル" }, // 0: α Gem
-      { raHours: 7.069, decDeg: 20.57, mag: 3.8 }, // 1: ζ Gem
-      { raHours: 6.732, decDeg: 25.13, mag: 3.0 }, // 2: ε Gem (メブスタ)
-      { raHours: 6.383, decDeg: 22.51, mag: 2.9 }, // 3: μ Gem (テジャト)
-      { raHours: 6.248, decDeg: 22.51, mag: 3.3 }, // 4: η Gem
+      { raHours: 7.577, decDeg: 31.89, mag: 1.6, nameJa: "カストル", bodyId: "castor" }, // 0: α Gem
+      { raHours: 7.069, decDeg: 20.57, mag: 3.8, bodyId: "zetaGem" }, // 1: ζ Gem
+      { raHours: 6.732, decDeg: 25.13, mag: 3.0, bodyId: "mebsuta" }, // 2: ε Gem (メブスタ)
+      { raHours: 6.383, decDeg: 22.51, mag: 2.9, bodyId: "tejat" }, // 3: μ Gem (テジャト)
+      { raHours: 6.248, decDeg: 22.51, mag: 3.3, bodyId: "etaGem" }, // 4: η Gem
       // ポルックス側
-      { raHours: 7.755, decDeg: 28.03, mag: 1.1, nameJa: "ポルックス" }, // 5: β Gem
-      { raHours: 7.335, decDeg: 21.98, mag: 3.5 }, // 6: δ Gem (ワサト)
-      { raHours: 6.629, decDeg: 16.40, mag: 1.9, nameJa: "アルヘナ" }, // 7: γ Gem
-      { raHours: 6.754, decDeg: 12.90, mag: 3.4 }, // 8: ξ Gem
+      { raHours: 7.755, decDeg: 28.03, mag: 1.1, nameJa: "ポルックス", bodyId: "pollux" }, // 5: β Gem
+      { raHours: 7.335, decDeg: 21.98, mag: 3.5, bodyId: "wasat" }, // 6: δ Gem (ワサト)
+      { raHours: 6.629, decDeg: 16.40, mag: 1.9, nameJa: "アルヘナ", bodyId: "alhena" }, // 7: γ Gem
+      { raHours: 6.754, decDeg: 12.90, mag: 3.4, bodyId: "xiGem" }, // 8: ξ Gem
     ]),
     edges: [
       [0, 5],
@@ -298,11 +303,11 @@ export const ZODIAC_CONSTELLATIONS: ZodiacConstellation[] = [
     labelLonDeg: 128.0,
     labelLatDeg: 12.0,
     stars: buildStars([
-      { raHours: 8.778, decDeg: 28.76, mag: 4.0 }, // 0: ι Cnc
-      { raHours: 8.721, decDeg: 21.47, mag: 4.7 }, // 1: γ Cnc
-      { raHours: 8.745, decDeg: 18.15, mag: 3.9 }, // 2: δ Cnc
-      { raHours: 8.975, decDeg: 11.86, mag: 4.3 }, // 3: α Cnc (アクベンス)
-      { raHours: 8.275, decDeg: 9.19, mag: 3.5 }, // 4: β Cnc (アルタルフ)
+      { raHours: 8.778, decDeg: 28.76, mag: 4.0, bodyId: "iotaCnc" }, // 0: ι Cnc
+      { raHours: 8.721, decDeg: 21.47, mag: 4.7, bodyId: "gammaCnc" }, // 1: γ Cnc
+      { raHours: 8.745, decDeg: 18.15, mag: 3.9, bodyId: "deltaCnc" }, // 2: δ Cnc
+      { raHours: 8.975, decDeg: 11.86, mag: 4.3, bodyId: "acubens" }, // 3: α Cnc (アクベンス)
+      { raHours: 8.275, decDeg: 9.19, mag: 3.5, bodyId: "altarf" }, // 4: β Cnc (アルタルフ)
     ]),
     edges: [
       [0, 1],
@@ -324,16 +329,16 @@ export const ZODIAC_CONSTELLATIONS: ZodiacConstellation[] = [
     labelLatDeg: 15.0,
     stars: buildStars([
       // ししの大鎌（？マーク）
-      { raHours: 9.764, decDeg: 23.77, mag: 3.0 }, // 0: ε Leo
-      { raHours: 9.879, decDeg: 26.01, mag: 3.9 }, // 1: μ Leo
-      { raHours: 10.278, decDeg: 23.42, mag: 3.4 }, // 2: ζ Leo
-      { raHours: 10.333, decDeg: 19.84, mag: 2.0, nameJa: "アルギエバ" }, // 3: γ Leo
-      { raHours: 10.122, decDeg: 16.76, mag: 3.5 }, // 4: η Leo
-      { raHours: 10.139, decDeg: 11.97, mag: 1.4, nameJa: "レグルス" }, // 5: α Leo
+      { raHours: 9.764, decDeg: 23.77, mag: 3.0, bodyId: "epsilonLeo" }, // 0: ε Leo
+      { raHours: 9.879, decDeg: 26.01, mag: 3.9, bodyId: "muLeo" }, // 1: μ Leo
+      { raHours: 10.278, decDeg: 23.42, mag: 3.4, bodyId: "zetaLeo" }, // 2: ζ Leo
+      { raHours: 10.333, decDeg: 19.84, mag: 2.0, nameJa: "アルギエバ", bodyId: "algieba" }, // 3: γ Leo
+      { raHours: 10.122, decDeg: 16.76, mag: 3.5, bodyId: "etaLeo" }, // 4: η Leo
+      { raHours: 10.139, decDeg: 11.97, mag: 1.4, nameJa: "レグルス", bodyId: "regulus" }, // 5: α Leo
       // 胴体と尾
-      { raHours: 11.235, decDeg: 20.52, mag: 2.6 }, // 6: δ Leo (ゾスマ)
-      { raHours: 11.237, decDeg: 15.43, mag: 3.3 }, // 7: θ Leo
-      { raHours: 11.818, decDeg: 14.57, mag: 2.1, nameJa: "デネボラ" }, // 8: β Leo
+      { raHours: 11.235, decDeg: 20.52, mag: 2.6, bodyId: "zosma" }, // 6: δ Leo (ゾスマ)
+      { raHours: 11.237, decDeg: 15.43, mag: 3.3, bodyId: "thetaLeo" }, // 7: θ Leo
+      { raHours: 11.818, decDeg: 14.57, mag: 2.1, nameJa: "デネボラ", bodyId: "denebola" }, // 8: β Leo
     ]),
     edges: [
       [0, 1],
@@ -360,14 +365,14 @@ export const ZODIAC_CONSTELLATIONS: ZodiacConstellation[] = [
     labelLonDeg: 196.0,
     labelLatDeg: 11.0,
     stars: buildStars([
-      { raHours: 11.845, decDeg: 1.76, mag: 3.6 }, // 0: β Vir
-      { raHours: 12.332, decDeg: -0.67, mag: 3.9 }, // 1: η Vir
-      { raHours: 12.694, decDeg: -1.45, mag: 2.7 }, // 2: γ Vir (ポリマ)
-      { raHours: 12.927, decDeg: 3.40, mag: 3.4 }, // 3: δ Vir
-      { raHours: 13.036, decDeg: 10.96, mag: 2.8 }, // 4: ε Vir (ヴィンデミアトリクス)
-      { raHours: 13.420, decDeg: -11.16, mag: 1.0, nameJa: "スピカ" }, // 5: α Vir
-      { raHours: 13.578, decDeg: -0.60, mag: 3.4 }, // 6: ζ Vir
-      { raHours: 14.267, decDeg: -10.27, mag: 4.1 }, // 7: κ Vir
+      { raHours: 11.845, decDeg: 1.76, mag: 3.6, bodyId: "betaVir" }, // 0: β Vir
+      { raHours: 12.332, decDeg: -0.67, mag: 3.9, bodyId: "etaVir" }, // 1: η Vir
+      { raHours: 12.694, decDeg: -1.45, mag: 2.7, bodyId: "porrima" }, // 2: γ Vir (ポリマ)
+      { raHours: 12.927, decDeg: 3.40, mag: 3.4, bodyId: "deltaVir" }, // 3: δ Vir
+      { raHours: 13.036, decDeg: 10.96, mag: 2.8, bodyId: "vindemiatrix" }, // 4: ε Vir (ヴィンデミアトリクス)
+      { raHours: 13.420, decDeg: -11.16, mag: 1.0, nameJa: "スピカ", bodyId: "spica" }, // 5: α Vir
+      { raHours: 13.578, decDeg: -0.60, mag: 3.4, bodyId: "zetaVir" }, // 6: ζ Vir
+      { raHours: 14.215, decDeg: -10.27, mag: 4.1, bodyId: "kappaVir" }, // 7: κ Vir
     ]),
     edges: [
       [0, 1],
@@ -392,11 +397,11 @@ export const ZODIAC_CONSTELLATIONS: ZodiacConstellation[] = [
     labelLonDeg: 229.0,
     labelLatDeg: 11.0,
     stars: buildStars([
-      { raHours: 14.848, decDeg: -16.04, mag: 2.8, nameJa: "ズベンエルゲヌビ" }, // 0: α Lib
-      { raHours: 15.283, decDeg: -9.38, mag: 2.6, nameJa: "ズベンエシャマリ" }, // 1: β Lib
-      { raHours: 15.592, decDeg: -14.79, mag: 3.9 }, // 2: γ Lib
-      { raHours: 15.068, decDeg: -25.28, mag: 3.3 }, // 3: σ Lib
-      { raHours: 15.617, decDeg: -28.14, mag: 3.6 }, // 4: υ Lib
+      { raHours: 14.848, decDeg: -16.04, mag: 2.8, nameJa: "ズベンエルゲヌビ", bodyId: "zubenelgenubi" }, // 0: α Lib
+      { raHours: 15.283, decDeg: -9.38, mag: 2.6, nameJa: "ズベンエシャマリ", bodyId: "zubeneschamali" }, // 1: β Lib
+      { raHours: 15.592, decDeg: -14.79, mag: 3.9, bodyId: "gammaLib" }, // 2: γ Lib
+      { raHours: 15.068, decDeg: -25.28, mag: 3.3, bodyId: "sigmaLib" }, // 3: σ Lib
+      { raHours: 15.617, decDeg: -28.14, mag: 3.6, bodyId: "upsilonLib" }, // 4: υ Lib
     ]),
     edges: [
       [0, 1],
@@ -419,16 +424,16 @@ export const ZODIAC_CONSTELLATIONS: ZodiacConstellation[] = [
     labelLatDeg: -14.5,
     stars: buildStars([
       // ハサミ（頭）
-      { raHours: 16.091, decDeg: -19.81, mag: 2.6 }, // 0: β Sco
-      { raHours: 16.006, decDeg: -22.62, mag: 2.3 }, // 1: δ Sco
-      { raHours: 15.981, decDeg: -26.11, mag: 2.9 }, // 2: π Sco
+      { raHours: 16.091, decDeg: -19.81, mag: 2.6, bodyId: "betaSco" }, // 0: β Sco
+      { raHours: 16.006, decDeg: -22.62, mag: 2.3, bodyId: "deltaSco" }, // 1: δ Sco
+      { raHours: 15.981, decDeg: -26.11, mag: 2.9, bodyId: "piSco" }, // 2: π Sco
       // 心臓アンタレスとS字の尾
-      { raHours: 16.490, decDeg: -26.43, mag: 1.0, nameJa: "アンタレス" }, // 3: α Sco
-      { raHours: 16.836, decDeg: -34.29, mag: 2.3 }, // 4: ε Sco
-      { raHours: 17.202, decDeg: -43.24, mag: 3.3 }, // 5: η Sco
-      { raHours: 17.622, decDeg: -42.99, mag: 1.9 }, // 6: θ Sco (サルガス)
-      { raHours: 17.708, decDeg: -39.03, mag: 2.4 }, // 7: κ Sco
-      { raHours: 17.560, decDeg: -37.10, mag: 1.6, nameJa: "シャウラ" }, // 8: λ Sco
+      { raHours: 16.490, decDeg: -26.43, mag: 1.0, nameJa: "アンタレス", bodyId: "antares" }, // 3: α Sco
+      { raHours: 16.836, decDeg: -34.29, mag: 2.3, bodyId: "epsilonSco" }, // 4: ε Sco
+      { raHours: 17.202, decDeg: -43.24, mag: 3.3, bodyId: "etaSco" }, // 5: η Sco
+      { raHours: 17.622, decDeg: -42.99, mag: 1.9, bodyId: "sargas" }, // 6: θ Sco (サルガス)
+      { raHours: 17.708, decDeg: -39.03, mag: 2.4, bodyId: "kappaSco" }, // 7: κ Sco
+      { raHours: 17.560, decDeg: -37.10, mag: 1.6, nameJa: "シャウラ", bodyId: "shaula" }, // 8: λ Sco
     ]),
     edges: [
       [0, 1],
@@ -454,14 +459,14 @@ export const ZODIAC_CONSTELLATIONS: ZodiacConstellation[] = [
     labelLatDeg: 15.5,
     stars: buildStars([
       // 頭（ラスアルハゲ）から五角形の胴体・足元（黄道をまたぐ）
-      { raHours: 17.582, decDeg: 12.56, mag: 2.1, nameJa: "ラスアルハゲ" }, // 0: α Oph
-      { raHours: 17.725, decDeg: 4.57, mag: 2.8 }, // 1: β Oph (ケバルライ)
-      { raHours: 17.984, decDeg: -9.77, mag: 3.3 }, // 2: ν Oph
-      { raHours: 17.173, decDeg: -15.72, mag: 2.4, nameJa: "サビク" }, // 3: η Oph
-      { raHours: 17.367, decDeg: -24.99, mag: 3.3 }, // 4: θ Oph（黄道付近）
-      { raHours: 16.619, decDeg: -10.57, mag: 2.6 }, // 5: ζ Oph
-      { raHours: 16.239, decDeg: -3.69, mag: 2.7 }, // 6: δ Oph
-      { raHours: 16.961, decDeg: 9.38, mag: 3.2 }, // 7: κ Oph
+      { raHours: 17.582, decDeg: 12.56, mag: 2.1, nameJa: "ラスアルハゲ", bodyId: "rasalhague" }, // 0: α Oph
+      { raHours: 17.725, decDeg: 4.57, mag: 2.8, bodyId: "cebalrai" }, // 1: β Oph (ケバルライ)
+      { raHours: 17.984, decDeg: -9.77, mag: 3.3, bodyId: "nuOph" }, // 2: ν Oph
+      { raHours: 17.173, decDeg: -15.72, mag: 2.4, nameJa: "サビク", bodyId: "sabik" }, // 3: η Oph
+      { raHours: 17.367, decDeg: -24.99, mag: 3.3, bodyId: "thetaOph" }, // 4: θ Oph（黄道付近）
+      { raHours: 16.619, decDeg: -10.57, mag: 2.6, bodyId: "zetaOph" }, // 5: ζ Oph
+      { raHours: 16.239, decDeg: -3.69, mag: 2.7, bodyId: "deltaOph" }, // 6: δ Oph
+      { raHours: 16.961, decDeg: 9.38, mag: 3.2, bodyId: "kappaOph" }, // 7: κ Oph
     ]),
     edges: [
       [0, 1],
@@ -487,14 +492,14 @@ export const ZODIAC_CONSTELLATIONS: ZodiacConstellation[] = [
     labelLatDeg: -12.0,
     stars: buildStars([
       // 南斗六星・ティーポット形
-      { raHours: 18.097, decDeg: -30.42, mag: 3.0 }, // 0: γ Sgr (アルナスル・注ぎ口)
-      { raHours: 18.350, decDeg: -29.83, mag: 2.7 }, // 1: δ Sgr (カウス・メディア)
-      { raHours: 18.403, decDeg: -34.38, mag: 1.8, nameJa: "カウス・アウストラリス" }, // 2: ε Sgr
-      { raHours: 18.466, decDeg: -25.42, mag: 2.8 }, // 3: λ Sgr (蓋の頂点)
-      { raHours: 18.761, decDeg: -26.99, mag: 3.2 }, // 4: φ Sgr
-      { raHours: 18.921, decDeg: -26.30, mag: 2.1, nameJa: "ヌンキ" }, // 5: σ Sgr
-      { raHours: 19.043, decDeg: -29.88, mag: 2.6 }, // 6: ζ Sgr (アスケラ)
-      { raHours: 19.115, decDeg: -27.67, mag: 3.3 }, // 7: τ Sgr
+      { raHours: 18.097, decDeg: -30.42, mag: 3.0, bodyId: "alnasl" }, // 0: γ Sgr (アルナスル・注ぎ口)
+      { raHours: 18.350, decDeg: -29.83, mag: 2.7, bodyId: "kausMedia" }, // 1: δ Sgr (カウス・メディア)
+      { raHours: 18.403, decDeg: -34.38, mag: 1.8, nameJa: "カウス・アウストラリス", bodyId: "kausAustralis" }, // 2: ε Sgr
+      { raHours: 18.466, decDeg: -25.42, mag: 2.8, bodyId: "lambdaSgr" }, // 3: λ Sgr (蓋の頂点)
+      { raHours: 18.761, decDeg: -26.99, mag: 3.2, bodyId: "phiSgr" }, // 4: φ Sgr
+      { raHours: 18.921, decDeg: -26.30, mag: 2.1, nameJa: "ヌンキ", bodyId: "nunki" }, // 5: σ Sgr
+      { raHours: 19.043, decDeg: -29.88, mag: 2.6, bodyId: "ascella" }, // 6: ζ Sgr (アスケラ)
+      { raHours: 19.115, decDeg: -27.67, mag: 3.3, bodyId: "tauSgr" }, // 7: τ Sgr
     ]),
     edges: [
       [0, 1],
@@ -522,13 +527,13 @@ export const ZODIAC_CONSTELLATIONS: ZodiacConstellation[] = [
     labelLonDeg: 313.5,
     labelLatDeg: -11.0,
     stars: buildStars([
-      { raHours: 20.301, decDeg: -12.54, mag: 3.6 }, // 0: α Cap (アルゲディ)
-      { raHours: 20.350, decDeg: -14.78, mag: 3.1 }, // 1: β Cap (ダビー)
-      { raHours: 20.768, decDeg: -25.27, mag: 4.1 }, // 2: ψ Cap
-      { raHours: 21.444, decDeg: -22.41, mag: 3.7 }, // 3: ζ Cap
-      { raHours: 21.668, decDeg: -16.66, mag: 3.7 }, // 4: γ Cap (ナシラ)
-      { raHours: 21.784, decDeg: -16.13, mag: 2.9, nameJa: "デネブ・アルゲディ" }, // 5: δ Cap
-      { raHours: 21.099, decDeg: -17.23, mag: 4.1 }, // 6: θ Cap
+      { raHours: 20.301, decDeg: -12.54, mag: 3.6, bodyId: "algedi" }, // 0: α Cap (アルゲディ)
+      { raHours: 20.350, decDeg: -14.78, mag: 3.1, bodyId: "dabih" }, // 1: β Cap (ダビー)
+      { raHours: 20.768, decDeg: -25.27, mag: 4.1, bodyId: "psiCap" }, // 2: ψ Cap
+      { raHours: 21.444, decDeg: -22.41, mag: 3.7, bodyId: "zetaCap" }, // 3: ζ Cap
+      { raHours: 21.668, decDeg: -16.66, mag: 3.7, bodyId: "nashira" }, // 4: γ Cap (ナシラ)
+      { raHours: 21.784, decDeg: -16.13, mag: 2.9, nameJa: "デネブ・アルゲディ", bodyId: "denebAlgedi" }, // 5: δ Cap
+      { raHours: 21.099, decDeg: -17.23, mag: 4.1, bodyId: "thetaCap" }, // 6: θ Cap
     ]),
     edges: [
       [0, 1],
@@ -552,13 +557,13 @@ export const ZODIAC_CONSTELLATIONS: ZodiacConstellation[] = [
     labelLonDeg: 339.5,
     labelLatDeg: 11.0,
     stars: buildStars([
-      { raHours: 21.526, decDeg: -5.57, mag: 2.9 }, // 0: β Aqr (サダルスウド)
-      { raHours: 22.096, decDeg: -0.32, mag: 3.0, nameJa: "サダルメリク" }, // 1: α Aqr
-      { raHours: 22.361, decDeg: -1.39, mag: 3.8 }, // 2: γ Aqr (水がめ)
-      { raHours: 22.481, decDeg: -0.02, mag: 3.7 }, // 3: ζ Aqr
-      { raHours: 22.589, decDeg: -0.12, mag: 4.0 }, // 4: η Aqr
-      { raHours: 22.878, decDeg: -7.58, mag: 3.7 }, // 5: λ Aqr
-      { raHours: 22.911, decDeg: -15.82, mag: 3.3 }, // 6: δ Aqr (スカト)
+      { raHours: 21.526, decDeg: -5.57, mag: 2.9, bodyId: "sadalsuud" }, // 0: β Aqr (サダルスウド)
+      { raHours: 22.096, decDeg: -0.32, mag: 3.0, nameJa: "サダルメリク", bodyId: "sadalmelik" }, // 1: α Aqr
+      { raHours: 22.361, decDeg: -1.39, mag: 3.8, bodyId: "gammaAqr" }, // 2: γ Aqr (水がめ)
+      { raHours: 22.481, decDeg: -0.02, mag: 3.7, bodyId: "zetaAqr" }, // 3: ζ Aqr
+      { raHours: 22.589, decDeg: -0.12, mag: 4.0, bodyId: "etaAqr" }, // 4: η Aqr
+      { raHours: 22.878, decDeg: -7.58, mag: 3.7, bodyId: "lambdaAqr" }, // 5: λ Aqr
+      { raHours: 22.911, decDeg: -15.82, mag: 3.3, bodyId: "skat" }, // 6: δ Aqr (スカト)
     ]),
     edges: [
       [0, 1],
@@ -621,11 +626,11 @@ export const CASSIOPEIA_CONSTELLATION: {
   nameJa: "カシオペア座",
   labelPoint: equatorialToEclipticDeg(0.98, 63.8),
   stars: buildStars([
-    { raHours: 0.153, decDeg: 59.15, mag: 2.27, nameJa: "カフ" }, // 0: β Cas
-    { raHours: 0.675, decDeg: 56.54, mag: 2.23, nameJa: "シェダル" }, // 1: α Cas
-    { raHours: 0.945, decDeg: 60.72, mag: 2.47, nameJa: "ツィー" }, // 2: γ Cas
-    { raHours: 1.430, decDeg: 60.24, mag: 2.68, nameJa: "ルクバー" }, // 3: δ Cas
-    { raHours: 1.907, decDeg: 63.67, mag: 3.38, nameJa: "セギン" }, // 4: ε Cas
+    { raHours: 0.153, decDeg: 59.15, mag: 2.27, nameJa: "カフ", bodyId: "caph" }, // 0: β Cas
+    { raHours: 0.675, decDeg: 56.54, mag: 2.23, nameJa: "シェダル", bodyId: "schedar" }, // 1: α Cas
+    { raHours: 0.945, decDeg: 60.72, mag: 2.47, nameJa: "ツィー", bodyId: "tsih" }, // 2: γ Cas
+    { raHours: 1.430, decDeg: 60.24, mag: 2.68, nameJa: "ルクバー", bodyId: "ruchbah" }, // 3: δ Cas
+    { raHours: 1.907, decDeg: 63.67, mag: 3.38, nameJa: "セギン", bodyId: "segin" }, // 4: ε Cas
   ]),
   edges: [
     [0, 1],
@@ -648,11 +653,11 @@ export const SOUTHERN_CROSS_CONSTELLATION: {
   nameJa: "南十字星",
   labelPoint: equatorialToEclipticDeg(12.52, -55.4),
   stars: buildStars([
-    { raHours: 12.443, decDeg: -63.1, mag: 0.76, nameJa: "アクルックス" }, // 0: α Cru（下端・1等星）
-    { raHours: 12.795, decDeg: -59.69, mag: 1.25, nameJa: "ミモザ" }, // 1: β Cru（東端・1等星）
-    { raHours: 12.519, decDeg: -57.11, mag: 1.63, nameJa: "ガクルックス" }, // 2: γ Cru（上端・赤色1等星）
-    { raHours: 12.252, decDeg: -58.75, mag: 2.79, nameJa: "イマイ" }, // 3: δ Cru（西端）
-    { raHours: 12.356, decDeg: -60.4, mag: 3.59, nameJa: "ギナン" }, // 4: ε Cru（第5星）
+    { raHours: 12.443, decDeg: -63.1, mag: 0.76, nameJa: "アクルックス", bodyId: "acrux" }, // 0: α Cru（下端・1等星）
+    { raHours: 12.795, decDeg: -59.69, mag: 1.25, nameJa: "ミモザ", bodyId: "mimosa" }, // 1: β Cru（東端・1等星）
+    { raHours: 12.519, decDeg: -57.11, mag: 1.63, nameJa: "ガクルックス", bodyId: "gacrux" }, // 2: γ Cru（上端・赤色1等星）
+    { raHours: 12.252, decDeg: -58.75, mag: 2.79, nameJa: "イマイ", bodyId: "imai" }, // 3: δ Cru（西端）
+    { raHours: 12.356, decDeg: -60.4, mag: 3.59, nameJa: "ギナン", bodyId: "ginan" }, // 4: ε Cru（第5星）
   ]),
   edges: [
     [0, 2], // 縦の柱（天の南極を指す軸）
